@@ -1,5 +1,4 @@
 import Image from "next/image";
-import WhatsAppButton from "./WhatsAppButton";
 
 export default function NavBar() {
   return (
@@ -16,9 +15,21 @@ export default function NavBar() {
               className="h-8 w-auto"
             />
           </a>
-          <div className="hidden md:flex">
-            <WhatsAppButton label="Send a Gift" size="sm" />
-          </div>
+
+          <nav className="hidden md:flex items-center gap-8" aria-label="Main navigation">
+            <a href="/#how-it-works" className="font-body text-sm text-stone hover:text-ink transition-colors">
+              How It Works
+            </a>
+            <a href="/#for-companies" className="font-body text-sm text-stone hover:text-ink transition-colors">
+              For Companies
+            </a>
+            <a
+              href="/assessment"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-5 py-2.5 transition-all hover:brightness-105 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
+            >
+              Start Assessment
+            </a>
+          </nav>
         </div>
       </div>
     </header>
