@@ -3,14 +3,14 @@ import type { AssessmentData } from "@/lib/assessment";
 import { computeScore, getMaturityLevel, generateExecutiveInsight, generate90DayPlan } from "@/lib/scoring";
 import { WHATSAPP_ASSESSMENT_URL } from "@/lib/constants";
 
-interface Props { data: AssessmentData; }
+interface Props { data: AssessmentData; encoded?: string; }
 
 function parseCountries(raw: string): string[] {
   if (!raw.trim()) return [];
   return raw.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
 }
 
-export default function RelationshipSnapshot({ data }: Props) {
+export default function RelationshipSnapshot({ data, encoded }: Props) {
   const score = computeScore(data);
   const maturity = getMaturityLevel(score);
   const insight = generateExecutiveInsight(data);
@@ -154,20 +154,27 @@ export default function RelationshipSnapshot({ data }: Props) {
             Let&apos;s Build Your First Relationship Program
           </h2>
           <p className="font-body text-stone mb-6 max-w-md mx-auto">
-            Your Relationship Snapshot is the starting point. Aniy&eacute; will work with you to turn insight into execution.
+            Your Relationship Snapshot is the starting point. Set up your workspace to turn insight into execution.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a href={WHATSAPP_ASSESSMENT_URL} target="_blank" rel="noopener noreferrer"
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-gold text-ink font-semibold text-base px-8 py-4 transition-all hover:brightness-105 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
-              Schedule a Consultation
-            </a>
+            {encoded ? (
+              <a href={`/verify?d=${encoded}`}
+                className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-gold text-ink font-semibold text-base px-8 py-4 transition-all hover:brightness-105 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
+                Set Up Your Workspace
+              </a>
+            ) : (
+              <a href="/assessment"
+                className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-gold text-ink font-semibold text-base px-8 py-4 transition-all hover:brightness-105 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
+                Start Your Assessment
+              </a>
+            )}
             <a href={WHATSAPP_ASSESSMENT_URL} target="_blank" rel="noopener noreferrer"
               className="font-body font-medium text-ink underline underline-offset-4 hover:text-gold transition-colors text-sm">
-              Continue on WhatsApp
+              Schedule a Consultation
             </a>
           </div>
           <p className="font-body text-xs text-stone/50 mt-6">
-            This Snapshot is Version 1 of {data.companyName ? `${data.companyName}'s` : "your organization's"} Relationship Profile.
+            This Snapshot is Version 0 of {data.companyName ? `${data.companyName}&apos;s` : "your organization&apos;s"} Relationship Profile.
           </p>
         </div>
       </div>

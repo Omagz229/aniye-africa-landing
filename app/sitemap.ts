@@ -15,4 +15,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     },
   ];
+  // /verify, /workspace, /workspace/profile are robots: noindex — excluded from sitemap
 }

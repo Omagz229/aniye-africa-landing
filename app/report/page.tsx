@@ -31,7 +31,7 @@ export default async function ReportPage({ searchParams }: Props) {
     <>
       <NavBar />
       <main className="min-h-screen bg-cream">
-        <RelationshipSnapshot data={data} />
+        <RelationshipSnapshot data={data} encoded={params.d} />
       </main>
       <Footer />
     </>
