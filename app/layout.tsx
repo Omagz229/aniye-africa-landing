@@ -17,14 +17,14 @@ const inter = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Aniyé Africa — Send Gifts Across Africa",
+  title: "Aniyé Africa — Relationship Programs Across Africa",
   description:
-    "Send thoughtful gifts to loved ones across Africa. Pay in your local currency. Trusted local partners. WhatsApp-first experience.",
+    "Aniyé helps organizations recognize employees, clients, and partners across Africa. Never miss the moments that matter.",
   metadataBase: new URL("https://aniyeafrica.com"),
   openGraph: {
-    title: "Aniyé Africa — Send Gifts Across Africa",
+    title: "Aniyé Africa — Relationship Programs Across Africa",
     description:
-      "Send thoughtful gifts to loved ones across Africa. Pay in your local currency. Trusted local partners. WhatsApp-first experience.",
+      "Aniyé helps organizations recognize employees, clients, and partners across Africa. Never miss the moments that matter.",
     images: [
       {
         url: "/brand-assets/04_App_Icon_Social/PNG/aniye-appicon-gold.png",
@@ -37,9 +37,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Aniyé Africa — Send Gifts Across Africa",
+    title: "Aniyé Africa — Relationship Programs Across Africa",
     description:
-      "Send thoughtful gifts to loved ones across Africa. Pay in your local currency. Trusted local partners.",
+      "Aniyé helps organizations recognize employees, clients, and partners across Africa. Never miss the moments that matter.",
     images: ["/brand-assets/04_App_Icon_Social/PNG/aniye-appicon-gold.png"],
   },
   icons: {
