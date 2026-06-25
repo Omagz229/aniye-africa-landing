@@ -127,8 +127,15 @@ export default function SetupChecklist() {
                 Define your Relationship Classes
               </h3>
               <p className="font-body text-sm text-cream/70 mb-5">
-                Relationship Classes are available in the next milestone. Your Organization Profile is confirmed.
+                Choose the groups of people your organization recognizes differently.
+                These classes will drive your Policies, budgets, and gift preferences.
               </p>
+              <Link
+                href="/workspace/classes"
+                className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
+              >
+                Set Up Relationship Classes &#8594;
+              </Link>
             </>
           )}
         </div>

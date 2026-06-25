@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { AssessmentData } from '@/lib/assessment';
 import { EMPTY_ASSESSMENT } from '@/lib/assessment';
 import type { WorkspaceState } from '@/lib/workspace';
-import { saveWorkspace } from '@/lib/workspace';
+import { saveWorkspace, DEFAULT_RELATIONSHIP_CLASSES } from '@/lib/workspace';
 
 interface Props {
   encoded?: string;
@@ -47,6 +47,7 @@ export default function VerifyGate({ encoded }: Props) {
       phone: data.phone,
       setupStage: 'profile',
       createdAt: new Date().toISOString(),
+      relationshipClasses: DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c })),
     };
     saveWorkspace(workspace);
     router.push('/workspace');

@@ -1,5 +1,20 @@
 export type SetupStage = 'profile' | 'classes' | 'policies' | 'people' | 'programs' | 'active';
 
+export type RelationshipCategory = 'Internal' | 'Client' | 'Governance' | 'Partner' | 'Supplier' | 'Community' | 'Other';
+export type RelationshipTier = 'Strategic' | 'Priority' | 'Standard' | 'Custom';
+
+export interface RelationshipClass {
+  id: string;
+  name: string;
+  category: RelationshipCategory;
+  description: string;
+  tier: RelationshipTier;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkspaceState {
   organizationId: string;
   companyName: string;
@@ -15,7 +30,24 @@ export interface WorkspaceState {
   phone: string;
   setupStage: SetupStage;
   createdAt: string;
+  relationshipClasses: RelationshipClass[];
 }
+
+const NOW = '2026-06-25T00:00:00.000Z';
+
+export const DEFAULT_RELATIONSHIP_CLASSES: RelationshipClass[] = [
+  { id: 'class-executive-leadership', name: 'Executive Leadership', category: 'Internal',    tier: 'Strategic', description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-senior-leadership',    name: 'Senior Leadership',    category: 'Internal',    tier: 'Priority',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-managers',             name: 'Managers',             category: 'Internal',    tier: 'Standard',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-staff',                name: 'Staff',                category: 'Internal',    tier: 'Standard',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-vip-clients',          name: 'VIP Clients',          category: 'Client',      tier: 'Strategic', description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-strategic-clients',    name: 'Strategic Clients',    category: 'Client',      tier: 'Priority',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-standard-clients',     name: 'Standard Clients',     category: 'Client',      tier: 'Standard',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-board-members',        name: 'Board Members',        category: 'Governance',  tier: 'Strategic', description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-investors',            name: 'Investors',            category: 'Governance',  tier: 'Strategic', description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-partners',             name: 'Partners',             category: 'Partner',     tier: 'Priority',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+  { id: 'class-suppliers',            name: 'Suppliers',            category: 'Supplier',    tier: 'Standard',  description: '', isDefault: true, isActive: true, createdAt: NOW, updatedAt: NOW },
+];
 
 export const SUPPORTED_CURRENCIES = ['NGN', 'KES', 'GHS', 'ZAR', 'USD'] as const;
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
@@ -64,7 +96,14 @@ export function getWorkspace(): WorkspaceState | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(WORKSPACE_KEY);
-    return raw ? (JSON.parse(raw) as WorkspaceState) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as WorkspaceState;
+    // Migrate: seed relationship classes if missing
+    if (!parsed.relationshipClasses || parsed.relationshipClasses.length === 0) {
+      parsed.relationshipClasses = DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c }));
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(parsed));
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -102,7 +141,7 @@ export const SETUP_STAGES: Array<{
     label: 'Relationship Classes',
     description: 'Define who matters to your organization',
     href: '/workspace/classes',
-    available: false,
+    available: true,
   },
   {
     key: 'policies',

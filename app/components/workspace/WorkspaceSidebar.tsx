@@ -4,24 +4,32 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import type { WorkspaceState } from '@/lib/workspace';
+import { isStageComplete } from '@/lib/workspace';
 
 interface Props {
   workspace: WorkspaceState | null;
 }
 
 const NAV_ITEMS = [
-  { label: 'Overview', href: '/workspace', exact: true, locked: false },
-  { label: 'Organization', href: '/workspace/profile', exact: false, locked: false },
-  { label: 'Relationship Classes', href: '/workspace/classes', exact: false, locked: true },
-  { label: 'Policies', href: '/workspace/policies', exact: false, locked: true },
-  { label: 'People', href: '/workspace/people', exact: false, locked: true },
-  { label: 'Programs', href: '/workspace/programs', exact: false, locked: true },
+  { label: 'Overview',              href: '/workspace',          exact: true,  unlockedAfter: null },
+  { label: 'Organization',          href: '/workspace/profile',  exact: false, unlockedAfter: null },
+  { label: 'Relationship Classes',  href: '/workspace/classes',  exact: false, unlockedAfter: 'profile' as const },
+  { label: 'Policies',              href: '/workspace/policies', exact: false, unlockedAfter: 'classes' as const },
+  { label: 'People',                href: '/workspace/people',   exact: false, unlockedAfter: 'policies' as const },
+  { label: 'Programs',              href: '/workspace/programs', exact: false, unlockedAfter: 'people' as const },
 ];
 
 export default function WorkspaceSidebar({ workspace }: Props) {
   const pathname = usePathname();
 
+  function isLocked(item: (typeof NAV_ITEMS)[number]): boolean {
+    if (item.unlockedAfter === null) return false;
+    if (!workspace) return true;
+    return !isStageComplete(item.unlockedAfter, workspace.setupStage);
+  }
+
   function isActive(item: (typeof NAV_ITEMS)[number]) {
+    if (isLocked(item)) return false;
     if (item.exact) return pathname === item.href;
     return pathname.startsWith(item.href);
   }
@@ -53,8 +61,9 @@ export default function WorkspaceSidebar({ workspace }: Props) {
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
-          const active = !item.locked && isActive(item);
-          if (item.locked) {
+          const locked = isLocked(item);
+          const active = isActive(item);
+          if (locked) {
             return (
               <div
                 key={item.label}
