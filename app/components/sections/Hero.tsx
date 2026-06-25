@@ -1,17 +1,9 @@
 import Image from "next/image";
-import WhatsAppButton from "../WhatsAppButton";
-
-const trustChips = [
-  "Pay in your local currency",
-  "Trusted local partners",
-  "Delivery updates included",
-  "WhatsApp-first experience",
-];
+import { WHATSAPP_ASSESSMENT_URL } from "@/lib/constants";
 
 export default function Hero() {
   return (
     <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden bg-cream px-4 sm:px-6 lg:px-8 py-24">
-      {/* Monogram watermark */}
       <div
         className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
         aria-hidden="true"
@@ -27,52 +19,30 @@ export default function Hero() {
 
       <div className="relative z-10 max-w-3xl mx-auto text-center">
         <h1 className="font-display font-bold text-4xl sm:text-5xl lg:text-6xl text-ink leading-tight tracking-tight mb-6">
-          Stay Present Across Africa.
+          Never miss the moments that matter.
         </h1>
 
-        <p className="font-body text-stone text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-3">
-          Send thoughtful gifts to the people who matter most, wherever they are
-          in Africa. Pay in your local currency and let Aniy&eacute; Africa
-          handle the sourcing, coordination, and delivery through trusted local
-          partners.
+        <p className="font-body text-stone text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-10">
+          Aniy&eacute; helps organizations recognize employees, clients, and
+          partners across Africa through thoughtful relationship programs and
+          concierge fulfillment.
         </p>
 
-        <p className="font-body text-stone/80 text-sm mb-8">
-          Not sure if we cover your location?{" "}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
-            href="https://wa.me/2348074827676"
+            href="/assessment"
+            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-gold text-ink font-semibold text-lg px-10 py-5 transition-all hover:brightness-105 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
+          >
+            Start Relationship Assessment
+          </a>
+          <a
+            href={WHATSAPP_ASSESSMENT_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-ink underline underline-offset-2 hover:text-gold transition-colors"
+            className="font-body font-medium text-ink underline underline-offset-4 hover:text-gold transition-colors text-base"
           >
-            Message us
-          </a>{" "}
-          — we&apos;ll confirm in minutes.
-        </p>
-
-        <div className="flex flex-col items-center gap-6">
-          <WhatsAppButton
-            label="Send a Gift on WhatsApp"
-            size="lg"
-            className="w-full sm:w-auto"
-          />
-
-          <ul
-            className="flex flex-wrap justify-center gap-x-6 gap-y-2"
-            aria-label="Service guarantees"
-          >
-            {trustChips.map((chip) => (
-              <li
-                key={chip}
-                className="flex items-center gap-1.5 text-stone text-sm font-body"
-              >
-                <span className="text-gold font-semibold" aria-hidden="true">
-                  ✓
-                </span>
-                {chip}
-              </li>
-            ))}
-          </ul>
+            Talk to Aniy&eacute;
+          </a>
         </div>
       </div>
     </section>

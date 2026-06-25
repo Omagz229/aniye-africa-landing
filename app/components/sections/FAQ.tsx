@@ -1,33 +1,33 @@
 const faqs = [
   {
-    q: "What kinds of gifts can I send?",
-    a: "We can help source cakes, flowers, gift baskets, food packages, celebration gifts, baby gifts, and more depending on location.",
+    q: "What is a Relationship Snapshot?",
+    a: "It is an executive summary of your organization's relationship landscape — the people you recognize, the moments that matter, your current process maturity, and a practical 90-day action plan. You receive it immediately after completing the assessment.",
   },
   {
-    q: "Do I need an app?",
-    a: "No. Everything happens through WhatsApp.",
+    q: "How long does the assessment take?",
+    a: "Most organizations complete it in under 5 minutes. There are four short sections covering your organization, your contact details, and your relationship scope.",
   },
   {
-    q: "Can you help me choose a gift?",
-    a: "Yes. Tell us the occasion, recipient, and budget and we'll recommend suitable options.",
+    q: "What happens after I submit?",
+    a: "Your Relationship Snapshot is generated immediately. It includes a personalized executive insight, your maturity level, and a 90-day action plan. From there, you can schedule a consultation to build your first relationship program.",
   },
   {
-    q: "What currency do I pay in?",
-    a: "You pay using the currency available to you. We'll guide you through the payment process during your order.",
+    q: "Which countries do you operate in?",
+    a: "We support relationship programs across Africa through a network of trusted local partners. Contact us to confirm availability for your specific countries.",
   },
   {
-    q: "How long does delivery take?",
-    a: "Delivery timelines depend on destination and gift type. We'll confirm timing before payment.",
+    q: "What does concierge fulfillment mean?",
+    a: "Aniyé manages the entire fulfillment process — sourcing, coordination, delivery, and confirmation — so your team never has to manage vendors, track shipments, or chase down confirmation across borders.",
   },
   {
-    q: "Which countries do you serve?",
-    a: "Availability depends on our current partner network. Contact us and we'll confirm service availability for your destination.",
+    q: "Do we need to sign a contract to start?",
+    a: "No. The assessment and Relationship Snapshot are free. We begin the relationship conversation first. Formal agreements come only when you are ready to launch your first program.",
   },
 ];
 
 export default function FAQ() {
   return (
-    <section className="bg-cream py-16 md:py-24 px-4 sm:px-6 lg:px-8">
+    <section className="bg-cream py-16 md:py-24 px-4 sm:px-6 lg:px-8 border-t border-stone/10">
       <div className="max-w-3xl mx-auto">
         <h2 className="font-display font-semibold text-3xl sm:text-4xl text-ink mb-10">
           Questions
