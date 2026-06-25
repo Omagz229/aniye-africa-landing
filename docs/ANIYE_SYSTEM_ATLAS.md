@@ -133,7 +133,9 @@ interface Money {
 | ZAR | South African Rand | South Africa |
 | USD | US Dollar | Cross-border / international |
 
-All budget fields, item prices, and spend reports use `Money`. Display formatting is locale-aware. Cross-border programs store amounts in the workspace's base currency with a recorded exchange rate at time of approval.
+All budget fields, item prices, and spend reports use `Money`. Display formatting is locale-aware.
+
+**Currency default rule:** A workspace's `baseCurrency` is the default currency for all Relationship Policies in that workspace. Any Policy may explicitly override with a different currency (e.g., a USD policy within an NGN workspace). When a Program is Approved, the exchange rate between any non-base currencies and the workspace `baseCurrency` is locked at that moment and stored on the Program record. Cross-border reporting always converts to workspace `baseCurrency` using the locked rate.
 
 ---
 
@@ -204,11 +206,17 @@ A live, structured representation of an organization's relationship health — o
 | `momentsThisYear` | number | Moments executed in current calendar year |
 | `coverageCountries` | string[] | Countries where moments have been delivered |
 | `lastActivityAt` | ISO timestamp | Most recent executed moment |
-| `version` | number | Increments on each recalculation |
+| `version` | number | Increments on profile recalculation (see versioning triggers below) |
 
 > **Relationship Snapshot vs Relationship Profile:**
 > The **Snapshot** is a one-time diagnostic report generated from the Assessment — a point-in-time picture for a prospect. It requires no account.
 > The **Relationship Profile** is a live operational record updated as the organization runs programs — it belongs to a verified, active organization. The Snapshot is Version 0 of the Profile.
+
+**Profile versioning triggers:**
+- A Program changes status to `Active` or `Completed`
+- A nightly background job runs if any Moments changed status during that day
+- Version does not increment on individual Moment changes in real time — the nightly pass consolidates them
+- Every version increment records a `versionedAt` timestamp and a `triggerType` (ProgramStatusChange / NightlyRecalculation)
 
 ---
 
@@ -489,7 +497,7 @@ Homepage
 **Key principles:**
 - The customer buys from **Aniyé**, not from a vendor. Vendor information is internal.
 - Navigation starts from Intent — not "What are you looking for?" but "What do you want to express?"
-- Each completed order creates a Memory record — the beginning of relationship intelligence for individual users.
+- **Auth model:** Guest checkout — no account required to complete a purchase. After order confirmation, the user is offered account creation to save their history and enable future recommendations. Memory records are created in both cases: attributed to an account if the user signs up, anonymous otherwise. Anonymous Memory records can be claimed retroactively if the user signs up within 30 days.
 - Individual journey feeds the Knowledge domain, enabling personalized recommendations over time.
 
 > **Horizon:** Individual journey is scoped to Horizon 2. Current MMP (H1) is corporate-only.
@@ -711,16 +719,27 @@ interface CanonicalPersonImport {
 - Full refresh: replaces all records from source; used on initial import and on request
 - Delta sync: processes only changes since last sync; preferred for ongoing operation
 
+### Source Priority
+
+Source priority is configurable per workspace. **Default ranking (highest to lowest):**
+
+1. HR integrations (BambooHR, HiBob, Workday, etc.)
+2. CSV / Excel upload
+3. Manual entry
+
+When two sources provide conflicting values for the same field, the source with higher priority wins. Admins can rerank sources in workspace settings. Any field can be individually **locked** by an admin — locked fields are never overwritten by any source, regardless of priority.
+
 ### Conflict Resolution
 
 | Scenario | Resolution |
 |----------|-----------|
 | New person, no match | Create canonical Person |
 | Email match, same source | Update in place, log change |
-| Email match, different source | Update in place, record both source IDs |
-| Name + startDate match, different email | Flag for manual review, do not auto-merge |
+| Email match, different source | Update with higher-priority source data; record both source IDs; log overridden values |
+| Name + startDate match, different email | Flag for manual review — do not auto-merge |
 | Person removed from source | Mark `status: Inactive` — never auto-delete |
-| Field conflict between two active sources | Prefer the source with higher configured priority |
+| Field conflict, equal priority sources | Prefer most recently updated; flag for admin review |
+| Admin-locked field, any source | Skip — never overwrite locked fields |
 
 ### Event Handling
 
@@ -769,16 +788,34 @@ Moment (Approved)
 
 ### In H1 (Concierge Mode)
 
-During H1, fulfillment is concierge-led:
+During H1, fulfillment is concierge-led. Every WhatsApp consultation must end with an Aniyé ops team member completing a structured Fulfillment Object — not leaving the record in the chat thread.
 
+**H1 Fulfillment Object — required fields (ops intake form):**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `momentType` | string | e.g., Birthday, Client Appreciation |
+| `recipientName` | string | Full name |
+| `recipientPhone` | string | For delivery coordination |
+| `recipientAddress` | string | Street address — required for physical delivery |
+| `recipientCountry` | string | ISO code |
+| `itemDescription` | string | What was agreed / what is being sent |
+| `budget` | Money | Amount + currency, agreed during consultation |
+| `scheduledDate` | ISO date | When delivery should happen |
+| `deliveryRequirement` | enum | Standard / Courier / HandDelivered / Digital |
+| `notes` | string? | Special instructions, dietary info, etc. |
+| `channel` | enum | Always `WhatsApp` in H1 |
+
+**H1 flow:**
 1. Assessment → Snapshot
 2. User contacts Aniyé via WhatsApp
-3. Aniyé team creates Fulfillment Object manually
-4. All status updates are logged into the Fulfillment Object (even if communicated over WhatsApp)
-5. Completion creates a Memory record
-6. The Fulfillment Object — not the WhatsApp thread — is what counts
+3. Consultation happens (WhatsApp is the communication channel)
+4. Aniyé ops completes the structured intake form → Fulfillment Object created (status: Pending)
+5. All subsequent status updates are logged into the Fulfillment Object
+6. Completion creates a Memory record in the Knowledge domain
+7. The Fulfillment Object — not the WhatsApp thread — is what counts
 
-This ensures clean data exists from day one and the migration to automated fulfillment in H3 requires no data archaeology.
+This schema is the exact schema H3 automation inherits. No data archaeology needed when fulfillment becomes platform-automated.
 
 ---
 
@@ -895,17 +932,17 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 ---
 
-## 18. Open Questions (Resolve Before H2)
+## 18. Resolved Architecture Decisions
 
-These decisions should be resolved before H2 implementation begins:
+These decisions were resolved before H2 implementation. Documented for audit trail.
 
-| # | Question | Implication |
-|---|----------|-------------|
-| 1 | **Budget currency default** — does a workspace's `baseCurrency` default all Policy budgets, or must each Policy specify currency explicitly? | Affects how cross-border programs handle multi-currency spend |
-| 2 | **Individual journey auth** — does the individual gifting flow in H2 require account creation, or can it run as a guest checkout? | Determines whether Memory records can be attributed to a persistent user |
-| 3 | **Concierge handoff protocol** — what is the exact format of the Fulfillment Object created during H1 concierge mode? A structured internal form is needed before H2 so data isn't recreated from scratch | Clean migration from manual to automated fulfillment in H3 |
-| 4 | **Relationship Profile versioning trigger** — what events cause the Relationship Profile `version` to increment? On every moment? On every program cycle? On a schedule? | Determines how "current maturity" is calculated and displayed |
-| 5 | **Person deduplication authority** — if two People Sources provide conflicting data for the same email, which source wins? Is this configurable per workspace? | Affects all H3 import pipeline logic |
+| # | Decision | Resolution | Documented In |
+|---|----------|-----------|--------------|
+| 1 | Budget currency default | Workspace `baseCurrency` cascades to all Policies. Each Policy may override. Exchange rate locked at Program Approval. | §4 Money, §11 Policy Model |
+| 2 | Individual journey auth | Guest checkout — no account required. Account offer post-confirmation. Anonymous Memory records claimable within 30 days. | §8 Individual Journey |
+| 3 | Concierge handoff format | Structured 10-field intake form per consultation → Fulfillment Object. Recipient address required. Same schema H3 automation inherits. | §13 Fulfillment Architecture |
+| 4 | Relationship Profile versioning trigger | Program status changes (Active/Completed) + nightly background recalculation if Moments changed that day. Not per-Moment in real time. | §4 Relationship Profile |
+| 5 | Person deduplication authority | Configurable source priority per workspace. Default: HR integrations > CSV/Excel > Manual. Admin-locked fields never overwritten. Conflicts logged. | §12 Integration Layer |
 
 ---
 
@@ -939,6 +976,8 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v2.0 — Aniyé Africa — June 2026*
+*System Atlas v2.1 — Aniyé Africa — June 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
-*Previous version: v1.0 (initial, June 2026)*
+*v2.1: Resolved 5 pre-H2 open questions (currency default, individual auth, concierge handoff, profile versioning, deduplication authority)*
+*v2.0: 12 architectural decisions — domain boundaries, Money object, Progressive Trust, enterprise foundations*
+*v1.0: Initial Atlas (June 2026)*
