@@ -31,6 +31,79 @@ export interface WorkspaceState {
   setupStage: SetupStage;
   createdAt: string;
   relationshipClasses: RelationshipClass[];
+  recognitionPolicies: RecognitionPolicy[];
+}
+
+// ─── Money ───────────────────────────────────────────────────────────────────
+// UI simplification: amount stored as face value (e.g. 500000 = NGN 500,000).
+// Canonical API will use smallest currency unit (kobo, cents) per Atlas §4.
+export interface Money {
+  amount: number;
+  currency: string;
+}
+
+// ─── Recognition Policy types ────────────────────────────────────────────────
+
+export const GIFT_CATEGORIES = [
+  'Food & Drink',
+  'Wellness & Spa',
+  'Luxury Experiences',
+  'Home & Living',
+  'Technology & Gadgets',
+  'Books & Learning',
+  'Fashion & Accessories',
+  'Art & Culture',
+  'Sports & Fitness',
+  'Travel & Hospitality',
+  'Digital Vouchers',
+  'Custom & Personalized',
+] as const;
+export type GiftCategory = (typeof GIFT_CATEGORIES)[number];
+
+export const RECOGNITION_MOMENT_TYPES = [
+  'Birthday',
+  'Work Anniversary',
+  'Promotion',
+  'New Hire Welcome',
+  'Holiday Recognition',
+  'Client Anniversary',
+  'Deal Closure',
+  'Achievement Recognition',
+  'Farewell',
+] as const;
+export type RecognitionMomentType = (typeof RECOGNITION_MOMENT_TYPES)[number];
+
+export interface RecognitionRule {
+  momentType: string;
+  budgetPerPerson: Money;
+  isEnabled: boolean;
+}
+
+export type ApprovalWorkflow = 'None' | 'Manager' | 'Finance' | 'Executive';
+export type DeliveryRequirement = 'Standard' | 'Courier' | 'HandDelivered' | 'Digital';
+export type ReportingCadence = 'None' | 'Weekly' | 'Monthly' | 'Quarterly';
+export type PolicyStatus = 'Draft' | 'Published' | 'Archived';
+
+export interface RecognitionPolicy {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  recognitionRules: RecognitionRule[];
+  approvalWorkflow: ApprovalWorkflow;
+  preferredGiftCategories: string[];
+  excludedCategories: string[];
+  deliveryRequirement: DeliveryRequirement;
+  preferredDeliveryWindow: string;
+  signatureRequired: boolean;
+  proofRequired: boolean;
+  reportingCadence: ReportingCadence;
+  status: PolicyStatus;
+  version: number;
+  parentPolicyId?: string;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string;
 }
 
 const NOW = '2026-06-25T00:00:00.000Z';
@@ -98,11 +171,18 @@ export function getWorkspace(): WorkspaceState | null {
     const raw = localStorage.getItem(WORKSPACE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WorkspaceState;
+    let dirty = false;
     // Migrate: seed relationship classes if missing
     if (!parsed.relationshipClasses || parsed.relationshipClasses.length === 0) {
       parsed.relationshipClasses = DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c }));
-      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(parsed));
+      dirty = true;
     }
+    // Migrate: seed empty recognition policies array if missing
+    if (!parsed.recognitionPolicies) {
+      parsed.recognitionPolicies = [];
+      dirty = true;
+    }
+    if (dirty) localStorage.setItem(WORKSPACE_KEY, JSON.stringify(parsed));
     return parsed;
   } catch {
     return null;
@@ -145,10 +225,10 @@ export const SETUP_STAGES: Array<{
   },
   {
     key: 'policies',
-    label: 'Relationship Policies',
-    description: 'Set budgets, approvals, and preferences per class',
+    label: 'Recognition Policies',
+    description: 'Define reusable policies for budgets, approvals, and delivery',
     href: '/workspace/policies',
-    available: false,
+    available: true,
   },
   {
     key: 'people',

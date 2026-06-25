@@ -48,6 +48,7 @@ export default function VerifyGate({ encoded }: Props) {
       setupStage: 'profile',
       createdAt: new Date().toISOString(),
       relationshipClasses: DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c })),
+      recognitionPolicies: [],
     };
     saveWorkspace(workspace);
     router.push('/workspace');

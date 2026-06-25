@@ -138,6 +138,23 @@ export default function SetupChecklist() {
               </Link>
             </>
           )}
+          {workspace.setupStage === 'policies' && (
+            <>
+              <h3 className="font-display font-semibold text-xl text-cream mb-2">
+                Build your Recognition Policies
+              </h3>
+              <p className="font-body text-sm text-cream/70 mb-5">
+                Recognition Policies are reusable. Define budgets, approval workflows, and delivery
+                requirements — then assign them to your Relationship Classes in the next step.
+              </p>
+              <Link
+                href="/workspace/policies"
+                className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
+              >
+                Build Recognition Policies &#8594;
+              </Link>
+            </>
+          )}
         </div>
       )}
 

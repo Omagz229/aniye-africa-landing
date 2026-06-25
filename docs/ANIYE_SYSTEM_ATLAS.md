@@ -77,7 +77,7 @@ Every feature belongs to exactly one domain. Domain boundaries are strict — no
 |---|--------|------|-------------|
 | 1 | **Identity** | Auth, accounts, users, roles, permissions, API keys | Business logic of any kind |
 | 2 | **People** | Person records, PeopleSource connectors, import pipelines, deduplication | Relationship rules, programs |
-| 3 | **Relationship Engine** | Relationship Classes, Policies, Programs, Moments, Organization Profile, Relationship Profile | Historical records, vendor intelligence |
+| 3 | **Relationship Engine** | Relationship Classes, Recognition Policies, Policy Assignments, Programs, Moments, Organization Profile, Relationship Profile | Historical records, vendor intelligence |
 | 4 | **Gift Intelligence** | Intent → Category → Collection → Item catalog, curation, budget recommendations | Fulfillment, delivery logistics |
 | 5 | **Fulfillment** | Orders, vendor routing, delivery tracking, proof of delivery, communication channels | Catalog management, relationships |
 | 6 | **Knowledge** | Interaction history, Memory records, vendor intelligence, country intelligence, delivery intelligence, recommendations | Current operational state |
@@ -262,24 +262,60 @@ A named group of people who receive similar recognition treatment. Classes are c
 
 ---
 
-### Relationship Policy
+### Recognition Policy
 
-Rules governing how a Relationship Class is recognized for a specific moment type. Programs reference Policies — they do not own budget or approval rules directly.
+A named, reusable definition of how recognition should happen. Recognition Policies are standalone objects — not owned by any Relationship Class. Classes reference policies through Policy Assignments.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | — |
-| `relationshipClassId` | UUID | Owning class |
-| `momentType` | string | Standardized moment label (e.g., Birthday, Work Anniversary) |
-| `budgetPerPerson` | Money | Per-person spend limit |
+| `workspaceId` | UUID | Owning workspace |
+| `name` | string | Policy name (e.g., "Executive Recognition Policy") |
+| `description` | string | Purpose and intended scope |
+| `recognitionRules` | RecognitionRule[] | Per-moment-type budgets and enablement flags |
 | `approvalWorkflow` | enum | None / Manager / Finance / Executive |
-| `giftPreferences` | string[] | Preferred category tags |
-| `excludedCategories` | string[] | Categories not appropriate for this class |
+| `preferredGiftCategories` | string[] | Preferred category tags |
+| `excludedCategories` | string[] | Categories not appropriate |
 | `deliveryRequirement` | enum | Standard / Courier / HandDelivered / Digital |
 | `preferredDeliveryWindow` | string? | e.g., "3 business days before date" |
+| `signatureRequired` | boolean | — |
 | `proofRequired` | boolean | — |
-| `reportingRequired` | boolean | — |
+| `reportingCadence` | enum | None / Weekly / Monthly / Quarterly |
 | `status` | enum | Draft / Preview / Approved / Published / Archived |
+| `version` | number | Increments each time a new draft is published |
+| `parentPolicyId` | UUID? | Set when this policy is a new draft derived from a Published policy |
+| `createdAt` | ISO timestamp | — |
+| `updatedAt` | ISO timestamp | — |
+| `publishedAt` | ISO timestamp? | When last Published |
+
+Programs reference Recognition Policies via Policy Assignments. At Program Approval, a `policySnapshot` (immutable copy of all referenced Published policies) is taken and stored on the Program record — guaranteeing the Program runs against the rules it was approved under, even if policies are later updated.
+
+#### RecognitionRule
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `momentType` | string | Standardized type label (Birthday, Work Anniversary, Promotion, etc.) |
+| `budgetPerPerson` | Money | Per-person spend limit |
+| `isEnabled` | boolean | Whether this moment type is active under this policy |
+
+---
+
+### Policy Assignment
+
+The link between a Relationship Class and a Recognition Policy. Multiple assignments per class are supported, enabling country-specific policy overrides for multinational organizations.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | — |
+| `workspaceId` | UUID | — |
+| `relationshipClassId` | UUID | The class being configured |
+| `recognitionPolicyId` | UUID | The policy being assigned |
+| `scope` | string? | ISO country code for country-specific override, or null for global |
+| `priority` | number | Higher priority wins when multiple assignments apply to the same moment |
+| `status` | enum | Active / Inactive |
+| `createdAt` | ISO timestamp | — |
+
+**Scope rule:** Country-scoped assignments take precedence over global assignments for moments in that country. Assignment changes do not affect Programs already in Approved or Active status — their `policySnapshot` is immutable.
 
 ---
 
@@ -426,8 +462,9 @@ Visitor
                  └─ Organization Workspace (account created)
                       └─ Organization Profile (org context established)
                            └─ Relationship Classes (who matters defined)
-                                └─ Policies (how to recognize them)
-                                     └─ People Import (who they are)
+                                └─ Recognition Policies (how to recognize them)
+                                     └─ Policy Assignments (which policies apply to which classes)
+                                          └─ People Import (who they are)
                                           └─ Programs (recognition in motion)
                                                └─ HR Integrations (automated people sync)
                                                     └─ Automation (moments auto-scheduled)
@@ -455,9 +492,10 @@ Homepage
                       └─ Workspace Creation (name, currency, timezone)
                            └─ Organization Profile (industry, headcount, countries)
                                 └─ Relationship Classes (define who matters)
-                                     └─ Relationship Policies (budget, approval, delivery rules per class)
-                                          └─ People Import (manual, CSV, or HR connector)
-                                               └─ Programs (create and schedule recognition initiatives)
+                                     └─ Recognition Policies (reusable policy library — budget, approval, delivery rules)
+                                          └─ Policy Assignments (assign policies to Relationship Classes)
+                                               └─ People Import (manual, CSV, or HR connector)
+                                                    └─ Programs (create and schedule recognition initiatives)
                                                     └─ Execution (moments dispatched, gifts fulfilled)
                                                          └─ Relationship Profile (updated, versioned)
                                                               └─ Knowledge (history, memory, intelligence)
@@ -471,7 +509,8 @@ Homepage
 | Verification → Workspace | Email link confirmed |
 | Workspace → Classes | Workspace name, currency, timezone |
 | Classes → Policies | At least one Relationship Class |
-| Policies → People | At least one Policy per Class |
+| Policies → Assignments | At least one Recognition Policy |
+| Assignments → People | At least one Policy Assignment |
 | People → Programs | At least one Person in a Class |
 | Programs → Execution | Program in Approved status |
 
@@ -593,23 +632,44 @@ Relationship Classes are configurable per workspace. The list below contains sta
 
 ---
 
-## 11. Relationship Policy Model
+## 11. Recognition Policy Model
 
-Every Relationship Class may have one Policy per moment type. Programs reference these Policies — they do not redefine rules.
+### Why Policies Are Reusable
 
-### Policy Fields
+A Recognition Policy is a standalone object — not owned by a class. This design enables:
 
-| Field | Purpose |
-|-------|---------|
-| `momentType` | The occasion this policy governs (Birthday, Promotion, Anniversary, etc.) |
-| `budgetPerPerson` | Money object — per-person spend limit |
-| `approvalWorkflow` | None / Manager / Finance / Executive |
-| `giftPreferences` | Preferred category tags (e.g., "Food & Drink", "Wellness") |
-| `excludedCategories` | Categories inappropriate for this class |
-| `deliveryRequirement` | Standard / Courier / HandDelivered / Digital |
-| `preferredDeliveryWindow` | e.g., "3 business days before the date" |
-| `proofRequired` | Whether a delivery photo or signature is needed |
-| `reportingRequired` | Whether a per-event receipt is generated |
+- **Cross-class consistency** — a single "Standard Employee Policy" assigned to Managers, Staff, and any future class
+- **Multinational operations** — different budget and delivery rules per country, assigned to the same class via country-scoped Policy Assignments
+- **Simplified updates** — changing a policy propagates to all classes that reference it, without touching each class individually
+- **Audit trail consolidation** — all version history lives on the policy object, not scattered across class definitions
+
+### Canonical Flow
+
+```
+Relationship Class
+      ↓
+  Policy Assignment (global or country-scoped)
+      ↓
+  Recognition Policy
+      ↓
+  Program
+      ↓
+  Moment
+      ↓
+  Fulfillment
+```
+
+### Policy Sections
+
+Every Recognition Policy is organized into five sections:
+
+| Section | Contents |
+|---------|----------|
+| **Recognition Rules** | Moment types with per-person budgets and enabled/disabled flags |
+| **Approval Workflow** | Who must approve before a Program can execute |
+| **Experience Preferences** | Preferred gift categories; excluded categories |
+| **Delivery Requirements** | Delivery method, timing window, signature and proof requirements |
+| **Reporting** | Reporting cadence |
 
 ### Policy Lifecycle
 
@@ -620,28 +680,54 @@ Draft → Preview → Approve → Publish
 - **Draft**: editable, not yet applied to any Program
 - **Preview**: locked for review; simulation of upcoming moments can be run
 - **Approve**: sign-off recorded with approver ID and timestamp
-- **Publish**: live, governs all active Programs referencing this class
-- A new Draft can be created from any Published policy; the Published version remains active until the new version is Approved and Published
+- **Publish**: live, governs all Programs whose Policy Assignments reference this policy
+- A new Draft can be created from any Published policy (linked via `parentPolicyId`); the Published version remains active until the new version reaches Published state
+- At **Program Approval**, a `policySnapshot` (immutable copy of all referenced policies) is taken and stored on the Program record — the Program always runs under the rules it was approved against, regardless of subsequent policy changes
 
-### Example: Employee Recognition Program
+### Policy Assignment Rules
 
-**Birthday Program:**
+- A Relationship Class may have zero, one, or many Policy Assignments
+- A global assignment (no scope) applies to all countries
+- A country-scoped assignment takes precedence over the global assignment for moments in that country
+- Multiple classes may reference the same Recognition Policy
+- Assignment changes do not affect Programs already in Approved or Active status
 
-| Class | Budget / Person | Approval | Delivery |
-|-------|----------------|----------|----------|
-| Executive Leadership | NGN 500,000 | CEO | Hand-delivered |
-| Senior Leadership | NGN 250,000 | Manager | Courier |
-| Managers | NGN 150,000 | Manager | Standard |
-| Employees | NGN 75,000 | None | Standard |
+### Standard Moment Types
 
-**Work Anniversary (5-year):**
+| Moment Type | Trigger |
+|-------------|---------|
+| Birthday | Person's birthday (MM-DD) |
+| Work Anniversary | Person's `startDate` anniversary |
+| Promotion | Manual trigger or HR event |
+| New Hire Welcome | Person's first day |
+| Holiday Recognition | Calendar-based (Eid, Christmas, New Year, etc.) |
+| Client Anniversary | Relationship `startDate` anniversary |
+| Deal Closure | Manual trigger or CRM event |
+| Achievement Recognition | Manual trigger |
+| Farewell | Manual trigger or HR deactivation event |
 
-| Class | Budget / Person | Approval | Proof Required |
-|-------|----------------|----------|---------------|
-| Executive Leadership | NGN 1,000,000 | CEO | Yes |
-| Senior Leadership | NGN 500,000 | Manager | Yes |
-| Managers | NGN 250,000 | Manager | No |
-| Employees | NGN 150,000 | None | No |
+### Example: Employee Recognition — Birthday
+
+**Two classes, two policy assignments, one shared policy:**
+
+| Class | Policy Assignment | Recognition Policy | Budget / Person | Approval |
+|-------|------------------|--------------------|----------------|----------|
+| Executive Leadership | Global | Executive Recognition Policy | NGN 500,000 | CEO |
+| Senior Leadership | Global | Senior Recognition Policy | NGN 250,000 | Manager |
+| Managers | Global | Standard Employee Policy | NGN 150,000 | Manager |
+| Staff | Global | Standard Employee Policy | NGN 75,000 | None |
+
+**Observation:** Managers and Staff share "Standard Employee Policy." The policy is the same object — classes simply reference it. Future versions will support per-assignment budget overrides without requiring separate policy objects.
+
+### Example: Multinational Policy Assignments
+
+| Class | Scope | Recognition Policy | Budget / Person |
+|-------|-------|--------------------|----------------|
+| Executive Leadership | Global (default) | Executive Recognition Policy | NGN 500,000 |
+| Executive Leadership | Kenya | Executive Recognition Policy — KE | KES 250,000 |
+| Executive Leadership | South Africa | Executive Recognition Policy — ZA | ZAR 8,000 |
+
+**Observation:** One class, three assignments. Country-scoped assignments override the global default. Programs in Nigeria use the global policy; Programs in Kenya or South Africa use their country-specific policy.
 
 ---
 
@@ -943,6 +1029,7 @@ These decisions were resolved before H2 implementation. Documented for audit tra
 | 3 | Concierge handoff format | Structured 10-field intake form per consultation → Fulfillment Object. Recipient address required. Same schema H3 automation inherits. | §13 Fulfillment Architecture |
 | 4 | Relationship Profile versioning trigger | Program status changes (Active/Completed) + nightly background recalculation if Moments changed that day. Not per-Moment in real time. | §4 Relationship Profile |
 | 5 | Person deduplication authority | Configurable source priority per workspace. Default: HR integrations > CSV/Excel > Manual. Admin-locked fields never overwritten. Conflicts logged. | §12 Integration Layer |
+| ADR-001 | Recognition Policy promoted to first-class reusable object | Policies are standalone objects not owned by any class. Classes reference policies via Policy Assignments. Supports multinational orgs (country-scoped assignments) and cross-class reuse. `policySnapshot` at Program Approval makes programs immutable to policy changes. | §4 Recognition Policy, §4 Policy Assignment, §11 Recognition Policy Model |
 
 ---
 
@@ -954,7 +1041,7 @@ Before implementing any feature, answer all five questions. If any answer is unc
    Identity / People / Relationship Engine / Gift Intelligence / Fulfillment / Knowledge / Integrations / Insights / Platform
 
 2. **Which canonical object does it affect?**
-   Organization / Workspace / Organization Profile / Relationship Profile / Person / Relationship Class / Relationship Policy / Program / Moment / Gift/Item / Fulfillment / Memory / Insight / Money
+   Organization / Workspace / Organization Profile / Relationship Profile / Person / Relationship Class / Recognition Policy / Policy Assignment / Program / Moment / Gift/Item / Fulfillment / Memory / Insight / Money
 
 3. **Which user does it serve?**
    - Visitor exploring the platform
@@ -976,8 +1063,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v2.1 — Aniyé Africa — June 2026*
+*System Atlas v2.2 — Aniyé Africa — June 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v2.2: ADR-001 — Recognition Policy promoted to first-class reusable object; Policy Assignment introduced as linking layer; multinational policy support via country-scoped assignments; §11 Relationship Policy Model fully rewritten*
 *v2.1: Resolved 5 pre-H2 open questions (currency default, individual auth, concierge handoff, profile versioning, deduplication authority)*
 *v2.0: 12 architectural decisions — domain boundaries, Money object, Progressive Trust, enterprise foundations*
 *v1.0: Initial Atlas (June 2026)*
