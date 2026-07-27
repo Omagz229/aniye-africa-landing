@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { RecognitionPolicy, PolicyStatus } from '@/lib/workspace';
+import { formatMoney } from '@/lib/money';
 import { getWorkspace, updateWorkspace } from '@/lib/workspace';
 import PolicyForm from './PolicyForm';
 
@@ -103,7 +104,7 @@ function PolicyDocument({ policy }: { policy: RecognitionPolicy }) {
                 <span className="font-body text-sm text-ink">{rule.momentType}</span>
                 <div className="text-right">
                   <span className="font-body text-sm font-semibold text-ink">
-                    {fmt(rule.budgetPerPerson.amount, rule.budgetPerPerson.currency)}
+                    {formatMoney(rule.budgetPerPerson)}
                   </span>
                   <span className="font-body text-xs text-stone ml-1">/ person</span>
                 </div>

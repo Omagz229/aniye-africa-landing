@@ -21,8 +21,10 @@
 | 3 | **H2.5** — People Sources and People | ✅ **Reconstructed** | R3 |
 | — | **Aniyé Experience Audit** | ✅ **Complete** | Audit |
 | — | **Experience Correction E1** | ✅ **Complete — Programs unblocked (experience)** | E1 |
-| — | **H2 → H3 Architecture Checkpoint** | ✅ **Complete — 6 ADRs awaiting Council** | Checkpoint |
-| — | **Council approval of ADR-004 … ADR-009** | ⬅️ **Next — blocks all implementation** | — |
+| — | **H2 → H3 Architecture Checkpoint** | ✅ **Complete** | Checkpoint |
+| — | **Council acceptance of ADR-004 … ADR-009** | ✅ **Accepted 2026-07-27** | R4 |
+| — | **R4 — schema v5 (Money + Person lifecycle)** | ✅ **Complete** | R4 |
+| — | **Minimum Programs — Campaign mode** | ⬅️ **Next — unblocked** | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
 | 6 | H3.1 — Moment Engine | ⬜ Not started | — |
@@ -208,19 +210,36 @@ All six decisions are **Proposed — Council Review Required**. None is accepted
 
 **C4 and C6 both have proposed resolutions.** C4 resolves with no code change (ADR-009 amends the Atlas instead). C6 resolves via the v5 Money migration (ADR-007) and is the single hard prerequisite for Programs.
 
-### Exact implementation gate
+### ✅ Checkpoint decisions accepted — R4 complete
 
-**No implementation may begin until the Council approves ADR-004 through ADR-009.** After approval, the sequence is fixed by dependency:
+**All six ADRs were accepted by Council on 2026-07-27**, each with binding conditions recorded on the record itself. Full records: [`adr/`](adr/).
 
-1. **Schema v5** — Money minor units, `Person.Inactive`, new canonical types *(ADR-007, ADR-008)*
-2. **Minimum Programs — Campaign mode only** *(ADR-004)*
-3. Moment generation with per-Moment policy snapshot
+| ADR | Status | Implemented in R4 |
+|-----|--------|-------------------|
+| **ADR-004** Program | Accepted | ❌ Architecture only — Council narrowed it to **one Relationship Group per Program** |
+| **ADR-005** Workspace / Operations | Accepted | ❌ Architecture only |
+| **ADR-006** Decision / Operational Event | Accepted | ❌ Architecture only |
+| **ADR-007** Money + Recognition Order | Accepted | ✅ **Money implemented — schema v5.** RecognitionOrder deferred |
+| **ADR-008** Person lifecycle | Accepted | ✅ **Implemented — schema v5** |
+| **ADR-009** Policy lifecycle | Accepted | ✅ **Confirmed — no code change was required** |
 
-Milestones 4–13 are set out in the checkpoint, Part 3.
+**ADR-003 remains retired.** Registry notes added to Atlas §18 and [`adr/README.md`](adr/README.md). The number is not reused and not renumbered — reusing it would make a historical reference point at a decision that was never made.
+
+### Schema v5 — complete
+
+- **Money (ADR-007)** — `{ amountMinor: integer, currency: ISO 4217 }`, with a pinned exponent table in `lib/money.ts` covering zero-, two- and three-decimal currencies. **Destructive migration**, backed up verbatim first. An unknown currency is left unconverted and the workspace then refused, rather than stored at a scale nobody can determine. **Conflict C6 is resolved.**
+- **Person lifecycle (ADR-008)** — `Active | Inactive | Archived`, additive. No record changes state and nothing is ever migrated *into* `Inactive`. Ledger compromise **P7 is superseded**.
+- A v1 workspace still walks **v1 → v2 → v3 → v4 → v5** one rung at a time.
+
+**Validation: 102 checks across five suites, all passing** — verification 9, migration 18, assignments 20, people 30, money 25.
+
+### Programs is now unblocked, architecturally and technically
+
+The hard prerequisite was ADR-007: a Program carries a budget envelope, and an envelope is arithmetic that floating-point face values could not survive. That is done. The next implementation milestone is **Minimum Programs — Campaign mode only**, per checkpoint Part 3.
 
 ### Still required before an external pilot
 
-- **Live responsive testing on real devices.** E1's responsive work was verified by static analysis and an HTTP smoke test only — the Chrome extension was not connected, and no screenshot was taken at any width. This remains outstanding.
+- **Live mobile visual verification on real devices — still outstanding.** E1's responsive work was verified by static analysis and an HTTP smoke test only; the Chrome extension was not connected and no screenshot was taken at any width. R4 changed no layout, so this is unchanged and still required.
 - **EX-H1** — assessment autosave (~15 fields still lost on refresh).
 - **EX-H3** — `PolicyForm` guided rebuild.
 - A backend with real tenant isolation, if the pilot involves more than one organization.
@@ -455,9 +474,9 @@ They must be resolved deliberately during reconstruction, not silently overwritt
 | C1 | ~~**Relationship Class taxonomy** — the central conflict.~~ | ~~`category` + `tier`~~ | ~~§4: single `tier` enum~~ | **✅ Resolved in R1.** ADR-002 supersedes both. Code and Atlas §4/§10 now agree on `type` + numeric `level`. |
 | C2 | **Class lifecycle fields** — still open | `isDefault: boolean`, `isActive: boolean` | §4: `isCustom: boolean`, `status: Draft \| Active \| Archived` | Atlas is authoritative; `isActive` cannot express Draft, and Atlas §10 requires archive-not-delete. Deliberately **out of ADR-002 scope** — it is a lifecycle change, not a taxonomy one. Atlas §4 now carries an implementation note pointing here. |
 | C3 | ~~**`memberCount` missing**~~ | — | — | **✅ Resolved in R3** — by deriving rather than storing. `lib/people.ts` computes active/total counts per class, unassigned people, and invalid class references on read. Atlas §4 and §10 updated to say `memberCount` is derived, never persisted. |
-| C4 | **Policy lifecycle truncated** — still open, deliberately | `PolicyStatus = Draft \| Published \| Archived` | §4 and §11: `Draft → Preview → Approved → Published → Archived`, with approver ID + timestamp recorded at Approve | Code is missing the `Preview` and `Approved` states and the approval audit fields. **Held out of H2.4 by instruction.** H2.4 treats `Published` as the sole executable status, which is forward-compatible: when `Approved` and `Preview` arrive, only `EXECUTABLE_POLICY_STATUS` in `lib/migrations.ts` and the assignability gate need revisiting. Recorded here as the remaining Atlas mismatch. |
+| C4 | ~~**Policy lifecycle truncated**~~ — **✅ Resolved in R4** by ADR-009, which amends the Atlas rather than the code: `Preview` is a UI mode and approval is a governance record, so the implemented three states were already correct. Original entry retained below. | `PolicyStatus = Draft \| Published \| Archived` | §4 and §11: `Draft → Preview → Approved → Published → Archived`, with approver ID + timestamp recorded at Approve | Code is missing the `Preview` and `Approved` states and the approval audit fields. **Held out of H2.4 by instruction.** H2.4 treats `Published` as the sole executable status, which is forward-compatible: when `Approved` and `Preview` arrive, only `EXECUTABLE_POLICY_STATUS` in `lib/migrations.ts` and the assignability gate need revisiting. Recorded here as the remaining Atlas mismatch. |
 | C5 | **Default class seed list incomplete** — still open | 11 classes in `DEFAULT_RELATIONSHIP_CLASSES` | §10 previously listed 16 standard classes | Out of ADR-002 scope. R1 aligned Atlas §10 to the 11 classes the code actually seeds, so the two no longer contradict each other; whether to seed more (Strategic Partners, Government, Media, Community) and whether `Staff` should be named `Employees` remain open product questions. |
-| C6 | **Money unit** — still open, now load-bearing | Face value (`500000` = NGN 500,000) | §4: smallest currency unit (kobo/cents) | Documented deviation. Explicitly held out of R3 by instruction. **This is now the most consequential open conflict:** it is item 4 of the architecture-correction checkpoint and must be settled before the Decision Engine does any budget arithmetic. Floating-point face values will not survive contact with multi-currency spend. |
+| C6 | ~~**Money unit**~~ | — | — | **✅ Resolved in R4.** ADR-007 accepted and implemented as schema v5: integer minor units + ISO 4217, pinned exponent table, destructive migration with backup. 25 validation checks. |
 | C7 | ~~**No Policy Assignment layer**~~ | — | — | **✅ Resolved in R2.** `PolicyAssignment`, the `policyAssignments` collection, `/workspace/assignments`, and `resolvePolicyAssignment()` now close the chain. |
 | C8 | ~~**Setup checklist has no assignments stage**~~ | — | — | **✅ Resolved in R2.** `assignments` inserted between `policies` and `people` across `SETUP_STAGES`, the sidebar, the checklist, and the stage-order helpers. |
 | C9 | ~~**Misleading git tag**~~ | — | — | **✅ Resolved in R2.** `h3.5-vendor-intelligence` deleted locally and from the remote; `recovery-r1-adr002` created against the real R1 commit. |
@@ -475,7 +494,7 @@ These are deliberate H2.5 scope decisions, not defects. Each is recorded so the 
 | P4 | **Name + startDate conflict detection is not implemented.** Only normalized email matches automatically. | Deliberate: it is a heuristic, and H2.5's rule is that nothing merges without a real key. | When connectors supply records with no email. |
 | P5 | **Excel (.xlsx) import is not implemented**, though Atlas §12 lists it at H2. | CSV covers the same need with an RFC 4180 parser and no dependency. Excel would require a parsing library. | If operators actually arrive with .xlsx rather than .csv. |
 | P6 | **`Person.tags`, `department`, and `manager` are not implemented.** | `tags` is unused elsewhere; `department`/`manager` belong to the HR connector shape in Atlas §12, not the canonical model today. | Org-chart-aware recognition, H4+. |
-| P7 | **`Person.status` is `Active \| Archived`**, where Atlas §4 previously also listed `Inactive`. | `Inactive` and `Archived` expressed the same thing. Atlas §4 updated to two states rather than the code carrying a distinction with no meaning. | Resolved in the Atlas; noted for audit. |
+| P7 | ~~**`Person.status` is `Active \| Archived`**~~ | **✅ Superseded in R4.** The H2.5 reasoning held at the time: with no Programs, "excluded from automatic population" had no meaning. ADR-004 created that meaning, so ADR-008 restored `Inactive`. | Resolved. |
 | P8 | **A repeated class id on one Person record is deduplicated at count time, not at write time.** | Counting once per class is the behaviour that matters; normalizing on write would need a migration for existing records. | Cosmetic only. |
 
 ---
@@ -613,3 +632,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the Aniyé Experience Audit — 28 findings, Programs blocked pending 5 corrections. Documentation only.*
 *Updated after Experience Correction E1 — all 5 gating findings closed; Programs unblocked on experience. Architecture checkpoint remains mandatory.*
 *Updated after the H2 → H3 Architecture Checkpoint — 6 ADRs drafted, all Proposed. Council approval is now the only gate. Documentation only; no schema version changed.*
+*Updated after R4 — all 6 ADRs accepted; schema v5 implemented (Money + Person lifecycle); C4 and C6 resolved; Programs unblocked. System Atlas v3.0.*

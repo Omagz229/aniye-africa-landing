@@ -383,7 +383,9 @@ check('12. Existing policies remain present after migration', () => {
   assertEqual(policy.status, 'Published', 'Policy status changed.');
   assertEqual(policy.version, 1, 'Policy version changed.');
   assertEqual(policy.recognitionRules.length, 1, 'Policy recognition rules were lost.');
-  assertEqual(policy.recognitionRules[0].budgetPerPerson.amount, 500000, 'Policy budget changed.');
+  // 500,000 NGN in the v1 fixture becomes 50,000,000 kobo after v4 → v5.
+  assertEqual(policy.recognitionRules[0].budgetPerPerson.amountMinor, 50_000_000, 'Policy budget changed.');
+  assertEqual(policy.recognitionRules[0].budgetPerPerson.currency, 'NGN', 'Policy currency changed.');
   assertEqual(policy.publishedAt, LEGACY_POLICY.publishedAt, 'Policy publishedAt changed.');
 });
 

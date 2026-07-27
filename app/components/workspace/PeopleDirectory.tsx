@@ -11,6 +11,7 @@ import type {
   WorkspaceState,
 } from '@/lib/workspace';
 import {
+  PERSON_STATUS_LABELS,
   RELATIONSHIP_TYPES,
   getWorkspace,
   personFullName,
@@ -50,6 +51,7 @@ export default function PeopleDirectory() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<{ headline: string; detail?: string } | null>(null);
   const [pendingArchive, setPendingArchive] = useState<Person | null>(null);
+  const [pendingPause, setPendingPause] = useState<Person | null>(null);
 
   // Filters are an advanced tool — hidden until there are enough people for
   // them to earn their place (Doctrine §1.2).
@@ -264,7 +266,8 @@ export default function PeopleDirectory() {
   // ─── List ──────────────────────────────────────────────────────────────────
 
   const activeCount = workspace.people.filter(p => p.status === 'Active').length;
-  const archivedCount = workspace.people.length - activeCount;
+  const pausedCount = workspace.people.filter(p => p.status === 'Inactive').length;
+  const archivedCount = workspace.people.filter(p => p.status === 'Archived').length;
   const unassignedCount = peopleWithoutClass(workspace.people).length;
   const isEmpty = workspace.people.length === 0;
 
@@ -409,7 +412,8 @@ export default function PeopleDirectory() {
                   )}
                   <select value={statusFilter} aria-label="Filter by status" className={selectClass}
                     onChange={(e) => setStatusFilter(e.target.value as PersonStatus | 'all')}>
-                    <option value="Active">Current people</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Paused</option>
                     <option value="Archived">Archived</option>
                     <option value="all">Everyone</option>
                   </select>
@@ -458,11 +462,13 @@ export default function PeopleDirectory() {
                     <tbody>
                       {filtered.map(person => (
                         <tr key={person.id}
-                          className={`border-b border-stone/5 last:border-0 ${person.status === 'Archived' ? 'opacity-55' : ''}`}>
+                          className={`border-b border-stone/5 last:border-0 ${person.status !== 'Active' ? 'opacity-60' : ''}`}>
                           <Td className="text-ink font-medium">
                             {personFullName(person)}
-                            {person.status === 'Archived' && (
-                              <span className="font-body text-xs text-stone/60 ml-2">Archived</span>
+                            {person.status !== 'Active' && (
+                              <span className="font-body text-xs text-stone/60 ml-2">
+                                {PERSON_STATUS_LABELS[person.status]}
+                              </span>
                             )}
                           </Td>
                           <Td className="text-stone">{person.role || '—'}</Td>
@@ -479,8 +485,9 @@ export default function PeopleDirectory() {
                           <Td className="text-right whitespace-nowrap">
                             <RowActions person={person}
                               onEdit={() => { setEditingId(person.id); setMode('edit'); }}
+                              onPause={() => setPendingPause(person)}
                               onArchive={() => setPendingArchive(person)}
-                              onRestore={() => setPersonStatus(person.id, 'Active')} />
+                              onReactivate={() => setPersonStatus(person.id, 'Active')} />
                           </Td>
                         </tr>
                       ))}
@@ -493,7 +500,7 @@ export default function PeopleDirectory() {
               <div className="lg:hidden space-y-3">
                 {filtered.map(person => (
                   <div key={person.id}
-                    className={`bg-white rounded-2xl border border-stone/20 p-4 space-y-2.5 ${person.status === 'Archived' ? 'opacity-55' : ''}`}>
+                    className={`bg-white rounded-2xl border border-stone/20 p-4 space-y-2.5 ${person.status !== 'Active' ? 'opacity-60' : ''}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-body text-sm font-semibold text-ink truncate">
@@ -514,12 +521,13 @@ export default function PeopleDirectory() {
                     <ClassBadges person={person} classesById={classesById} />
                     <div className="flex items-center justify-between gap-3 pt-2 border-t border-stone/10">
                       <span className="font-body text-xs text-stone/60">
-                        {person.status === 'Archived' ? 'Archived' : 'Current'}
+                        {PERSON_STATUS_LABELS[person.status]}
                       </span>
                       <RowActions person={person}
                         onEdit={() => { setEditingId(person.id); setMode('edit'); }}
+                        onPause={() => setPendingPause(person)}
                         onArchive={() => setPendingArchive(person)}
-                        onRestore={() => setPersonStatus(person.id, 'Active')} />
+                        onReactivate={() => setPersonStatus(person.id, 'Active')} />
                     </div>
                   </div>
                 ))}
@@ -559,16 +567,36 @@ export default function PeopleDirectory() {
 
       <SetupProgress workspace={workspace} />
 
-      {/* Archive confirmation — destructive-ish actions are never one click */}
+      {/* Pausing stops future recognition but keeps the person in the directory */}
+      {pendingPause && (
+        <ConfirmDialog
+          title={`Pause ${personFullName(pendingPause)}?`}
+          body="They stay in your directory and in your reports, but won't be included in any automatic recognition until you reactivate them."
+          impact={[
+            'Useful for parental leave, sabbaticals, or a relationship on hold',
+            pendingPause.relationshipClassIds.length > 0
+              ? `They stay in ${pendingPause.relationshipClassIds.length} relationship group${pendingPause.relationshipClassIds.length === 1 ? '' : 's'}`
+              : 'They are not in any relationship group',
+            'Reactivating is one click, whenever you are ready',
+          ]}
+          cancelLabel="Keep them active"
+          confirmLabel="Pause recognition"
+          onConfirm={() => { setPersonStatus(pendingPause.id, 'Inactive'); setPendingPause(null); }}
+          onCancel={() => setPendingPause(null)}
+        />
+      )}
+
+      {/* Archiving removes them from ordinary workflows entirely */}
       {pendingArchive && (
         <ConfirmDialog
           title={`Archive ${personFullName(pendingArchive)}?`}
-          body="They stay in your records with all their details and group links, but won't be included in any recognition."
+          body="They're kept for your history but removed from your everyday lists, and won't be included in any recognition. Use this when someone has left."
           impact={[
+            'They disappear from the People list unless you filter for Archived',
             pendingArchive.relationshipClassIds.length > 0
-              ? `They'll be removed from ${pendingArchive.relationshipClassIds.length} group${pendingArchive.relationshipClassIds.length === 1 ? '' : 's'} for counting purposes`
-              : 'They are not in any relationship group',
-            'Nothing is deleted — you can restore them at any time',
+              ? `Their ${pendingArchive.relationshipClassIds.length} relationship group link${pendingArchive.relationshipClassIds.length === 1 ? '' : 's'} and all past recognition are kept`
+              : 'All their past recognition is kept',
+            'If they are only away for a while, pause them instead',
           ]}
           cancelLabel="Keep them active"
           confirmLabel="Archive person"
@@ -643,10 +671,20 @@ function ClassBadges({
   );
 }
 
+/**
+ * ADR-008 — three states, three non-destructive actions.
+ *
+ * Reactivating is one click: it restores eligibility and loses nothing. Pausing
+ * and archiving both change who gets recognised, so both are confirmed.
+ */
 function RowActions({
-  person, onEdit, onArchive, onRestore,
+  person, onEdit, onPause, onArchive, onReactivate,
 }: {
-  person: Person; onEdit: () => void; onArchive: () => void; onRestore: () => void;
+  person: Person;
+  onEdit: () => void;
+  onPause: () => void;
+  onArchive: () => void;
+  onReactivate: () => void;
 }) {
   return (
     <div className="inline-flex items-center gap-4">
@@ -654,15 +692,22 @@ function RowActions({
         className="font-body text-xs font-semibold text-ink hover:text-gold transition-colors">
         Edit
       </button>
-      {person.status === 'Active' ? (
+      {person.status !== 'Active' && (
+        <button type="button" onClick={onReactivate}
+          className="font-body text-xs text-stone hover:text-ink transition-colors">
+          Reactivate
+        </button>
+      )}
+      {person.status === 'Active' && (
+        <button type="button" onClick={onPause}
+          className="font-body text-xs text-stone hover:text-ink transition-colors">
+          Pause
+        </button>
+      )}
+      {person.status !== 'Archived' && (
         <button type="button" onClick={onArchive}
           className="font-body text-xs text-stone hover:text-ink transition-colors">
           Archive
-        </button>
-      ) : (
-        <button type="button" onClick={onRestore}
-          className="font-body text-xs text-stone hover:text-ink transition-colors">
-          Restore
         </button>
       )}
     </div>

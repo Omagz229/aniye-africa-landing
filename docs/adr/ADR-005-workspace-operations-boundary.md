@@ -1,10 +1,17 @@
 # ADR-005 — Workspace and Operations are separate product surfaces
 
-**Status: Proposed — Council Review Required**
+**Status: Accepted**
 **Date drafted:** 2026-07-27
+**Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-b--workspace-versus-operations)
 
-> Not accepted. Do not implement until the Council has reviewed this decision.
+> Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+## Council conditions on acceptance
+
+- Workspace and Operations use **separate route trees, shells, roles and navigation**.
+- Operations **may read** customer configuration and **may propose** corrections.
+- Operations **must not silently modify** customer configuration. Any change originates from, or is accepted by, the customer.
 
 ## Decision
 

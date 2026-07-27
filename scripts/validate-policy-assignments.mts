@@ -639,6 +639,13 @@ check('19. Existing assignments survive a repeat migration pass', () => {
     ],
     peopleSources: [],
     people: [],
+    // A current-version fixture must carry canonical Money (ADR-007).
+    recognitionPolicies: [
+      { ...policy('policy-exec', 'Executive Recognition Policy', 'Published'),
+        recognitionRules: [{ momentType: 'Birthday', budgetPerPerson: { amountMinor: 10_000_000, currency: 'NGN' }, isEnabled: true }] },
+      { ...policy('policy-standard', 'Standard Employee Policy', 'Published'),
+        recognitionRules: [{ momentType: 'Birthday', budgetPerPerson: { amountMinor: 7_500_000, currency: 'NGN' }, isEnabled: true }] },
+    ],
   });
   const result = migrateWorkspace<WorkspaceState>(withAssignments);
   assert(result.status === 'ok', 'A current-version workspace was refused.');

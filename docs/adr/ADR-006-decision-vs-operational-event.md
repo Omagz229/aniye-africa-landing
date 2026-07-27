@@ -1,10 +1,18 @@
 # ADR-006 — Decisions and Operational Events are distinct, and recorded only on confirmation
 
-**Status: Proposed — Council Review Required**
+**Status: Accepted**
 **Date drafted:** 2026-07-27
+**Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-c--decision-versus-operational-event)
 
-> Not accepted. Do not implement until the Council has reviewed this decision.
+> Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+## Council conditions on acceptance
+
+- Draft choices **remain in UI state**. They are not persisted.
+- **Only confirmation writes**, and it writes all three together: the state change, a `Confirmed` Decision, and the corresponding Operational Event.
+- Browsing and abandoned selections are **never** persisted as Decisions.
+- The first operational version needs only two statuses: **`Confirmed`** and **`Superseded`**.
 
 ## Decision
 

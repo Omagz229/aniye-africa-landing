@@ -1,10 +1,22 @@
 # ADR-004 — Program is an operational commitment, not a policy container
 
-**Status: Proposed — Council Review Required**
+**Status: Accepted**
 **Date drafted:** 2026-07-27
+**Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-a--what-a-program-is)
 
-> Not accepted. Do not implement until the Council has reviewed this decision.
+> Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+## Council conditions on acceptance
+
+Binding for the first Program version:
+
+- **One Program targets exactly one Relationship Group.** This narrows the draft, which proposed `relationshipClassIds: UUID[]`. The field becomes singular `relationshipClassId`. Multi-group programs are achieved by creating one Program per group, which keeps population, budget and reporting unambiguous.
+- A Program **does not store `policyAssignmentId`**.
+- A Program **does not carry one universal policy snapshot**.
+- Each **Moment** resolves its applicable assignment and policy from the Program's Relationship Group and the **Person's country**, and the resolved assignment *and* policy are snapshotted onto that Moment.
+- **Campaign** population **freezes at activation**.
+- **Recurring** and **Triggered** populations are re-evaluated according to their configured cadence or trigger.
 
 ## Decision
 

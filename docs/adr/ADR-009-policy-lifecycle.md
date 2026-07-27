@@ -1,10 +1,18 @@
 # ADR-009 — Recognition Policy lifecycle is Draft → Published → Archived; approval is a record, not a state
 
-**Status: Proposed — Council Review Required**
+**Status: Accepted**
 **Date drafted:** 2026-07-27
+**Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-f--recognition-policy-lifecycle)
 
-> Not accepted. Do not implement until the Council has reviewed this decision.
+> Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+## Council conditions on acceptance
+
+- Recognition Policy lifecycle remains **`Draft` | `Published` | `Archived`**.
+- **Preview is a UI mode**, not a persisted state.
+- **Approval is a separate governance record** and an optional per-workspace requirement — never a universal `PolicyStatus` value.
+- The approval system is **not implemented in R4**.
 
 ## Decision
 

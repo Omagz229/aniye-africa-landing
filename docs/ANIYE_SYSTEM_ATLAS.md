@@ -120,25 +120,37 @@ These are the core objects of the Aniyé platform. All features operate on these
 
 ### Money
 
-A canonical value type used wherever monetary amounts appear. **Never store a number without currency.**
+**ADR-007 (Accepted) — implemented in schema v5.**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `amountMinor` | integer | Count of the currency's **smallest unit**. NGN 500,000 is `50000000` kobo |
+| `currency` | string | ISO 4217 alpha-3, uppercase, validated against a pinned table |
+
+The minor-unit exponent comes from a **pinned table** in `lib/money.ts` supporting zero-decimal (JPY, KRW, RWF), two-decimal (NGN, KES, USD) and three-decimal (BHD, KWD, OMR) currencies. It is not stored per record and is never inferred from browser locale.
+
+Formatting happens at the display edge; operators enter and read major units and never see `amountMinor`. Cross-currency arithmetic is refused — it requires an explicit dated exchange-rate snapshot.
+
+A canonical value type used wherever monetary amounts appear. **Never store a number without a currency.**
 
 ```typescript
 interface Money {
-  amount: number;     // integer in smallest currency unit (e.g., kobo, cents)
-  currency: string;   // ISO 4217 code
+  amountMinor: number;  // integer count of the smallest unit — kobo, cents, fils
+  currency: string;     // ISO 4217 alpha-3, uppercase
 }
 ```
 
-**Supported currencies (v1):**
-| Code | Currency | Country |
-|------|----------|---------|
-| NGN | Nigerian Naira | Nigeria |
-| KES | Kenyan Shilling | Kenya |
-| GHS | Ghanaian Cedi | Ghana |
-| ZAR | South African Rand | South Africa |
-| USD | US Dollar | Cross-border / international |
+**Currencies in the pinned table** — `lib/money.ts`, grouped by minor-unit exponent:
 
-All budget fields, item prices, and spend reports use `Money`. Display formatting is locale-aware.
+| Exponent | Currencies | One major unit equals |
+|----------|-----------|----------------------|
+| **0** | JPY, KRW, VND, RWF, UGX, XOF, XAF, CLP, ISK | 1 minor unit |
+| **2** | **NGN, KES, GHS, ZAR, USD**, EUR, GBP, EGP, MAD, TZS, ETB, CAD, AUD, AED, CHF, CNY, INR | 100 minor units |
+| **3** | BHD, KWD, OMR, TND, JOD, IQD, LYD | 1000 minor units |
+
+A currency must be in this table before an amount in it can be stored. An unknown code is **refused**, never assumed to be two-decimal — guessing would misprice every JPY amount a hundredfold.
+
+All budget fields, item prices, and spend reports use `Money`. Display formatting is locale-aware; **precision never is**.
 
 **Currency default rule:** A workspace's `baseCurrency` is the default currency for all Relationship Policies in that workspace. Any Policy may explicitly override with a different currency (e.g., a USD policy within an NGN workspace). When a Program is Approved, the exchange rate between any non-base currencies and the workspace `baseCurrency` is locked at that moment and stored on the Program record. Cross-border reporting always converts to workspace `baseCurrency` using the locked rate.
 
@@ -246,16 +258,28 @@ Any individual tracked in Aniyé — employee, client, partner, board member.
 | `sourceId` | UUID | The PeopleSource this record last came from |
 | `sourceType` | enum | Manual / CSV / HRIS — denormalized deliberately, so precedence can be evaluated without a source lookup |
 | `externalId` | string? | Stable id in the originating system |
-| `status` | enum | Active / Archived |
+| `status` | enum | **Active / Inactive / Archived** — ADR-008 (Accepted), implemented in schema v5 |
 | `createdAt` | ISO timestamp | — |
 | `updatedAt` | ISO timestamp | — |
 | `archivedAt` | ISO timestamp? | Set when archived |
 
 A Person may belong to zero, one, or many Relationship Classes. Zero is valid and expected during setup — the person exists, but no policy reaches them until a class is assigned.
 
+**Three lifecycle states (ADR-008, Accepted — implemented in schema v5):**
+
+| State | In the directory | Eligible for automatic Program populations | In historical reporting |
+|-------|:---:|:---:|:---:|
+| `Active` | ✅ | ✅ | ✅ |
+| `Inactive` | ✅ | ❌ | ✅ |
+| `Archived` | ❌ | ❌ | ✅ |
+
+Presented to users as **Active / Paused / Archived**. Person state governs **future eligibility only** and is never retroactive — Moments already executed remain valid and reportable.
+
+`Inactive` exists for the case Programs creates: an employee on extended leave should not receive automatic recognition, but must not be hidden from the directory or erased from reporting. An import **never** changes lifecycle state — reactivation is a deliberate act, not a side effect of a spreadsheet upload.
+
 **Archived people** keep every field and class reference. They are excluded from active member counts and must not be treated as program members, but they are never deleted.
 
-> **Implementation note:** `status` is `Active | Archived`; the Atlas previously also listed `Inactive`, which duplicated what archiving already expresses. `workspaceId` is omitted because the client-side workspace is a single document. `tags` and `department`/`manager` are not implemented — they belong with the HR connectors in §12.
+> **Implementation note:** `Inactive` was briefly reduced away in H2.5, when — with no Programs — "excluded from automatic population" had no meaning. ADR-008 restored it once Programs created that meaning. Ledger compromise P7 is superseded. `workspaceId` is omitted because the client-side workspace is a single document. `tags` and `department`/`manager` are not implemented — they belong with the HR connectors in §12.
 
 ---
 
@@ -341,7 +365,7 @@ A named, reusable definition of how recognition should happen. Recognition Polic
 | `signatureRequired` | boolean | — |
 | `proofRequired` | boolean | — |
 | `reportingCadence` | enum | None / Weekly / Monthly / Quarterly |
-| `status` | enum | Draft / Preview / Approved / Published / Archived |
+| `status` | enum | **Draft / Published / Archived** — ADR-009 (Accepted). `Preview` is a UI mode, not a state; approval is a separate governance record |
 | `version` | number | Increments each time a new draft is published |
 | `parentPolicyId` | UUID? | Set when this policy is a new draft derived from a Published policy |
 | `createdAt` | ISO timestamp | — |
@@ -389,23 +413,48 @@ See §11 for the full resolution algorithm.
 
 ### Program
 
-A planned, recurring or one-off recognition initiative. Programs reference Relationship Policies — they do not redefine rules.
+> ⚠️ **Accepted architecture — NOT IMPLEMENTED.** ADR-004 is accepted; no `Program` type,
+> collection or route exists. `SETUP_STAGES` marks `programs` unavailable and the sidebar cannot
+> link to it. This section describes what will be built, not what exists.
+
+**ADR-004 (Accepted):** A Program is a **controlled operational commitment** — it takes a defined population and a defined occasion and commits the organization to recognizing them over a defined period or trigger pattern, within a budget envelope.
+
+The four objects separate cleanly:
+
+| Object | Question it answers |
+|--------|--------------------|
+| **Recognition Policy** | What recognition is permitted or required? |
+| **Policy Assignment** | Which group, and where, does that policy govern? |
+| **Program** | Is recognition actually running, for whom, when, against what budget? |
+| **Moment** | One person, one occasion, one execution |
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | UUID | — |
-| `workspaceId` | UUID | — |
-| `name` | string | e.g., "Q4 Client Appreciation 2026" |
-| `momentType` | string | — |
-| `status` | enum | Draft / Preview / Approved / Active / Completed / Cancelled |
-| `startDate` | ISO date | — |
-| `endDate` | ISO date? | Optional for recurring |
-| `totalBudget` | Money | Allocated program budget |
-| `relationshipClassIds` | UUID[] | Classes in scope |
-| `policySnapshot` | JSON | Copy of applicable policies at time of Approval (immutable reference) |
-| `createdBy` | UUID | User |
-| `approvedBy` | UUID? | User |
-| `approvedAt` | ISO timestamp? | — |
+| `id`, `workspaceId` | UUID | — |
+| `name`, `description` | string | — |
+| `momentTypes` | string[] | One Program may cover several occasions |
+| `relationshipClassId` | UUID | **Exactly one** Relationship Class per Program (Council condition) |
+| `mode` | enum | Recurring / Triggered / Campaign |
+| `populationRule` | JSON | Minimum: all `Active` people in that class |
+| `startDate` / `endDate` | ISO date / ISO date? | `endDate` null means open-ended |
+| `budgetEnvelope` | Money | Ceiling for the whole Program |
+| `status` | enum | Draft / Active / Paused / Completed / Cancelled |
+| `momentGenerationRule` | JSON | Lead time, de-duplication window |
+| `createdAt`, `updatedAt`, `createdBy` | — | — |
+
+**A Program does not store `policyAssignmentId`, and does not carry one universal policy snapshot.** Each Moment resolves its own applicable assignment and policy from the Program's Relationship Class and the **Person's country**, and the resolved assignment *and* policy are snapshotted onto that Moment.
+
+This is not a detail. A single Program-level snapshot cannot represent the country-scoped assignments ADR-001 introduced: a Program covering Executive Leadership across Nigeria, Kenya and South Africa resolves to three different policies, and one snapshot would silently apply one country's rule to everyone.
+
+**Modes:**
+
+| Mode | Trigger | Population |
+|------|---------|-----------|
+| **Recurring** | A date derived from a Person field | Re-evaluated on the configured cadence |
+| **Triggered** | An event | Evaluated at trigger time |
+| **Campaign** | A fixed window | **Frozen at activation** |
+
+`budgetConsumed` is **derived on read**, never stored — the same reasoning as `memberCount`.
 
 ---
 
@@ -1150,7 +1199,9 @@ Until the backend exists, the workspace is persisted client-side and carries its
 - Migration **fails safely**: a payload that cannot be read or that fails post-migration validation is never overwritten. It is quarantined so the next workspace creation cannot destroy it
 - A payload from a **newer** schema version than the running build is refused rather than downgraded
 
-Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `npm run validate:assignments`, `npm run validate:people`.
+Implementation: `lib/migrations.ts`, `lib/money.ts`. Validation: `validate:migration`, `validate:assignments`, `validate:people`, `validate:money`, `validate:verification`.
+
+**v4 → v5 is destructive** — every Money value is rewritten as `amountMinor = round(amount × 10^exponent)`, so the pre-migration payload is backed up verbatim first. A currency absent from the pinned table is left unconverted and the workspace is then refused by validation, rather than being stored at a scale nobody can determine. Excess precision is rounded half away from zero and reported as a migration warning. The Person widening in the same rung is purely additive: no record changes state, and nothing is ever migrated *into* `Inactive`.
 
 **Version history:**
 
@@ -1160,6 +1211,7 @@ Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `
 | v2 | ADR-002 | `RelationshipClass.category` + `tier` → `type` + numeric `level` |
 | v3 | H2.4 | Adds the `policyAssignments` collection and the `assignments` setup stage |
 | v4 | H2.5 | Adds the `peopleSources` and `people` collections |
+| v5 | R4 | **ADR-007** — Money converted from major-unit face values to integer minor units. **ADR-008** — Person status widened to include `Inactive` |
 
 **Setup stage remap (v2 → v3).** The `assignments` step is new, so a v2 workspace that had already moved past `policies` had skipped a step that now exists:
 
@@ -1184,6 +1236,46 @@ The second case matters: an assignment cannot be created without a Published pol
 
 ### The Boundary Rule
 No external system dictates Aniyé's internal model. All external data is translated at the integration boundary. Aniyé's canonical model is the only source of truth.
+
+---
+
+## 15b. Workspace versus Operations
+
+> ⚠️ **Accepted architecture — NOT IMPLEMENTED.** ADR-005 is accepted; no `/operations` route,
+> shell or role model exists. Everything today lives under `/workspace/*` with no authentication.
+
+**ADR-005 (Accepted):** `/workspace/*` serves organization administrators configuring recognition. `/operations/*` serves Aniyé internal operators executing it. They share **canonical objects and a design system**, and share **neither shell, navigation, roles, nor route tree**.
+
+| | Workspace | Operations |
+|---|-----------|------------|
+| Audience | Organization administrators | Aniyé internal operators |
+| Scope | One organization | Across all organizations |
+| Owns | Profile, groups, policies, assignments, people, programs, customer-facing approvals and reports | Moments, Execution Briefs, item selection, vendor offers, courier selection, QA, fulfilment, exceptions, commercial detail, Decisions, Operational Events |
+
+**Never projected into Workspace:** vendor cost, courier cost, margin, vendor and courier identity, QA exceptions, internal notes. The customer sees *what happened and what it cost them*; Operations sees *how it happened and what it cost us*.
+
+**Operations may read configuration and propose corrections, but must never silently modify it.** An operator who spots a wrong address raises a suggestion the administrator accepts. Internal users may open a **read-only** view of a customer workspace, which emits an Operational Event visible in the customer's own audit trail.
+
+Placing Operations navigation inside the Workspace sidebar is **rejected**.
+
+---
+
+## 15c. Decisions and Operational Events
+
+> ⚠️ **Accepted architecture — NOT IMPLEMENTED.** Neither object exists in code.
+
+**ADR-006 (Accepted):** A **Decision** records a judgement between alternatives; it carries a required reason, may be superseded, and is never mutated. An **OperationalEvent** records that something happened; it is append-only, never edited, and corrected only by appending a referencing event.
+
+The test: *could it have gone another way, and does the reason matter later?* If yes, Decision. If not, Event.
+
+- Deterministic rule results **are** Decisions, with `provider: System`.
+- Ordinary CRUD is audit, not an Operational Event — the test is whether it changes the state of a Moment's execution.
+- Failed actions are first-class Events, never absences.
+- Early H3 uses only **`Confirmed`** and **`Superseded`** decision statuses.
+
+**The recording rule:** draft choices stay in UI state; **only confirmation writes**, and it writes the state change, the Decision and the Operational Event together. Browsing and abandoned selections are never persisted as Decisions.
+
+Both objects belong to the **Knowledge** domain (§3), and both are operational records that belong in a backend rather than the client-side workspace document.
 
 ---
 
@@ -1233,6 +1325,14 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 ## 17. Horizon Roadmap
 
+> **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
+> capability*, and they are not the same thing. Sections describing something not yet built carry an
+> explicit ⚠️ marker. As of schema v5:
+>
+> | Implemented | Accepted but not implemented |
+> |-------------|------------------------------|
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money | Program, Moment, Execution Brief, Decision, Operational Event, Recognition Order, Approval, the `/operations` surface |
+
 | Horizon | Theme | Key Deliverables |
 |---------|-------|-----------------|
 | **H1** | Assessment + Snapshot | Homepage, Assessment wizard, Relationship Snapshot, concierge fulfillment (manual, WhatsApp-led), Fulfillment Object architecture |
@@ -1256,6 +1356,31 @@ These decisions were resolved before H2 implementation. Documented for audit tra
 | 5 | Person deduplication authority | Configurable source priority per workspace. Default: HR integrations > CSV/Excel > Manual. Admin-locked fields never overwritten. Conflicts logged. | §12 Integration Layer |
 | ADR-001 | Recognition Policy promoted to first-class reusable object | Policies are standalone objects not owned by any class. Classes reference policies via Policy Assignments. Supports multinational orgs (country-scoped assignments) and cross-class reuse. `policySnapshot` at Program Approval makes programs immutable to policy changes. **Fully implemented as of H2.4** — the Policy Assignment linking layer now exists, closing the Class → Assignment → Policy chain that ADR-001 specified. | §4 Recognition Policy, §4 Policy Assignment, §11 Recognition Policy Model |
 | ADR-002 | Relationship Class described by Relationship Type + numeric Relationship Level | The `RelationshipCategory` + `RelationshipTier` model is superseded. Type states the nature of the relationship (nine canonical values); Level states relative recognition priority within that type, as an organization-defined integer 0–99 where 0 is highest. Existing persisted workspaces are migrated by an explicit, versioned mapping. | §4 Relationship Class, §10 Relationship Classes, ADR-002 below |
+
+### ADR registry
+
+Full records for ADR-004 onward live in [`adr/`](adr/). Accepted decisions are binding; each carries the Council conditions attached at acceptance.
+
+| # | Decision | Status | Implemented |
+|---|----------|--------|-------------|
+| 1–5 | Pre-H2 decisions (table above) | Accepted | Yes |
+| **ADR-001** | Recognition Policy as a first-class reusable object | Accepted | Yes — H2.3 / H2.4 |
+| **ADR-002** | Relationship Type + numeric Relationship Level | Accepted | Yes — schema v2 |
+| **ADR-003** | — | ⚠️ **Retired** | See note below |
+| **ADR-004** | Program is an operational commitment | Accepted 2026-07-27 | **No** — architecture only |
+| **ADR-005** | Workspace and Operations are separate surfaces | Accepted 2026-07-27 | **No** — architecture only |
+| **ADR-006** | Decisions vs Operational Events | Accepted 2026-07-27 | **No** — architecture only |
+| **ADR-007** | Money as integer minor units | Accepted 2026-07-27 | **Yes** — schema v5 |
+| **ADR-008** | Person has three lifecycle states | Accepted 2026-07-27 | **Yes** — schema v5 |
+| **ADR-009** | Policy lifecycle stays three states | Accepted 2026-07-27 | **Yes** — no code change was required |
+
+#### ⚠️ ADR-003 — retired
+
+**ADR-003 is retired. The number is not reused and not renumbered.**
+
+The recovery audit found a reference to an "ADR-003 — Decision Engine" among the work lost with the previous development machine. Only the number and a title survived — not the decision, not the reasoning, not the object. It was never reconstructed, and the H2 → H3 checkpoint concluded it should not be: policy resolution already exists as `resolvePolicyAssignment()`, and recording judgements is ADR-006's `Decision`.
+
+Reusing the number would make a historical reference point at something never agreed. An empty rung is a smaller cost than a misleading one. Full note: [`adr/README.md`](adr/README.md).
 
 ### ADR-002 — Relationship Type + Relationship Level
 
@@ -1353,8 +1478,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v2.5 — Aniyé Africa — July 2026*
+*System Atlas v3.0 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.0: ADR-004 … ADR-009 accepted by Council. Money redefined as integer minor units and Person gains Inactive (both implemented, schema v5); Program, Workspace/Operations, Decision/Operational Event and Recognition Order recorded as accepted architecture and explicitly marked NOT IMPLEMENTED; Policy lifecycle confirmed as three states, resolving C4 with no code change; ADR registry added with the ADR-003 retirement note*
 *v2.5: H2.5 — Person and People Source implemented (schema v4); §4 gains the People Source object; §10/§4 member counts are derived rather than stored (resolves C3); §12 rewritten for the implemented normalization, source precedence, duplicate identity, class assignment, and import result states; HRIS documented as a future source abstraction only*
 *v2.4: H2.4 — Policy Assignment implemented (schema v3); §4 Policy Assignment updated to the implemented model; §11 gains the resolution algorithm and active/inactive/archived rules; §15 gains the schema version history and the v2 → v3 stage remap; ADR-001 confirmed fully implemented*
 *v2.3: ADR-002 — Relationship Type + numeric Relationship Level supersedes Category/Tier; §10 rewritten; client schema versioning added to §15*

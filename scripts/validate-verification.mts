@@ -81,7 +81,7 @@ function configuredWorkspace(): WorkspaceState {
     recognitionPolicies: [{
       id: 'policy-exec', workspaceId: 'org-configured', name: 'Executive Recognition Policy',
       description: '', recognitionRules: [
-        { momentType: 'Birthday', budgetPerPerson: { amount: 500000, currency: 'NGN' }, isEnabled: true },
+        { momentType: 'Birthday', budgetPerPerson: { amountMinor: 50_000_000, currency: 'NGN' }, isEnabled: true },
       ],
       approvalWorkflow: 'Executive', preferredGiftCategories: [], excludedCategories: [],
       deliveryRequirement: 'HandDelivered', preferredDeliveryWindow: '', signatureRequired: true,

@@ -1,10 +1,19 @@
 # ADR-007 — Money is integer minor units with a validated ISO 4217 code
 
-**Status: Proposed — Council Review Required**
+**Status: Accepted**
 **Date drafted:** 2026-07-27
+**Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-d--money-and-the-financial-spine)
 
-> Not accepted. Do not implement until the Council has reviewed this decision.
+> Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+## Council conditions on acceptance
+
+- Money is `{ amountMinor: integer, currency: ISO 4217 }` with a **pinned currency exponent table**.
+- **`RecognitionOrder` is one per Moment.**
+- **Gross margin is derived**, never stored.
+- Until Aniyé's commercial role is legally resolved, **margin is an operational figure, not accounting revenue**, and must not be presented as the latter.
+- A future `commercialRole` field will carry: `Unspecified` | `MerchantOfRecord` | `Agent`. It is **not implemented in R4**; the value is reserved so the eventual legal answer needs no migration of meaning.
 
 ## Decision
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type {
+  Money,
   RecognitionPolicy,
   RecognitionRule,
   ApprovalWorkflow,
@@ -15,6 +16,7 @@ import {
   RECOGNITION_MOMENT_TYPES,
   GIFT_CATEGORIES,
 } from '@/lib/workspace';
+import { parseMoney, toMajorString, zero } from '@/lib/money';
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -36,11 +38,15 @@ function buildBlankPolicy(workspaceId: string, baseCurrency: string): Recognitio
     workspaceId,
     name: '',
     description: '',
-    recognitionRules: RECOGNITION_MOMENT_TYPES.map(mt => ({
-      momentType: mt,
-      budgetPerPerson: { amount: 0, currency: baseCurrency },
-      isEnabled: false,
-    })),
+    recognitionRules: RECOGNITION_MOMENT_TYPES.map(mt => {
+      // ADR-007 — storage is canonical minor units from the very first write.
+      const blank = zero(baseCurrency);
+      return {
+        momentType: mt,
+        budgetPerPerson: blank.ok ? blank.value : { amountMinor: 0, currency: 'NGN' },
+        isEnabled: false,
+      };
+    }),
     approvalWorkflow: 'None',
     preferredGiftCategories: [],
     excludedCategories: [],
@@ -112,6 +118,62 @@ function Toggle({ active, onToggle }: { active: boolean; onToggle: () => void })
   );
 }
 
+/**
+ * Budget entry, in the amounts a human actually types.
+ *
+ * The operator enters major units — "500000" for five hundred thousand naira.
+ * Parsing to canonical minor units happens here, at the edge, on blur; the
+ * `amountMinor` representation never appears in the interface, and no
+ * floating-point value is ever written to the workspace.
+ */
+function BudgetInput({
+  value,
+  onCommit,
+  onError,
+}: {
+  value: Money;
+  onCommit: (next: Money) => void;
+  onError: (message: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(() => (value.amountMinor === 0 ? '' : toMajorString(value)));
+
+  useEffect(() => {
+    setDraft(value.amountMinor === 0 ? '' : toMajorString(value));
+  }, [value.amountMinor, value.currency]);
+
+  function commit() {
+    const raw = draft.trim();
+    if (raw === '') {
+      const blank = zero(value.currency);
+      if (blank.ok) onCommit(blank.value);
+      onError(null);
+      return;
+    }
+    const parsed = parseMoney(raw, value.currency);
+    if (!parsed.ok) {
+      onError(parsed.reason);
+      setDraft(value.amountMinor === 0 ? '' : toMajorString(value));
+      return;
+    }
+    onError(null);
+    onCommit(parsed.value.money);
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      onChange={e => { setDraft(e.target.value); onError(null); }}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      placeholder="0"
+      aria-label="Budget per person"
+      className={budgetInputCls}
+    />
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
@@ -127,6 +189,7 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
   const leave = onCancel ?? (() => router.push('/workspace/policies'));
   const [form, setForm] = useState<RecognitionPolicy | null>(null);
   const [baseCurrency, setBaseCurrency] = useState('NGN');
+  const [budgetError, setBudgetError] = useState<string | null>(null);
 
   useEffect(() => {
     const ws = getWorkspace();
@@ -254,27 +317,20 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
               <span className="flex-1 min-w-[8rem] font-body text-sm text-ink">{rule.momentType}</span>
               {rule.isEnabled && (
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <input
-                    type="number"
-                    min={0}
-                    value={rule.budgetPerPerson.amount || ''}
-                    onChange={e =>
-                      patchRule(rule.momentType, {
-                        budgetPerPerson: {
-                          amount: parseFloat(e.target.value) || 0,
-                          currency: rule.budgetPerPerson.currency || baseCurrency,
-                        },
-                      })
-                    }
-                    placeholder="0"
-                    className={budgetInputCls}
+                  <BudgetInput
+                    value={rule.budgetPerPerson}
+                    onCommit={budgetPerPerson => patchRule(rule.momentType, { budgetPerPerson })}
+                    onError={setBudgetError}
                   />
-                  <span className="font-body text-xs text-stone w-8">{rule.budgetPerPerson.currency || baseCurrency}</span>
+                  <span className="font-body text-xs text-stone w-8">{rule.budgetPerPerson.currency}</span>
                 </div>
               )}
             </div>
           ))}
         </div>
+        {budgetError && (
+          <p className="font-body text-sm text-ink bg-gold/15 rounded-xl px-4 py-3">{budgetError}</p>
+        )}
         <p className="font-body text-xs text-stone/60 -mb-1">
           Budgets are per person, per occasion, in {baseCurrency}.
         </p>

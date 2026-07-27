@@ -279,6 +279,20 @@ export function mergePersonFromImport(
   };
 }
 
+/**
+ * ADR-008 — an import never changes a person's lifecycle state.
+ *
+ * `mergePersonFromImport` spreads the existing record first and never writes
+ * `status` or `archivedAt`, so a higher-priority CSV cannot silently reactivate
+ * someone an operator paused or archived. Reactivation is a deliberate act in
+ * the directory, not a side effect of a spreadsheet upload.
+ *
+ * Exposed so the behaviour is directly assertable rather than only implied.
+ */
+export function importPreservesLifecycle(before: Person, after: Person): boolean {
+  return before.status === after.status && before.archivedAt === after.archivedAt;
+}
+
 export function createPersonFromDraft(
   draft: PersonDraft,
   source: PeopleSource,
@@ -356,7 +370,11 @@ export function createCsvSource(filename: string, now: string, id: string): Peop
 // those paths forgot to update it. It is derived instead.
 
 export interface ClassMembership {
+  /** Eligible for automatic recognition — `Active` only. */
   active: number;
+  /** Paused: retained and visible, but not scheduled. */
+  inactive: number;
+  /** Every retained member, whatever their status. */
   total: number;
 }
 
@@ -365,7 +383,7 @@ export function memberCountsByClass(
   classes: RelationshipClass[],
 ): Map<string, ClassMembership> {
   const counts = new Map<string, ClassMembership>();
-  for (const cls of classes) counts.set(cls.id, { active: 0, total: 0 });
+  for (const cls of classes) counts.set(cls.id, { active: 0, inactive: 0, total: 0 });
 
   for (const person of people) {
     // A person counts once per class, even if the id is repeated on the record.
@@ -373,26 +391,66 @@ export function memberCountsByClass(
       const entry = counts.get(classId);
       if (!entry) continue; // dangling reference — reported separately
       entry.total++;
-      if (person.status === 'Active') entry.active++;
+      if (isEligibleForAutomaticPopulation(person)) entry.active++;
+      else if (person.status === 'Inactive') entry.inactive++;
     }
   }
 
   return counts;
 }
 
+/**
+ * ADR-008 — only `Active` people are eligible for automatic Program
+ * populations. `Inactive` is a deliberate, reversible pause: the person stays
+ * in the directory and in reporting, but nothing is scheduled for them.
+ *
+ * This single predicate is what the whole three-state lifecycle exists for.
+ * Program population selection must use it and nothing else.
+ */
+export function isEligibleForAutomaticPopulation(person: Person): boolean {
+  return person.status === 'Active';
+}
+
+/** People a Program would currently pick up from the given classes. */
+export function eligiblePeopleForClasses(people: Person[], classIds: string[]): Person[] {
+  const wanted = new Set(classIds);
+  return people.filter(
+    p => isEligibleForAutomaticPopulation(p) && p.relationshipClassIds.some(id => wanted.has(id)),
+  );
+}
+
+/** Members eligible for automatic recognition — `Active` only. */
 export function activeMemberCount(classId: string, people: Person[]): number {
   return people.filter(
-    p => p.status === 'Active' && new Set(p.relationshipClassIds).has(classId),
+    p => isEligibleForAutomaticPopulation(p) && new Set(p.relationshipClassIds).has(classId),
   ).length;
 }
 
+/**
+ * Every retained member of a class, whatever their status — `Active`,
+ * `Inactive` and `Archived` alike. Documented as the *retention* count, not the
+ * eligibility count.
+ */
 export function totalMemberCount(classId: string, people: Person[]): number {
   return people.filter(p => new Set(p.relationshipClassIds).has(classId)).length;
 }
 
-/** Active people carrying no class at all — they receive no recognition. */
+/** Members who are paused rather than eligible. */
+export function inactiveMemberCount(classId: string, people: Person[]): number {
+  return people.filter(
+    p => p.status === 'Inactive' && new Set(p.relationshipClassIds).has(classId),
+  ).length;
+}
+
+/**
+ * People eligible for recognition who carry no class at all — no rule can
+ * reach them. Paused and archived people are excluded: they are not waiting on
+ * a class, they are deliberately out of scope.
+ */
 export function peopleWithoutClass(people: Person[]): Person[] {
-  return people.filter(p => p.status === 'Active' && p.relationshipClassIds.length === 0);
+  return people.filter(
+    p => isEligibleForAutomaticPopulation(p) && p.relationshipClassIds.length === 0,
+  );
 }
 
 export interface InvalidClassReference {
@@ -417,7 +475,10 @@ export function peopleWithInvalidClassReferences(
   const results: InvalidClassReference[] = [];
 
   for (const person of people) {
-    if (person.status !== 'Active') continue;
+    // Archived people are out of ordinary workflows, so a stale reference on
+    // one is not worth reporting. A paused person may be reactivated at any
+    // time, so theirs is.
+    if (person.status === 'Archived') continue;
     const inactiveClassIds: string[] = [];
     const missingClassIds: string[] = [];
 

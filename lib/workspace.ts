@@ -8,7 +8,7 @@ import {
   SCHEMA_V3_SETUP_STAGES,
   SCHEMA_V4_PEOPLE_SOURCE_STATUSES,
   SCHEMA_V4_PEOPLE_SOURCE_TYPES,
-  SCHEMA_V4_PERSON_STATUSES,
+  SCHEMA_V5_PERSON_STATUSES,
   WORKSPACE_KEY,
   isSchemaV2RelationshipType,
   isValidRelationshipLevel,
@@ -19,8 +19,9 @@ import type {
   SchemaV3SetupStage,
   SchemaV4PeopleSourceStatus,
   SchemaV4PeopleSourceType,
-  SchemaV4PersonStatus,
+  SchemaV5PersonStatus,
 } from './migrations';
+import type { Money as CanonicalMoney } from './money';
 
 export {
   COUNTRY_CODE_PATTERN,
@@ -136,12 +137,30 @@ export interface WorkspaceState {
 }
 
 // ─── Money ───────────────────────────────────────────────────────────────────
-// UI simplification: amount stored as face value (e.g. 500000 = NGN 500,000).
-// Canonical API will use smallest currency unit (kobo, cents) per Atlas §4.
-export interface Money {
-  amount: number;
-  currency: string;
-}
+// ADR-007 (Accepted): Money is an integer count of the currency's smallest unit
+// plus an ISO 4217 code. NGN 500,000 is stored as
+// `{ amountMinor: 50000000, currency: 'NGN' }`.
+//
+// The type and every helper live in lib/money.ts. Re-exported here so existing
+// imports from '@/lib/workspace' keep working.
+export type { Money, CurrencyCode } from './money';
+export {
+  CURRENCY_EXPONENTS,
+  addMoney,
+  compareMoney,
+  currencyExponent,
+  formatMoney,
+  formatMoneyLocalized,
+  isValidMoney,
+  money,
+  moneyEquals,
+  parseMoney,
+  subtractMoney,
+  sumMoney,
+  toMajorNumber,
+  toMajorString,
+  zero as zeroMoney,
+} from './money';
 
 // ─── Recognition Policy types ────────────────────────────────────────────────
 
@@ -176,7 +195,7 @@ export type RecognitionMomentType = (typeof RECOGNITION_MOMENT_TYPES)[number];
 
 export interface RecognitionRule {
   momentType: string;
-  budgetPerPerson: Money;
+  budgetPerPerson: CanonicalMoney;
   isEnabled: boolean;
 }
 
@@ -292,8 +311,20 @@ export type PeopleSourceType = SchemaV4PeopleSourceType;
 export const PEOPLE_SOURCE_STATUSES = SCHEMA_V4_PEOPLE_SOURCE_STATUSES;
 export type PeopleSourceStatus = SchemaV4PeopleSourceStatus;
 
-export const PERSON_STATUSES = SCHEMA_V4_PERSON_STATUSES;
-export type PersonStatus = SchemaV4PersonStatus;
+// ADR-008 (Accepted) — three lifecycle states.
+//   Active   — in the directory and eligible for automatic Program populations
+//   Inactive — in the directory, retained and reportable, excluded from
+//              automatic populations. Shown to users as "Paused"
+//   Archived — retained for history, hidden from ordinary workflows
+export const PERSON_STATUSES = SCHEMA_V5_PERSON_STATUSES;
+export type PersonStatus = SchemaV5PersonStatus;
+
+/** Human labels — the model says Inactive, the interface says Paused. */
+export const PERSON_STATUS_LABELS: Record<PersonStatus, string> = {
+  Active: 'Active',
+  Inactive: 'Paused',
+  Archived: 'Archived',
+};
 
 export interface PeopleSource {
   id: string;

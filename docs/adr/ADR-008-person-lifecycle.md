@@ -1,10 +1,17 @@
 # ADR-008 — Person has three lifecycle states
 
-**Status: Proposed — Council Review Required**
+**Status: Accepted**
 **Date drafted:** 2026-07-27
+**Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-e--person-lifecycle)
 
-> Not accepted. Do not implement until the Council has reviewed this decision.
+> Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+## Council conditions on acceptance
+
+- Person lifecycle is **`Active` | `Inactive` | `Archived`**.
+- **Inactive** people are retained and remain visible in the directory, and are **excluded from automatic Program populations**.
+- No existing person is automatically converted to `Inactive` by migration.
 
 ## Decision
 

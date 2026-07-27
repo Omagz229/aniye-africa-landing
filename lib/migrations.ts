@@ -24,6 +24,8 @@
  * enums for as long as v2 is current.
  */
 
+import { CURRENCY_CODE_PATTERN, currencyExponent, roundHalfAwayFromZero } from './money';
+
 // ─── Schema versions ─────────────────────────────────────────────────────────
 
 /**
@@ -32,8 +34,8 @@
  */
 export const LEGACY_UNVERSIONED_SCHEMA_VERSION = 1;
 
-/** Schema v4 — H2.5: People Sources and People. */
-export const CURRENT_WORKSPACE_SCHEMA_VERSION = 4;
+/** Schema v5 — R4: canonical Money (ADR-007) + Person `Inactive` (ADR-008). */
+export const CURRENT_WORKSPACE_SCHEMA_VERSION = 5;
 
 export const WORKSPACE_KEY = 'aniye_workspace';
 export const WORKSPACE_BACKUP_KEY_PREFIX = 'aniye_workspace_backup';
@@ -113,6 +115,18 @@ export type SchemaV4PeopleSourceStatus = (typeof SCHEMA_V4_PEOPLE_SOURCE_STATUSE
 
 export const SCHEMA_V4_PERSON_STATUSES = ['Active', 'Archived'] as const;
 export type SchemaV4PersonStatus = (typeof SCHEMA_V4_PERSON_STATUSES)[number];
+
+// ─── Schema v5 canonical values (pinned — see module header) ─────────────────
+
+/**
+ * ADR-008 — `Inactive` restored. A person who is retained and visible in the
+ * directory but excluded from automatic Program populations.
+ *
+ * Widening only: no existing record changes state, and nothing is ever
+ * migrated *into* `Inactive`.
+ */
+export const SCHEMA_V5_PERSON_STATUSES = ['Active', 'Inactive', 'Archived'] as const;
+export type SchemaV5PersonStatus = (typeof SCHEMA_V5_PERSON_STATUSES)[number];
 
 // ─── ADR-002 legacy mapping (schema v1 → v2) ─────────────────────────────────
 
@@ -446,7 +460,125 @@ export const MIGRATIONS: readonly Migration[] = [
       schemaVersion: 4,
     }),
   },
+  {
+    id: 'v4-to-v5-adr-007-money-minor-units-and-adr-008-person-inactive',
+    from: 4,
+    to: 5,
+    description:
+      'ADR-007 — convert Money from major-unit face values to integer minor units. ADR-008 — widen Person status to include Inactive.',
+    // Destructive: every Money value is rewritten. The pre-migration payload is
+    // backed up verbatim before this runs.
+    //
+    // ADR-008 needs no transform at all — the status union simply widens, and
+    // nothing is ever migrated *into* Inactive. Only post-migration validation
+    // changes, which is why the two ship together rather than as separate rungs.
+    destructive: true,
+    run: (workspace, ctx) => {
+      const policies = Array.isArray(workspace.recognitionPolicies)
+        ? workspace.recognitionPolicies
+        : [];
+
+      const migratedPolicies = policies.map(policy => {
+        if (!isPlainObject(policy)) return policy;
+        const rules = Array.isArray(policy.recognitionRules) ? policy.recognitionRules : [];
+
+        return {
+          ...policy,
+          recognitionRules: rules.map((rule, i) => {
+            if (!isPlainObject(rule)) return rule;
+            const label = `policy "${String(policy.id ?? '?')}" rule ${i + 1} (${String(rule.momentType ?? 'unknown occasion')})`;
+            return {
+              ...rule,
+              budgetPerPerson: migrateMoneyV4toV5(rule.budgetPerPerson, label, ctx),
+            };
+          }),
+        };
+      });
+
+      return {
+        ...workspace,
+        recognitionPolicies: migratedPolicies,
+        schemaVersion: 5,
+      };
+    },
+  },
 ];
+
+// ─── ADR-007 Money transform (schema v4 → v5) ────────────────────────────────
+
+/**
+ * Convert one legacy Money value to canonical minor units.
+ *
+ * Legacy shape: `{ amount: number (major units), currency: string }`
+ * Canonical:    `{ amountMinor: integer, currency: string }`
+ *
+ *   amountMinor = round(amount × 10^exponent(currency))
+ *
+ * **Idempotent.** A value already carrying a valid `amountMinor` is returned
+ * untouched, so re-running the chain cannot multiply an amount twice.
+ *
+ * **Fails loudly, never silently.** An unknown or malformed currency is left
+ * unconverted and reported as a warning; post-migration validation then refuses
+ * the workspace rather than storing a value whose scale nobody can determine.
+ * Guessing an exponent of 2 would misprice every JPY amount by a hundredfold.
+ *
+ * Note on why the *live* currency table is used here rather than a pinned copy:
+ * a currency's minor-unit exponent is an external fact (ISO 4217), not a schema
+ * decision. Adding NGN's neighbours to the table later cannot change how NGN
+ * migrates today. That is the opposite of `SCHEMA_V2_RELATIONSHIP_TYPES`, where
+ * the value set *was* the decision and had to be frozen.
+ */
+function migrateMoneyV4toV5(raw: unknown, label: string, ctx: MigrationContext): unknown {
+  if (!isPlainObject(raw)) {
+    ctx.warn(`${label} had no budget value; left as-is.`);
+    return raw;
+  }
+
+  const currency = typeof raw.currency === 'string' ? raw.currency.trim().toUpperCase() : '';
+
+  // Already canonical — return unchanged so the migration is idempotent.
+  if (typeof raw.amountMinor === 'number') {
+    if (!Number.isSafeInteger(raw.amountMinor)) {
+      ctx.warn(`${label} already had amountMinor ${String(raw.amountMinor)}, which is not a safe integer.`);
+      return raw;
+    }
+    const { amount: _legacyAmount, ...rest } = raw;
+    return { ...rest, currency: currency || raw.currency };
+  }
+
+  if (typeof raw.amount !== 'number' || !Number.isFinite(raw.amount)) {
+    ctx.warn(`${label} had a non-numeric amount (${String(raw.amount)}); left unconverted.`);
+    return raw;
+  }
+
+  const exponent = currencyExponent(currency);
+  if (exponent === null) {
+    ctx.warn(
+      `${label} uses currency "${String(raw.currency)}", which is not a known ISO 4217 code. ` +
+        'Its amount was left unconverted rather than guessing a decimal scale.',
+    );
+    return raw;
+  }
+
+  const scaled = raw.amount * 10 ** exponent;
+  const amountMinor = roundHalfAwayFromZero(scaled);
+
+  // Report any precision the currency could not hold, rather than concealing it.
+  if (Math.abs(scaled - amountMinor) > Number.EPSILON * Math.max(1, Math.abs(scaled))) {
+    ctx.warn(
+      `${label} held ${raw.amount} ${currency}, which is finer than ${currency} supports ` +
+        `(${exponent} decimal place${exponent === 1 ? '' : 's'}). Rounded to ${amountMinor} minor units.`,
+    );
+  }
+
+  if (!Number.isSafeInteger(amountMinor)) {
+    ctx.warn(`${label} converted to ${amountMinor}, which exceeds the safe integer range; left unconverted.`);
+    return raw;
+  }
+
+  const { amount: _legacyAmount, ...rest } = raw;
+  return { ...rest, amountMinor, currency };
+}
 
 // ─── Version detection ───────────────────────────────────────────────────────
 
@@ -569,6 +701,50 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
     }
   }
 
+  // ADR-007 — every persisted Money must be canonical before the app sees it.
+  // A legacy `amount` surviving here would be a value of unknown scale.
+  for (const [i, policy] of raw.recognitionPolicies.entries()) {
+    if (!isPlainObject(policy)) {
+      return { ok: false, reason: `Recognition policy at index ${i} is not an object.` };
+    }
+    if (!Array.isArray(policy.recognitionRules)) continue;
+
+    for (const rule of policy.recognitionRules) {
+      if (!isPlainObject(rule)) continue;
+      const label = `Policy "${String(policy.id)}" rule "${String(rule.momentType)}"`;
+      const budget = rule.budgetPerPerson;
+
+      if (!isPlainObject(budget)) {
+        return { ok: false, reason: `${label} has no budget value.` };
+      }
+      // Currency is checked first: an unknown currency is the *cause* of a
+      // failed conversion, and reporting the leftover `amount` instead would
+      // name the symptom.
+      if (
+        typeof budget.currency !== 'string' ||
+        !CURRENCY_CODE_PATTERN.test(budget.currency) ||
+        currencyExponent(budget.currency) === null
+      ) {
+        return {
+          ok: false,
+          reason: `${label} uses currency "${String(budget.currency)}", which is not a supported ISO 4217 code. Its amount cannot be scaled safely.`,
+        };
+      }
+      if ('amount' in budget) {
+        return {
+          ok: false,
+          reason: `${label} still carries a legacy major-unit \`amount\`. Its scale is unknown, so it cannot be used.`,
+        };
+      }
+      if (typeof budget.amountMinor !== 'number' || !Number.isSafeInteger(budget.amountMinor)) {
+        return {
+          ok: false,
+          reason: `${label} has a budget that is not a safe integer of minor units: ${String(budget.amountMinor)}.`,
+        };
+      }
+    }
+  }
+
   for (const [i, source] of raw.peopleSources.entries()) {
     if (!isPlainObject(source)) {
       return { ok: false, reason: `People source at index ${i} is not an object.` };
@@ -602,7 +778,7 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
     }
     if (
       typeof person.status !== 'string' ||
-      !(SCHEMA_V4_PERSON_STATUSES as readonly string[]).includes(person.status)
+      !(SCHEMA_V5_PERSON_STATUSES as readonly string[]).includes(person.status)
     ) {
       return { ok: false, reason: `Person "${person.id}" has an invalid status: ${String(person.status)}.` };
     }

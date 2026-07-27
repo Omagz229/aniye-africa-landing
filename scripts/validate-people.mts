@@ -167,15 +167,23 @@ function person(over: Partial<Person> & { id: string }): Person {
 console.log('\nPeople and People Sources (H2.5) — validation\n');
 console.log(`  schema v3 → v${CURRENT_WORKSPACE_SCHEMA_VERSION}\n`);
 
-check('1. A v3 workspace migrates to v4', () => {
+check('1. A v3 workspace migrates to v4 and on to the current version', () => {
   const result = migrateWorkspace<WorkspaceState>(makeV3Workspace());
   assert(result.status === 'ok', `Migration rejected the v3 fixture: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 3, 'Payload was not detected as v3.');
-  assertEqual(result.toVersion, 4, 'Migration did not reach v4.');
   assertEqual(result.migrated, true, 'Migration did not report that it ran.');
-  assertEqual(result.applied.length, 1, 'Expected exactly one migration from v3.');
-  assertEqual(result.workspace.schemaVersion, 4, 'Migrated workspace has the wrong schemaVersion.');
-  // Purely additive, so setupStage must be untouched.
+
+  // v4 is no longer the final version, so this suite asserts the H2.5 rung ran
+  // and left the chain consistent — not that the walk stopped there.
+  assertEqual(result.applied[0], 'v3-to-v4-h2-5-people-and-sources', 'H2.5 was not the first rung from v3.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 3,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
+  assertEqual(result.workspace.schemaVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migrated workspace has the wrong schemaVersion.');
+  // The H2.5 rung is purely additive, so setupStage must be untouched.
   assertEqual(result.workspace.setupStage, 'assignments', 'setupStage changed during an additive migration.');
 });
 
@@ -219,8 +227,14 @@ check('4. Migration is idempotent', () => {
   const first = loadAndMigrateWorkspace<WorkspaceState>(storage);
   assert(first.status === 'ok', 'First load failed.');
   assertEqual(first.migrated, true, 'First load should have migrated.');
-  // v3 → v4 is additive, so no backup should be taken.
-  assertEqual(first.backupKey, null, 'An additive migration created a backup.');
+  // The v3 → v4 rung is additive, but the chain now continues through the
+  // destructive v4 → v5 Money migration, so exactly one backup is expected.
+  assert(first.backupKey !== null, 'A destructive migration in the chain took no backup.');
+  assertEqual(
+    storage.keys().filter(k => k.startsWith('aniye_workspace_backup')).length,
+    1,
+    'Expected exactly one backup for the whole chain.',
+  );
   const afterFirst = storage.getItem(WORKSPACE_KEY);
   const keyCount = storage.keys().length;
 
@@ -233,7 +247,7 @@ check('4. Migration is idempotent', () => {
   }
 });
 
-check('5. A v1 workspace migrates through v2, v3 and v4 in order', () => {
+check('5. A v1 workspace migrates through v2, v3, v4 and v5 in order', () => {
   const v1 = {
     organizationId: 'org-v1', companyName: 'Legacy Holdings',
     website: '', industry: 'Financial Services', employeeCount: '201-500',
@@ -250,11 +264,16 @@ check('5. A v1 workspace migrates through v2, v3 and v4 in order', () => {
   const result = migrateWorkspace<WorkspaceState>(v1);
   assert(result.status === 'ok', `v1 → v4 failed: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 1, 'Payload was not detected as v1.');
-  assertEqual(result.toVersion, 4, 'Migration did not reach v4.');
-  assertEqual(result.applied.length, 3, 'Expected three migrations from v1.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 1,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
   assert(result.applied[0].includes('adr-002'), 'ADR-002 did not run first.');
   assert(result.applied[1].includes('policy-assignments'), 'H2.4 did not run second.');
   assert(result.applied[2].includes('people'), 'H2.5 did not run third.');
+  assert(result.applied[3].includes('money'), 'ADR-007 Money did not run fourth.');
 
   assertEqual(result.workspace.relationshipClasses[0].type, 'Board', 'ADR-002 mapping did not run.');
   assertEqual(result.workspace.policyAssignments.length, 0, 'H2.4 collection missing.');
@@ -534,7 +553,14 @@ check('22. All existing policies and assignments survive the migration', () => {
   const published = ws.recognitionPolicies.find(p => p.id === 'policy-exec');
   assert(published, 'The published policy was lost.');
   assertEqual(published.status, 'Published', 'Policy status changed.');
-  assertEqual(published.recognitionRules[0].budgetPerPerson.amount, 100000, 'Policy budget changed.');
+  // The fixture is a legacy v3 payload holding 100,000 NGN in major units.
+  // After the v4 → v5 Money migration that is 10,000,000 kobo.
+  assertEqual(published.recognitionRules[0].budgetPerPerson.amountMinor, 10_000_000, 'Policy budget changed.');
+  assertEqual(published.recognitionRules[0].budgetPerPerson.currency, 'NGN', 'Policy currency changed.');
+  assert(
+    !('amount' in published.recognitionRules[0].budgetPerPerson),
+    'The legacy major-unit amount survived migration.',
+  );
 
   assertEqual(ws.policyAssignments.length, 1, 'An assignment was lost.');
   const assignment = ws.policyAssignments[0];
