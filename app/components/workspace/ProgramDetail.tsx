@@ -127,8 +127,8 @@ export default function ProgramDetail({ programId }: { programId: string }) {
             {cls?.name ?? 'the group'} won&apos;t change who is included.
           </p>
           <p className="font-body text-sm text-stone leading-relaxed mt-2">
-            Individual recognition moments will be prepared in the next operational stage, which is
-            not yet enabled in this recovery build.
+            This campaign is ready for Aniyé to prepare. Individual recognition moments are prepared
+            by the Aniyé team; you&apos;ll see progress here once that stage reports back.
           </p>
         </div>
       )}

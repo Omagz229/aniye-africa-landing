@@ -25,7 +25,9 @@
 | — | **Council acceptance of ADR-004 … ADR-009** | ✅ **Accepted 2026-07-27** | R4 |
 | — | **R4 — schema v5 (Money + Person lifecycle)** | ✅ **Complete** | R4 |
 | — | **R5 — H2.6 Campaign Programs (schema v6)** | ✅ **Complete — H2 Configure done** | R5 |
-| — | **Moment generation** | ⬅️ **Next — the closed loop begins** | — |
+| — | **H3.1 — Operational foundation + Moment generation** | ✅ **Complete** | H3.1 |
+| — | **H3.2 — Execution Brief** | ⬅️ **Next** | — |
+| — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
 | 6 | H3.1 — Moment Engine | ⬜ Not started | — |
@@ -249,6 +251,39 @@ All six decisions are **Proposed — Council Review Required**. None is accepted
 **Setup completes here.** With one Active Program, the administrator can finish setup; `setupStage` advances to `active` and the workspace states plainly: *"Your recognition foundation is ready"*, followed by the truthful next state — Moment execution is not yet enabled in this recovery build. No dead end, no unavailable button.
 
 **Validation: 137 checks across six suites, all passing** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35.
+
+### ✅ H3.1 — Operational foundation and Moment generation
+
+**ADR-010 accepted and implemented.** `WorkspaceState` remains **v6** customer configuration; operational records live in a **separate `OperationsState` v1** under its own storage key, versioned independently. Access is through a repository interface with named operations — there is deliberately no generic `save(state)`.
+
+**A separate Operations environment.** `/operations/*` has its own shell, navigation, header and vocabulary, and reuses nothing from `WorkspaceSidebar`. Future sections are shown as explicitly unavailable rather than as clickable dead ends.
+
+**Moment generation.** From an Active Campaign's frozen population: eligibility is re-evaluated against current configuration, and **nobody is silently dropped** — a person who cannot proceed gets a Moment marked `NeedsReview` with a named issue and a link to the Workspace page that fixes it. Operations never edits customer configuration.
+
+**Decisions and Events, per ADR-006.** Every Moment gets a `MomentQualification` Decision explaining its status; successful resolution additionally gets a `PolicyResolution` Decision recording the candidates, the winner and the precedence reason. Events are append-only. **Previewing writes nothing** — confirmation commits Moments, Decisions and Events in one atomic operation, with the proposed state validated in full first.
+
+**Idempotency.** Every Moment carries a deterministic `sourceKey`. Refreshing, returning, double-clicking or re-preparing the same campaign reports records as *already prepared* rather than duplicating them.
+
+**Validation: 172 checks across seven suites, all passing** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, operations 35.
+
+### ⛔ The hard gate before an external pilot
+
+**Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
+
+1. A **production backend** with durable server-side persistence.
+2. **Authentication** — none exists; anyone who can reach the app can reach `/operations`.
+3. **Multi-tenancy** with enforced isolation, since operators work across organizations.
+4. **Secure file storage**, before proof of delivery exists.
+
+**No vendor, courier, recipient or additional internal user may be given access while Operations runs on browser storage.** Each implies a second party reading or writing operational records, and this adapter can authenticate nobody and prevent nobody with devtools from rewriting the audit trail.
+
+This moves the backend **earlier than the H2→H3 checkpoint anticipated** — it is now the gate on Execution Briefs reaching anyone outside Aniyé, not merely a scaling concern.
+
+### Still required before an external pilot
+
+- **EX-H1** — assessment autosave; ~15 fields are still lost on refresh.
+- **EX-H3** — `PolicyForm` guided rebuild.
+- **Live responsive visual review on real devices.** Never performed. H3.1 adds four more routes that have had no visual check at any width.
 
 ### The remaining gate before the minimum closed operational loop
 
@@ -665,3 +700,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H2 → H3 Architecture Checkpoint — 6 ADRs drafted, all Proposed. Council approval is now the only gate. Documentation only; no schema version changed.*
 *Updated after R4 — all 6 ADRs accepted; schema v5 implemented (Money + Person lifecycle); C4 and C6 resolved; Programs unblocked. System Atlas v3.0.*
 *Updated after R5 — H2.6 Campaign Programs implemented (schema v6); H2 Configure complete; Moment generation is the next milestone. System Atlas v3.1.*
+*Updated after H3.1 — ADR-010 accepted; OperationsState v1 separate from WorkspaceState v6; Moment generation, Decisions and Operational Events implemented; backend and authentication now the hard gate before pilot. System Atlas v3.2.*

@@ -26,6 +26,7 @@
 | [ADR-007](ADR-007-money-and-financial-spine.md) | Money as integer minor units | **Accepted** | 2026-07-27 |
 | [ADR-008](ADR-008-person-lifecycle.md) | Person has three lifecycle states | **Accepted** | 2026-07-27 |
 | [ADR-009](ADR-009-policy-lifecycle.md) | Policy lifecycle stays three states | **Accepted** | 2026-07-27 |
+| [ADR-010](ADR-010-operational-persistence-boundary.md) | Operational records live outside WorkspaceState | **Accepted** | 2026-07-27 |
 
 Every accepted record carries the **Council conditions** attached at acceptance. Those conditions are
 binding and in several cases narrow the original draft — ADR-004 most notably, where a Program now

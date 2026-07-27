@@ -1,0 +1,793 @@
+/**
+ * Deterministic validation for H3.1 — the operational foundation.
+ *
+ * Run with:  npm run validate:operations
+ *
+ * Covers ADR-010 (persistence boundary), ADR-006 (Decisions and Operational
+ * Events), and Campaign Moment generation. Storage is injected, so the
+ * atomicity and idempotency guarantees are proven rather than assumed.
+ */
+
+import { CURRENT_WORKSPACE_SCHEMA_VERSION, WORKSPACE_KEY } from '../lib/migrations';
+import { createWorkspace } from '../lib/workspace';
+import type {
+  Money,
+  PolicyAssignment,
+  Person,
+  Program,
+  RecognitionPolicy,
+  RelationshipClass,
+} from '../lib/workspace';
+import { createCampaignDraft, activateCampaign } from '../lib/programs';
+import {
+  CURRENT_OPERATIONS_SCHEMA_VERSION,
+  OPERATIONS_KEY,
+  OPERATIONS_QUARANTINE_KEY,
+  campaignSourceKey,
+  emptyOperationsState,
+  validateOperationsState,
+} from '../lib/operations/types';
+import type { OperationsState } from '../lib/operations/types';
+import { createLocalOperationsRepository } from '../lib/operations/local-store';
+import type { GenerationContext } from '../lib/operations/generation';
+import { assessPerson, buildCancellation, buildMomentBatch, previewPreparation } from '../lib/operations/generation';
+
+// ─── Harness ─────────────────────────────────────────────────────────────────
+
+let passed = 0;
+const failures: string[] = [];
+
+function check(name: string, fn: () => void): void {
+  try {
+    fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    failures.push(`${name}\n      ${detail}`);
+    console.log(`  ✗ ${name}\n      ${detail}`);
+  }
+}
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function assertEqual<T>(actual: T, expected: T, message: string): void {
+  if (actual !== expected) {
+    throw new Error(`${message}\n      expected: ${String(expected)}\n      actual:   ${String(actual)}`);
+  }
+}
+
+function createMemoryStorage(seed: Record<string, string> = {}) {
+  const data = new Map<string, string>(Object.entries(seed));
+  return {
+    getItem: (key: string): string | null => (data.has(key) ? data.get(key)! : null),
+    setItem: (key: string, value: string): void => { data.set(key, value); },
+    keys: (): string[] => [...data.keys()],
+  };
+}
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+
+const T0 = '2026-07-01T00:00:00.000Z';
+const NOW = '2026-08-01T00:00:00.000Z';
+const WS = 'org-1';
+
+let n = 0;
+const ids = {
+  moment: () => `moment-${++n}`,
+  decision: () => `decision-${++n}`,
+  event: () => `event-${++n}`,
+};
+
+function ngn(major: number): Money { return { amountMinor: major * 100, currency: 'NGN' }; }
+function kes(major: number): Money { return { amountMinor: major * 100, currency: 'KES' }; }
+
+function cls(id: string, name: string, isActive = true): RelationshipClass {
+  return { id, name, type: 'Employee', level: 0, description: '', isDefault: false, isActive, createdAt: T0, updatedAt: T0 };
+}
+
+function policy(id: string, name: string, status: RecognitionPolicy['status'], budget: Money, occasion = 'Birthday'): RecognitionPolicy {
+  return {
+    id, workspaceId: WS, name, description: '',
+    recognitionRules: [{ momentType: occasion, budgetPerPerson: budget, isEnabled: true }],
+    approvalWorkflow: 'Manager', preferredGiftCategories: [], excludedCategories: [],
+    deliveryRequirement: 'Standard', preferredDeliveryWindow: '', signatureRequired: false,
+    proofRequired: false, reportingCadence: 'None', status, version: 4,
+    createdAt: T0, updatedAt: T0, ...(status === 'Published' ? { publishedAt: T0 } : {}),
+  };
+}
+
+function assignment(over: Partial<PolicyAssignment> & { id: string }): PolicyAssignment {
+  return {
+    relationshipClassId: 'class-exec', recognitionPolicyId: 'policy-global',
+    priority: 0, isActive: true, createdAt: T0, updatedAt: T0, ...over,
+  };
+}
+
+function person(over: Partial<Person> & { id: string }): Person {
+  return {
+    firstName: 'Ada', lastName: over.id, relationshipClassIds: ['class-exec'],
+    sourceId: 'source-1', sourceType: 'Manual', status: 'Active',
+    createdAt: T0, updatedAt: T0, ...over,
+  };
+}
+
+const CLASSES = [cls('class-exec', 'Executive Leadership'), cls('class-off', 'Retired', false)];
+const POLICIES = [
+  policy('policy-global', 'Global Recognition', 'Published', ngn(50_000)),
+  policy('policy-ke', 'Kenya Recognition', 'Published', kes(20_000)),
+];
+const ASSIGNMENTS = [
+  assignment({ id: 'a-global', recognitionPolicyId: 'policy-global' }),
+  assignment({ id: 'a-ke', recognitionPolicyId: 'policy-ke', countryCode: 'KE', priority: 1 }),
+];
+
+function activeCampaign(personIds: string[], over: Partial<Program> = {}): Program {
+  const draft = createCampaignDraft(
+    {
+      name: 'December appreciation', relationshipClassId: 'class-exec', occasionType: 'Birthday',
+      campaignStartDate: '2026-12-01', campaignEndDate: '2026-12-20',
+      budgetEnvelopes: [ngn(1_000_000), kes(1_000_000)],
+    },
+    T0, 'program-1',
+  );
+  return {
+    ...draft, status: 'Active', activatedAt: T0,
+    frozenPopulation: { personIds, frozenAt: T0 },
+    ...over,
+  };
+}
+
+function context(people: Person[], over: Partial<GenerationContext> = {}): GenerationContext {
+  return {
+    workspaceId: WS,
+    program: activeCampaign(people.map(p => p.id)),
+    people,
+    classes: CLASSES,
+    assignments: ASSIGNMENTS,
+    policies: POLICIES,
+    existingSourceKeys: new Map(),
+    now: NOW,
+    ...over,
+  };
+}
+
+/** A repository with initialised, empty state. */
+function freshRepo(workspaceId = WS) {
+  const storage = createMemoryStorage();
+  const repo = createLocalOperationsRepository(storage);
+  repo.initialise(workspaceId, NOW);
+  return { repo, storage };
+}
+
+console.log('\nOperational foundation (H3.1) — validation\n');
+
+// ─── Part 1: persistence boundary ────────────────────────────────────────────
+
+check('1. OperationsState initialises separately from WorkspaceState', () => {
+  const storage = createMemoryStorage();
+  const repo = createLocalOperationsRepository(storage);
+
+  const init = repo.initialise(WS, NOW);
+  assert(init.ok, `Initialise failed: ${init.ok ? '' : init.reason}`);
+  assertEqual(storage.keys().length, 1, 'Expected exactly one storage key.');
+  assertEqual(storage.keys()[0], OPERATIONS_KEY, 'Operations wrote to the wrong key.');
+  const opsKey: string = OPERATIONS_KEY;
+  const wsKey: string = WORKSPACE_KEY;
+  assert(opsKey !== wsKey, 'Operations shares a key with the workspace.');
+
+  // The workspace document is untouched by anything Operations does.
+  assertEqual(storage.getItem(WORKSPACE_KEY), null, 'Operations wrote into the workspace key.');
+});
+
+check('2. The workspace schema remains v6', () => {
+  assertEqual(CURRENT_WORKSPACE_SCHEMA_VERSION, 6, 'H3.1 changed the workspace schema version.');
+
+  const ws = createWorkspace({
+    companyName: 'Meridian', website: '', industry: 'Logistics', employeeCount: '11-50',
+    operatingCountries: ['Nigeria'], contactName: 'Ada', contactEmail: 'a@x.example',
+    contactRole: 'Head of People', phone: '',
+  });
+  assertEqual(ws.schemaVersion, 6, 'A new workspace is not at v6.');
+  // No operational collection leaked into the customer document.
+  for (const forbidden of ['moments', 'decisions', 'events']) {
+    assert(!(forbidden in ws), `WorkspaceState gained an operational collection: ${forbidden}.`);
+  }
+});
+
+check('3. OperationsState uses its own schemaVersion 1', () => {
+  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 1, 'Operations schema version is not 1.');
+  const state = emptyOperationsState(WS, NOW);
+  assertEqual(state.schemaVersion, 1, 'Empty state has the wrong schema version.');
+  const opsVersion: number = CURRENT_OPERATIONS_SCHEMA_VERSION;
+  const wsVersion: number = CURRENT_WORKSPACE_SCHEMA_VERSION;
+  assert(opsVersion !== wsVersion, 'The two schema versions are coupled; they must move independently.');
+});
+
+check('4. OperationsState cannot silently attach to another workspace', () => {
+  const foreign = JSON.stringify(emptyOperationsState('org-somebody-else', T0));
+  const storage = createMemoryStorage({ [OPERATIONS_KEY]: foreign });
+  const repo = createLocalOperationsRepository(storage);
+
+  const loaded = repo.load(WS);
+  assertEqual(loaded.ok, false, 'A foreign workspace payload was adopted.');
+  if (!loaded.ok) assert(loaded.reason.includes('org-somebody-else'), 'The refusal does not name the foreign workspace.');
+
+  // It is preserved, never overwritten — it is another organization's history.
+  assertEqual(storage.getItem(OPERATIONS_KEY), foreign, 'The foreign payload was overwritten.');
+  assertEqual(storage.getItem(OPERATIONS_QUARANTINE_KEY), foreign, 'The foreign payload was not set aside.');
+
+  const init = repo.initialise(WS, NOW);
+  assertEqual(init.ok, false, 'Initialise replaced a foreign payload.');
+  assertEqual(storage.getItem(OPERATIONS_KEY), foreign, 'Initialise overwrote the foreign payload.');
+});
+
+check('5. Invalid stored operations data is preserved and refused safely', () => {
+  for (const bad of ['{not json', 'null', '[]', '{}', '{"schemaVersion":99,"workspaceId":"org-1"}']) {
+    const storage = createMemoryStorage({ [OPERATIONS_KEY]: bad });
+    const repo = createLocalOperationsRepository(storage);
+    const loaded = repo.load(WS);
+    assertEqual(loaded.ok, false, `Payload ${bad} was accepted.`);
+    assertEqual(storage.getItem(OPERATIONS_KEY), bad, `Payload ${bad} was overwritten.`);
+  }
+
+  // Quarantine is written once, not on every failing read.
+  const storage = createMemoryStorage({ [OPERATIONS_KEY]: '{not json' });
+  const repo = createLocalOperationsRepository(storage);
+  repo.load(WS); repo.load(WS); repo.load(WS);
+  assertEqual(storage.keys().length, 2, 'Repeated failing reads created extra quarantine copies.');
+});
+
+// ─── Part 2: eligibility ─────────────────────────────────────────────────────
+
+check('6. An active frozen person with valid resolution creates ReadyForExecution', () => {
+  const people = [person({ id: 'p1', country: 'NG' })];
+  const assessment = assessPerson('p1', context(people));
+  assertEqual(assessment.status, 'ReadyForExecution', 'A valid person is not ready.');
+  assertEqual(assessment.issues.length, 0, 'A valid person has issues.');
+  assert(assessment.resolution, 'A valid person has no resolution snapshot.');
+});
+
+check('7. An Inactive frozen person creates NeedsReview', () => {
+  const people = [person({ id: 'p1', country: 'NG', status: 'Inactive' })];
+  const assessment = assessPerson('p1', context(people));
+  assertEqual(assessment.status, 'NeedsReview', 'A paused person was marked ready.');
+  assert(assessment.issues.some(i => i.code === 'person-inactive'), 'The paused issue was not recorded.');
+  // Not silently skipped — the assessment exists.
+  assertEqual(previewPreparation(context(people)).pending.length, 1, 'A paused person was dropped.');
+});
+
+check('8. An Archived frozen person creates NeedsReview', () => {
+  const people = [person({ id: 'p1', country: 'NG', status: 'Archived', archivedAt: T0 })];
+  const assessment = assessPerson('p1', context(people));
+  assertEqual(assessment.status, 'NeedsReview', 'An archived person was marked ready.');
+  assert(assessment.issues.some(i => i.code === 'person-archived'), 'The archived issue was not recorded.');
+});
+
+check('9. A missing frozen person creates NeedsReview', () => {
+  const ctx = context([], { program: activeCampaign(['p-gone']) });
+  const assessment = assessPerson('p-gone', ctx);
+  assertEqual(assessment.status, 'NeedsReview', 'A missing person was marked ready.');
+  assert(assessment.issues.some(i => i.code === 'person-missing'), 'The missing-person issue was not recorded.');
+  assertEqual(previewPreparation(ctx).pending.length, 1, 'A missing person was silently skipped.');
+});
+
+check('10. An inactive group creates NeedsReview', () => {
+  const people = [person({ id: 'p1', country: 'NG' })];
+  const ctx = context(people, { classes: [cls('class-exec', 'Executive Leadership', false)] });
+  const assessment = assessPerson('p1', ctx);
+  assertEqual(assessment.status, 'NeedsReview', 'An inactive group produced a ready moment.');
+  assert(assessment.issues.some(i => i.code === 'group-inactive'), 'The inactive-group issue was not recorded.');
+
+  // A missing group too.
+  const missing = assessPerson('p1', context(people, { classes: [] }));
+  assert(missing.issues.some(i => i.code === 'group-missing'), 'The missing-group issue was not recorded.');
+});
+
+check('11. A missing country creates NeedsReview when the group has country rules', () => {
+  const people = [person({ id: 'p1', country: undefined })];
+  const assessment = assessPerson('p1', context(people));
+  assertEqual(assessment.status, 'NeedsReview', 'A person with no country was marked ready.');
+  assert(assessment.issues.some(i => i.code === 'country-missing'), 'The missing-country issue was not recorded.');
+
+  // With no country-scoped assignment, a missing country is not a problem.
+  const globalOnly = assessPerson('p1', context(people, {
+    assignments: [assignment({ id: 'a-global', recognitionPolicyId: 'policy-global' })],
+  }));
+  assertEqual(globalOnly.status, 'ReadyForExecution', 'A missing country blocked a global-only group.');
+});
+
+check('12. No executable assignment creates NeedsReview', () => {
+  const people = [person({ id: 'p1', country: 'NG' })];
+  const assessment = assessPerson('p1', context(people, { assignments: [] }));
+  assertEqual(assessment.status, 'NeedsReview', 'A person with no assignment was marked ready.');
+  assert(assessment.issues.some(i => i.code === 'no-executable-assignment'), 'The missing-assignment issue was not recorded.');
+  assertEqual(assessment.resolution, undefined, 'A resolution was produced with no assignment.');
+
+  // An archived policy is equally not executable.
+  const archived = assessPerson('p1', context(people, {
+    policies: POLICIES.map(p => ({ ...p, status: 'Archived' as const })),
+  }));
+  assert(archived.issues.some(i => i.code === 'no-executable-assignment'), 'An archived policy resolved.');
+});
+
+check('13. A missing occasion rule creates NeedsReview', () => {
+  const people = [person({ id: 'p1', country: 'NG' })];
+  const ctx = context(people, {
+    program: activeCampaign(['p1'], { occasionType: 'Farewell' }),
+  });
+  const assessment = assessPerson('p1', ctx);
+  assertEqual(assessment.status, 'NeedsReview', 'A missing occasion rule produced a ready moment.');
+  assert(assessment.issues.some(i => i.code === 'no-occasion-rule'), 'The missing-rule issue was not recorded.');
+  assert(assessment.issues.some(i => i.href === '/workspace/policies'), 'No route to the fix was offered.');
+});
+
+// ─── Part 3: snapshots ───────────────────────────────────────────────────────
+
+check('14. Successful resolution snapshots assignment, policy version, rule and Money', () => {
+  const people = [person({ id: 'p1', country: 'KE' })];
+  const assessment = assessPerson('p1', context(people));
+  const snapshot = assessment.resolution;
+  assert(snapshot, 'No resolution snapshot.');
+
+  assertEqual(snapshot.policyAssignmentId, 'a-ke', 'The wrong assignment was snapshotted.');
+  assertEqual(snapshot.policyId, 'policy-ke', 'The wrong policy was snapshotted.');
+  assertEqual(snapshot.policyName, 'Kenya Recognition', 'The policy name was not captured.');
+  assertEqual(snapshot.policyVersion, 4, 'The policy version was not captured.');
+  assertEqual(snapshot.resolvedCountryScope, 'KE', 'The country scope was not captured.');
+  assertEqual(snapshot.occasionType, 'Birthday', 'The occasion was not captured.');
+  assertEqual(snapshot.approvedRecognitionBudget.amountMinor, 2_000_000, 'The budget is wrong.');
+  assertEqual(snapshot.approvedRecognitionBudget.currency, 'KES', 'The currency is wrong.');
+  assertEqual(snapshot.resolvedAt, NOW, 'The resolution timestamp was not captured.');
+});
+
+check('15. A Moment snapshot does not duplicate full Person or Policy records', () => {
+  const people = [person({ id: 'p1', country: 'NG', email: 'a@x.example', role: 'CEO' })];
+  const batch = buildMomentBatch(context(people), ids);
+  const moment = batch.moments[0];
+
+  // Recipient: only the operational subset.
+  assertEqual(
+    Object.keys(moment.recipientSnapshot).sort().join(','),
+    'country,email,firstName,lastName,phone,role',
+    'The recipient snapshot has the wrong shape.',
+  );
+  const serialized = JSON.stringify(moment);
+  assert(!serialized.includes('relationshipClassIds'), 'The whole Person record was copied.');
+  assert(!serialized.includes('sourceType'), 'Person provenance was copied.');
+  assert(!serialized.includes('recognitionRules'), 'The whole Policy was copied.');
+  assert(!serialized.includes('approvalWorkflow'), 'Policy configuration was copied.');
+
+  // Group snapshot: identity and display only.
+  assertEqual(
+    Object.keys(moment.relationshipGroupSnapshot).sort().join(','),
+    'level,name,relationshipClassId,type',
+    'The group snapshot has the wrong shape.',
+  );
+});
+
+// ─── Part 4: Decisions and Events ────────────────────────────────────────────
+
+check('16. Every Moment receives a MomentQualification Decision', () => {
+  const people = [
+    person({ id: 'p1', country: 'NG' }),
+    person({ id: 'p2', country: 'NG', status: 'Inactive' }),
+  ];
+  const batch = buildMomentBatch(context(people), ids);
+  assertEqual(batch.moments.length, 2, 'Wrong moment count.');
+
+  for (const moment of batch.moments) {
+    const qualifications = batch.decisions.filter(
+      d => d.momentId === moment.id && d.decisionType === 'MomentQualification',
+    );
+    assertEqual(qualifications.length, 1, `Moment ${moment.id} has ${qualifications.length} qualification decisions.`);
+    assertEqual(qualifications[0].status, 'Confirmed', 'The qualification is not Confirmed.');
+    assertEqual(qualifications[0].provider, 'RuleEngine', 'The qualification has the wrong provider.');
+  }
+});
+
+check('17. Successful resolution receives a PolicyResolution Decision', () => {
+  const people = [
+    person({ id: 'p1', country: 'NG' }),
+    person({ id: 'p2', country: 'NG', status: 'Inactive' }),
+  ];
+  const batch = buildMomentBatch(context(people), ids);
+
+  const ready = batch.moments.find(m => m.status === 'ReadyForExecution')!;
+  const blocked = batch.moments.find(m => m.status === 'NeedsReview')!;
+
+  const readyResolutions = batch.decisions.filter(d => d.momentId === ready.id && d.decisionType === 'PolicyResolution');
+  assertEqual(readyResolutions.length, 1, 'A ready moment has no policy-resolution decision.');
+  assertEqual(readyResolutions[0].provider, 'RuleEngine', 'Policy resolution is not attributed to the rule engine.');
+  assert(readyResolutions[0].inputs.candidateAssignmentIds, 'The candidates considered were not recorded.');
+  assert(readyResolutions[0].reason.length > 0, 'The precedence reason is empty.');
+
+  // A paused person still resolves a policy, so this one is present too —
+  // the qualification decision is what marks them NeedsReview.
+  const blockedQual = batch.decisions.filter(d => d.momentId === blocked.id && d.decisionType === 'MomentQualification');
+  assertEqual(blockedQual.length, 1, 'The blocked moment has no qualification decision.');
+});
+
+check('18. The qualification Decision explains Ready versus NeedsReview', () => {
+  const ready = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  const readyDecision = ready.decisions.find(d => d.decisionType === 'MomentQualification')!;
+  assertEqual(readyDecision.finalDecision, 'ReadyForExecution', 'The outcome was not recorded.');
+  assert(readyDecision.reason.includes('Birthday'), 'The reason does not mention the occasion.');
+
+  const blocked = buildMomentBatch(context([person({ id: 'p2', country: 'NG', status: 'Archived', archivedAt: T0 })]), ids);
+  const blockedDecision = blocked.decisions.find(d => d.decisionType === 'MomentQualification')!;
+  assertEqual(blockedDecision.finalDecision, 'NeedsReview', 'The outcome was not recorded.');
+  assert(blockedDecision.reason.includes('archived'), 'The reason does not explain the block.');
+  assert(Array.isArray(blockedDecision.inputs.issueCodes), 'The issue codes were not recorded as inputs.');
+});
+
+check('19. A MomentCreated Event is appended for every Moment', () => {
+  const people = [person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'KE' })];
+  const batch = buildMomentBatch(context(people), ids);
+
+  for (const moment of batch.moments) {
+    const created = batch.events.filter(e => e.momentId === moment.id && e.eventType === 'MomentCreated');
+    assertEqual(created.length, 1, `Moment ${moment.id} has ${created.length} creation events.`);
+    assertEqual(created[0].actorType, 'Operator', 'Creation was not attributed to the operator.');
+    assert(created[0].occurredAt && created[0].recordedAt, 'Timestamps are missing.');
+  }
+});
+
+check('20. The readiness Event matches the Moment status', () => {
+  const people = [
+    person({ id: 'p1', country: 'NG' }),
+    person({ id: 'p2', country: 'NG', status: 'Inactive' }),
+  ];
+  const batch = buildMomentBatch(context(people), ids);
+
+  for (const moment of batch.moments) {
+    const expected = moment.status === 'ReadyForExecution' ? 'MomentMarkedReady' : 'MomentNeedsReview';
+    const events = batch.events.filter(e => e.momentId === moment.id && e.eventType === expected);
+    assertEqual(events.length, 1, `Moment ${moment.id} is missing its ${expected} event.`);
+    assertEqual(events[0].actorType, 'System', 'The readiness event is not attributed to the system.');
+  }
+});
+
+check('21. Events are append-only', () => {
+  const { repo } = freshRepo();
+  const batch = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  repo.createMoments(WS, batch, NOW);
+
+  const before = repo.load(WS);
+  assert(before.ok && before.value, 'Load failed.');
+  const originalEvents = JSON.stringify(before.value.events);
+
+  // Appending never rewrites what is there.
+  const extra = { ...batch.events[0], id: 'event-extra', eventType: 'MomentNeedsReview' as const };
+  const appended = repo.appendEvent(WS, extra);
+  assert(appended.ok, 'Append failed.');
+
+  const after = repo.load(WS);
+  assert(after.ok && after.value, 'Load failed.');
+  assertEqual(after.value.events.length, before.value.events.length + 1, 'The append did not add exactly one event.');
+  assertEqual(
+    JSON.stringify(after.value.events.slice(0, before.value.events.length)),
+    originalEvents,
+    'Existing events were modified by an append.',
+  );
+
+  // The same event id cannot be recorded twice.
+  assertEqual(repo.appendEvent(WS, extra).ok, false, 'A duplicate event id was accepted.');
+});
+
+check('22. Decisions are immutable except for supersession metadata', () => {
+  const { repo } = freshRepo();
+  const batch = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  repo.createMoments(WS, batch, NOW);
+
+  const original = batch.decisions[0];
+  const superseded = repo.supersedeDecision(WS, original.id, 'decision-replacement', NOW);
+  assert(superseded.ok, `Supersede failed: ${superseded.ok ? '' : superseded.reason}`);
+
+  // Everything except the supersession fields is byte-identical.
+  const { status: _s, supersededAt: _a, supersededByDecisionId: _b, ...restAfter } = superseded.value;
+  const { status: _s2, supersededAt: _a2, supersededByDecisionId: _b2, ...restBefore } = original;
+  assertEqual(JSON.stringify(restAfter), JSON.stringify(restBefore), 'Decision content was rewritten.');
+  assertEqual(superseded.value.status, 'Superseded', 'The status did not change.');
+  assertEqual(superseded.value.supersededByDecisionId, 'decision-replacement', 'The replacement was not recorded.');
+
+  // A decision cannot be superseded twice.
+  assertEqual(repo.supersedeDecision(WS, original.id, 'decision-other', NOW).ok, false, 'A decision was superseded twice.');
+});
+
+// ─── Part 5: atomic confirmation and idempotency ─────────────────────────────
+
+check('23. Browsing a preview creates no operational records', () => {
+  const { repo, storage } = freshRepo();
+  const before = storage.getItem(OPERATIONS_KEY);
+
+  const ctx = context([person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'KE' })]);
+  previewPreparation(ctx);
+  previewPreparation(ctx);
+  buildMomentBatch(ctx, ids); // building is not committing
+
+  assertEqual(storage.getItem(OPERATIONS_KEY), before, 'Previewing wrote operational records.');
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'Load failed.');
+  assertEqual(state.value.moments.length, 0, 'A preview created moments.');
+  assertEqual(state.value.decisions.length, 0, 'A preview created decisions.');
+  assertEqual(state.value.events.length, 0, 'A preview created events.');
+});
+
+check('24. Confirmation writes Moments, Decisions and Events together', () => {
+  const { repo } = freshRepo();
+  const ctx = context([person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'KE' })]);
+  const batch = buildMomentBatch(ctx, ids);
+
+  const written = repo.createMoments(WS, batch, NOW);
+  assert(written.ok, `Commit failed: ${written.ok ? '' : written.reason}`);
+
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'Load failed.');
+  assertEqual(state.value.moments.length, 2, 'Wrong moment count.');
+  assertEqual(state.value.decisions.length, batch.decisions.length, 'Decisions were not committed with the moments.');
+  assertEqual(state.value.events.length, batch.events.length, 'Events were not committed with the moments.');
+
+  // Every decision and event points at a committed moment.
+  const momentIds = new Set(state.value.moments.map(m => m.id));
+  for (const d of state.value.decisions) assert(momentIds.has(d.momentId), 'An orphan decision was committed.');
+  for (const e of state.value.events) assert(momentIds.has(e.momentId), 'An orphan event was committed.');
+});
+
+check('25. A batch that fails validation commits nothing', () => {
+  const { repo, storage } = freshRepo();
+  const good = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  repo.createMoments(WS, good, NOW);
+  const afterGood = storage.getItem(OPERATIONS_KEY);
+
+  // A batch whose decision references a moment that is not in the batch.
+  const bad = buildMomentBatch(context([person({ id: 'p2', country: 'NG' })]), ids);
+  const broken = {
+    ...bad,
+    decisions: bad.decisions.map(d => ({ ...d, momentId: 'moment-does-not-exist' })),
+  };
+  const result = repo.createMoments(WS, broken, NOW);
+  assertEqual(result.ok, false, 'An invalid batch was committed.');
+  assertEqual(storage.getItem(OPERATIONS_KEY), afterGood, 'A failed batch left partial state.');
+
+  // A batch with a decision that has no reason (ADR-006 requires one).
+  const noReason = { ...bad, decisions: bad.decisions.map(d => ({ ...d, reason: '' })) };
+  assertEqual(repo.createMoments(WS, noReason, NOW).ok, false, 'A reasonless decision was committed.');
+  assertEqual(storage.getItem(OPERATIONS_KEY), afterGood, 'A failed batch left partial state.');
+});
+
+check('26. Repeated generation does not duplicate Moments', () => {
+  const { repo } = freshRepo();
+  const people = [person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'KE' })];
+
+  const first = buildMomentBatch(context(people), ids);
+  assert(repo.createMoments(WS, first, NOW).ok, 'First commit failed.');
+
+  // A second run, unaware of the first, is refused whole.
+  const naive = buildMomentBatch(context(people), ids);
+  assertEqual(repo.createMoments(WS, naive, NOW).ok, false, 'A duplicate batch was committed.');
+
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'Load failed.');
+  assertEqual(state.value.moments.length, 2, 'Duplicate moments were created.');
+});
+
+check('27. Refresh and retry report already-prepared records', () => {
+  const { repo } = freshRepo();
+  const people = [person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'KE' })];
+
+  repo.createMoments(WS, buildMomentBatch(context(people), ids), NOW);
+
+  // The UI rebuilds its context from the store — the correct retry path.
+  const listed = repo.listMoments(WS);
+  assert(listed.ok, 'List failed.');
+  const existingSourceKeys = new Map(listed.value.map(m => [m.sourceKey, m.id]));
+
+  const retry = previewPreparation(context(people, { existingSourceKeys }));
+  assertEqual(retry.alreadyPrepared.length, 2, 'Already-prepared records were not reported.');
+  assertEqual(retry.pending.length, 0, 'Already-prepared records were queued again.');
+
+  const emptyBatch = buildMomentBatch(context(people, { existingSourceKeys }), ids);
+  assertEqual(emptyBatch.moments.length, 0, 'A retry produced duplicate moments.');
+
+  // Source keys are deterministic — the property the whole guarantee rests on.
+  assertEqual(
+    campaignSourceKey(WS, 'program-1', 'p1', 'Birthday'),
+    campaignSourceKey(WS, 'program-1', 'p1', 'Birthday'),
+    'Source keys are not deterministic.',
+  );
+  assert(
+    campaignSourceKey(WS, 'program-1', 'p1', 'Birthday') !== campaignSourceKey(WS, 'program-1', 'p2', 'Birthday'),
+    'Different people share a source key.',
+  );
+});
+
+// ─── Part 6: currency and cancellation ───────────────────────────────────────
+
+check('28. Two countries may snapshot different policies and currencies', () => {
+  const people = [person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'KE' })];
+  const batch = buildMomentBatch(context(people), ids);
+
+  const ng = batch.moments.find(m => m.recipientSnapshot.country === 'NG')!;
+  const ke = batch.moments.find(m => m.recipientSnapshot.country === 'KE')!;
+
+  assertEqual(ng.policyResolutionSnapshot?.policyId, 'policy-global', 'The Nigerian moment resolved wrongly.');
+  assertEqual(ke.policyResolutionSnapshot?.policyId, 'policy-ke', 'The Kenyan moment resolved wrongly.');
+  assertEqual(ng.policyResolutionSnapshot?.approvedRecognitionBudget.currency, 'NGN', 'Wrong NGN currency.');
+  assertEqual(ke.policyResolutionSnapshot?.approvedRecognitionBudget.currency, 'KES', 'Wrong KES currency.');
+  assertEqual(ng.policyResolutionSnapshot?.resolvedCountryScope, 'Global', 'Wrong NG scope.');
+  assertEqual(ke.policyResolutionSnapshot?.resolvedCountryScope, 'KE', 'Wrong KE scope.');
+});
+
+check('29. Currencies are not added together', () => {
+  const people = [
+    person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'NG' }),
+    person({ id: 'p3', country: 'KE' }),
+  ];
+  const preview = previewPreparation(context(people));
+
+  assertEqual(preview.byCurrency.length, 2, 'Expected two currency groups.');
+  const ngn = preview.byCurrency.find(c => c.currency === 'NGN')!;
+  const kesTotal = preview.byCurrency.find(c => c.currency === 'KES')!;
+  assertEqual(ngn.totalMinor, 10_000_000, 'Wrong NGN total.');
+  assertEqual(ngn.peopleCount, 2, 'Wrong NGN people count.');
+  assertEqual(kesTotal.totalMinor, 2_000_000, 'Wrong KES total.');
+
+  // No grand total exists on the preview.
+  assert(!('total' in preview), 'The preview exposes a cross-currency grand total.');
+  assert(!('totalMinor' in preview), 'The preview exposes a cross-currency grand total.');
+});
+
+check('30. Cancellation requires a reason', () => {
+  const batch = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  const moment = batch.moments[0];
+
+  for (const empty of ['', '   ', '\n']) {
+    const result = buildCancellation(moment, empty, NOW, ids);
+    assertEqual(result.ok, false, `Cancellation was allowed with reason "${empty}".`);
+  }
+
+  const good = buildCancellation(moment, '  Recipient left the organization  ', NOW, ids);
+  assert(good.ok, 'A valid cancellation was refused.');
+  assertEqual(good.value.decision.reason, 'Recipient left the organization', 'The reason was not trimmed and stored.');
+
+  assertEqual(
+    buildCancellation({ ...moment, status: 'Cancelled' }, 'again', NOW, ids).ok,
+    false,
+    'An already-cancelled moment was cancelled again.',
+  );
+});
+
+check('31. Cancellation appends the correct Decision and Event', () => {
+  const { repo } = freshRepo();
+  const batch = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  repo.createMoments(WS, batch, NOW);
+  const moment = batch.moments[0];
+
+  const built = buildCancellation(moment, 'Recipient left', NOW, ids, 'operator-1');
+  assert(built.ok, 'Cancellation build failed.');
+
+  assertEqual(built.value.decision.decisionType, 'MomentCancellation', 'Wrong decision type.');
+  assertEqual(built.value.decision.provider, 'HumanOperator', 'Cancellation is not attributed to a human.');
+  assertEqual(built.value.decision.status, 'Confirmed', 'The cancellation decision is not Confirmed.');
+  assertEqual(built.value.event.eventType, 'MomentCancelled', 'Wrong event type.');
+  assertEqual(built.value.event.actorType, 'Operator', 'The cancellation event is not attributed to the operator.');
+
+  assert(repo.updateMomentStatus(WS, moment.id, 'Cancelled', NOW, { cancelledAt: NOW }).ok, 'Status update failed.');
+  assert(repo.appendDecision(WS, built.value.decision).ok, 'Decision append failed.');
+  assert(repo.appendEvent(WS, built.value.event).ok, 'Event append failed.');
+
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'Load failed.');
+  assertEqual(state.value.moments[0].status, 'Cancelled', 'The moment was not cancelled.');
+  assertEqual(state.value.moments[0].cancelledAt, NOW, 'The cancellation timestamp was not stamped.');
+  assert(state.value.decisions.some(d => d.decisionType === 'MomentCancellation'), 'The decision was not stored.');
+  assert(state.value.events.some(e => e.eventType === 'MomentCancelled'), 'The event was not stored.');
+
+  // A cancelled moment cannot change status again.
+  assertEqual(repo.updateMomentStatus(WS, moment.id, 'ReadyForExecution', NOW).ok, false, 'A cancelled moment was revived.');
+});
+
+check('32. Workspace configuration is never modified by Operations', () => {
+  const workspace = createWorkspace({
+    companyName: 'Meridian', website: '', industry: 'Logistics', employeeCount: '11-50',
+    operatingCountries: ['Nigeria'], contactName: 'Ada', contactEmail: 'a@x.example',
+    contactRole: 'Head of People', phone: '',
+  });
+  const before = JSON.stringify(workspace);
+
+  const storage = createMemoryStorage({ [WORKSPACE_KEY]: before });
+  const repo = createLocalOperationsRepository(storage);
+  repo.initialise(WS, NOW);
+
+  const people = [person({ id: 'p1', country: 'NG' })];
+  const ctx = context(people);
+  const batch = buildMomentBatch(ctx, ids);
+  repo.createMoments(WS, batch, NOW);
+  repo.appendEvent(WS, { ...batch.events[0], id: 'event-extra' });
+
+  assertEqual(storage.getItem(WORKSPACE_KEY), before, 'Operations modified the workspace document.');
+
+  // Generation is pure — it does not mutate its inputs either.
+  assertEqual(JSON.stringify(ctx.people), JSON.stringify(people), 'Generation mutated the people it was given.');
+  assertEqual(ctx.policies[0].version, 4, 'Generation mutated a policy.');
+});
+
+// ─── Supporting cases ────────────────────────────────────────────────────────
+
+check('33. A ready Moment must carry a resolution snapshot', () => {
+  const state: OperationsState = {
+    ...emptyOperationsState(WS, NOW),
+    moments: [{
+      id: 'm1', workspaceId: WS, programId: 'program-1', personId: 'p1',
+      relationshipClassId: 'class-exec', occasionType: 'Birthday', targetDate: '2026-12-01',
+      status: 'ReadyForExecution', sourceKey: 'k1',
+      recipientSnapshot: { firstName: 'Ada', lastName: 'Obi' },
+      relationshipGroupSnapshot: { relationshipClassId: 'class-exec', name: 'Exec', type: 'Employee', level: 0 },
+      issues: [], createdAt: NOW, updatedAt: NOW,
+      // policyResolutionSnapshot deliberately absent
+    }],
+  };
+  const result = validateOperationsState(state, WS);
+  assertEqual(result.ok, false, 'A ready moment with no budget explanation was accepted.');
+});
+
+check('34. Duplicate source keys are refused at the state level', () => {
+  const base = buildMomentBatch(context([person({ id: 'p1', country: 'NG' })]), ids);
+  const state: OperationsState = {
+    ...emptyOperationsState(WS, NOW),
+    moments: [base.moments[0], { ...base.moments[0], id: 'moment-clone' }],
+  };
+  const result = validateOperationsState(state, WS);
+  assertEqual(result.ok, false, 'Two moments with the same source key were accepted.');
+});
+
+check('35. An activated Campaign flows end to end into Moments', () => {
+  // The full path: activate a campaign, then prepare it.
+  const people = [
+    person({ id: 'p1', country: 'NG' }),
+    person({ id: 'p2', country: 'KE' }),
+    person({ id: 'p3', country: 'NG', status: 'Inactive' }),
+  ];
+  const draft = createCampaignDraft(
+    {
+      name: 'December', relationshipClassId: 'class-exec', occasionType: 'Birthday',
+      campaignStartDate: '2026-12-01', campaignEndDate: '2026-12-20',
+      budgetEnvelopes: [ngn(1_000_000), kes(1_000_000)],
+    },
+    T0, 'program-flow',
+  );
+  const activated = activateCampaign(draft, {
+    relationshipClassId: 'class-exec', occasionType: 'Birthday',
+    people, classes: CLASSES, assignments: ASSIGNMENTS, policies: POLICIES,
+  }, T0);
+  assert(activated.ok, 'Campaign activation failed.');
+  // The paused person was never frozen in.
+  assertEqual(activated.program.frozenPopulation?.personIds.length, 2, 'Wrong frozen count.');
+
+  const { repo } = freshRepo();
+  const ctx = context(people, { program: activated.program });
+  const batch = buildMomentBatch(ctx, ids);
+  assert(repo.createMoments(WS, batch, NOW).ok, 'Commit failed.');
+
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'Load failed.');
+  assertEqual(state.value.moments.length, 2, 'Wrong moment count.');
+  assertEqual(state.value.moments.filter(m => m.status === 'ReadyForExecution').length, 2, 'Not every moment is ready.');
+  assertEqual(validateOperationsState(state.value, WS).ok, true, 'The resulting state is invalid.');
+});
+
+// ─── Summary ─────────────────────────────────────────────────────────────────
+
+const total = passed + failures.length;
+console.log(`\n  ${passed}/${total} checks passed\n`);
+
+if (failures.length > 0) {
+  console.error(`Operations validation FAILED (${failures.length} of ${total}):\n`);
+  for (const failure of failures) console.error(`  ✗ ${failure}\n`);
+  process.exit(1);
+}
+
+console.log('Operations validation passed.\n');

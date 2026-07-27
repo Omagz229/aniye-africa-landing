@@ -1273,8 +1273,10 @@ No external system dictates Aniyé's internal model. All external data is transl
 
 ## 15b. Workspace versus Operations
 
-> ⚠️ **Accepted architecture — NOT IMPLEMENTED.** ADR-005 is accepted; no `/operations` route,
-> shell or role model exists. Everything today lives under `/workspace/*` with no authentication.
+> ✅ **Partly implemented in H3.1.** `/operations/*` exists with its own shell, navigation and
+> route tree. **No role model and no authentication exist** — anyone who can reach the app can
+> reach Operations. That is acceptable for an internal prototype and is a hard blocker for a pilot
+> (§15d).
 
 **ADR-005 (Accepted):** `/workspace/*` serves organization administrators configuring recognition. `/operations/*` serves Aniyé internal operators executing it. They share **canonical objects and a design system**, and share **neither shell, navigation, roles, nor route tree**.
 
@@ -1294,7 +1296,7 @@ Placing Operations navigation inside the Workspace sidebar is **rejected**.
 
 ## 15c. Decisions and Operational Events
 
-> ⚠️ **Accepted architecture — NOT IMPLEMENTED.** Neither object exists in code.
+> ✅ **Implemented in H3.1**, in the separate `OperationsState` (§15d), not in the workspace document.
 
 **ADR-006 (Accepted):** A **Decision** records a judgement between alternatives; it carries a required reason, may be superseded, and is never mutated. An **OperationalEvent** records that something happened; it is append-only, never edited, and corrected only by appending a referencing event.
 
@@ -1307,7 +1309,66 @@ The test: *could it have gone another way, and does the reason matter later?* If
 
 **The recording rule:** draft choices stay in UI state; **only confirmation writes**, and it writes the state change, the Decision and the Operational Event together. Browsing and abandoned selections are never persisted as Decisions.
 
-Both objects belong to the **Knowledge** domain (§3), and both are operational records that belong in a backend rather than the client-side workspace document.
+Both objects belong to the **Knowledge** domain (§3). ADR-010 keeps them out of `WorkspaceState` entirely — see §15d.
+
+**H3.1 scope.** Decision types: `MomentQualification`, `PolicyResolution`, `MomentCancellation`. Event types: `MomentCreated`, `MomentMarkedReady`, `MomentNeedsReview`, `MomentCancelled`. Providers: `RuleEngine` for deterministic resolution, `HumanOperator` for judgement. More arrive with the steps that produce them.
+
+---
+
+## 15d. Operational persistence — ADR-010
+
+> ⚠️ **Internal prototype only. Browser storage. Not production-safe.**
+
+`WorkspaceState` is **customer configuration** and stays that way. Operational records — Moments, Decisions, Operational Events — live in a **separate `OperationsState`** belonging to exactly one `workspaceId`.
+
+| | WorkspaceState | OperationsState |
+|---|---------------|-----------------|
+| Owns | Configuration the customer edits | The record of what Aniyé did |
+| Schema | v6 | v1, versioned **independently** |
+| Storage key | `aniye_workspace` | `aniye_operations_v1` |
+| Growth | Bounded by organization size | Unbounded |
+| Mutability | Edited freely | Events append-only; Decisions immutable except supersession |
+
+Access is through a **repository interface** with named operations — create moments, append a Decision, append an Event. There is deliberately no generic `save(state)`: a generic setter is how append-only guarantees get lost.
+
+**A payload belonging to a different workspace is refused, never adopted**, and preserved rather than overwritten — it is another organization's history.
+
+### What the local adapter is not
+
+**Mandatory before any external pilot:** a production backend, authentication for both customer administrators and internal operators, multi-tenancy with enforced isolation, and secure file storage before proof of delivery exists.
+
+**Until Operations uses browser-only persistence, no vendor, courier, recipient or additional internal user may be given access.** Each implies a second party reading or writing operational records, and this adapter can authenticate nobody, isolate nobody, and prevent nobody with devtools from rewriting the audit trail.
+
+---
+
+## 15e. Moment
+
+> ✅ **Implemented in H3.1** — generation only. Fulfilment stages do not exist.
+
+One person, one occasion, one execution. Generated from an Active Campaign's frozen population.
+
+| Field | Notes |
+|-------|-------|
+| `sourceKey` | Deterministic logical identity — `campaign::workspace::program::person::occasion`. What makes repeat preparation idempotent |
+| `recipientSnapshot` | Name, email, phone, country, role. **A subset, not the whole Person** |
+| `relationshipGroupSnapshot` | Group id, display name, Relationship Type, numeric Level |
+| `policyResolutionSnapshot` | Assignment id, policy id, name, **version**, country scope, occasion, approved budget as canonical Money, resolved timestamp |
+| `issues` | Named, each with the Workspace page that fixes it |
+| `status` | `NeedsReview` · `ReadyForExecution` · `Cancelled` |
+
+**Statuses stop at generation.** Dispatched, delivered and closed do not exist and must not be added speculatively — each needs the object that produces it.
+
+**The policy snapshot is the piece ADR-004 deferred from the Program.** It must still explain why this Moment received this budget after the policy is edited, republished or archived, which is why it captures the version rather than a reference.
+
+### Eligibility is re-evaluated, and nobody is silently dropped
+
+A Campaign froze *who is covered*. It did not freeze *whether they can be executed*. Between activation and preparation someone may have been paused, a group turned off, a rule unpublished.
+
+**A Moment is created for every frozen person.** One that cannot proceed is marked `NeedsReview` with a named issue, not skipped — skipping would lose them. Operations links to the Workspace page that fixes each issue and **never edits configuration itself** (ADR-005).
+
+### Atomic confirmation
+
+Previewing writes nothing. On confirmation, one operation commits Moments, qualification Decisions, policy-resolution Decisions and Operational Events **together** — the proposed state is validated in full first, so a batch that would produce an invalid state commits nothing at all.
 
 ---
 
@@ -1363,7 +1424,7 @@ These capabilities are not built yet. They are documented here to ensure archite
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, **Program (Campaign mode)** | Program (Recurring, Triggered), Moment, Execution Brief, Decision, Operational Event, Recognition Order, Approval, the `/operations` surface |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), **Moment (generation), Decision, Operational Event, the `/operations` shell** | Program (Recurring, Triggered), Execution Brief, Catalog, Gift/Vendor/Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
 
 | Horizon | Theme | Key Deliverables |
 |---------|-------|-----------------|
@@ -1510,8 +1571,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.1 — Aniyé Africa — July 2026*
+*System Atlas v3.2 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.2: H3.1 — ADR-010 accepted; operational records moved to a separate OperationsState (§15d); Moment generation, Decision and OperationalEvent implemented (§15c, §15e); the /operations shell exists but has no roles or authentication. Browser persistence is an internal prototype only — no production backend, no external partner access, Execution Brief and everything after it unimplemented*
 *v3.1: H2.6 — Campaign Programs implemented (schema v6). Program marked implemented for Campaign mode only; currency-specific budget envelopes documented with no FX; frozen-population semantics recorded; policy resolution confirmed as per-Moment and still absent from the Program record; Moment generation explicitly still absent*
 *v3.0: ADR-004 … ADR-009 accepted by Council. Money redefined as integer minor units and Person gains Inactive (both implemented, schema v5); Program, Workspace/Operations, Decision/Operational Event and Recognition Order recorded as accepted architecture and explicitly marked NOT IMPLEMENTED; Policy lifecycle confirmed as three states, resolving C4 with no code change; ADR registry added with the ADR-003 retirement note*
 *v2.5: H2.5 — Person and People Source implemented (schema v4); §4 gains the People Source object; §10/§4 member counts are derived rather than stored (resolves C3); §12 rewritten for the implemented normalization, source precedence, duplicate identity, class assignment, and import result states; HRIS documented as a future source abstraction only*
