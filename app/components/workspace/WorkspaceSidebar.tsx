@@ -11,19 +11,23 @@ interface Props {
 }
 
 const NAV_ITEMS = [
-  { label: 'Overview',              href: '/workspace',          exact: true,  unlockedAfter: null },
-  { label: 'Organization',          href: '/workspace/profile',  exact: false, unlockedAfter: null },
-  { label: 'Relationship Classes',  href: '/workspace/classes',  exact: false, unlockedAfter: 'profile' as const },
-  { label: 'Policies',              href: '/workspace/policies', exact: false, unlockedAfter: 'classes' as const },
-  { label: 'Policy Assignments',    href: '/workspace/assignments', exact: false, unlockedAfter: 'classes' as const },
-  { label: 'People',                href: '/workspace/people',   exact: false, unlockedAfter: 'assignments' as const },
-  { label: 'Programs',              href: '/workspace/programs', exact: false, unlockedAfter: 'people' as const },
+  { label: 'Overview',              href: '/workspace',             exact: true,  unlockedAfter: null,               built: true },
+  { label: 'Organization',          href: '/workspace/profile',     exact: false, unlockedAfter: null,               built: true },
+  { label: 'Relationship Classes',  href: '/workspace/classes',     exact: false, unlockedAfter: 'profile' as const, built: true },
+  { label: 'Policies',              href: '/workspace/policies',    exact: false, unlockedAfter: 'classes' as const, built: true },
+  { label: 'Policy Assignments',    href: '/workspace/assignments', exact: false, unlockedAfter: 'classes' as const, built: true },
+  { label: 'People',                href: '/workspace/people',      exact: false, unlockedAfter: 'policies' as const, built: true },
+  // Programs has no route yet. `built: false` keeps it permanently shown as the
+  // next unavailable stage, so reaching setupStage 'programs' cannot link
+  // anywhere that would 404.
+  { label: 'Programs',              href: '/workspace/programs',    exact: false, unlockedAfter: 'people' as const,  built: false },
 ];
 
 export default function WorkspaceSidebar({ workspace }: Props) {
   const pathname = usePathname();
 
   function isLocked(item: (typeof NAV_ITEMS)[number]): boolean {
+    if (!item.built) return true;
     if (item.unlockedAfter === null) return false;
     if (!workspace) return true;
     return !isStageComplete(item.unlockedAfter, workspace.setupStage);

@@ -183,10 +183,24 @@ check('1. A v2 workspace migrates to v3', () => {
   const result = migrateWorkspace<WorkspaceState>(makeV2Workspace());
   assert(result.status === 'ok', `Migration rejected the v2 fixture: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 2, 'Payload was not detected as v2.');
-  assertEqual(result.toVersion, 3, 'Migration did not reach v3.');
   assertEqual(result.migrated, true, 'Migration did not report that it ran.');
-  assertEqual(result.applied.length, 1, 'Expected exactly one migration from v2.');
-  assertEqual(result.workspace.schemaVersion, 3, 'Migrated workspace has the wrong schemaVersion.');
+
+  // v3 is no longer the final schema version, so this suite asserts that the
+  // H2.4 rung ran and left the chain in a consistent state — not that the walk
+  // stopped there.
+  assert(
+    result.applied.some(id => id.includes('policy-assignments')),
+    `The H2.4 migration did not run. Applied: ${result.applied.join(', ')}`,
+  );
+  assertEqual(result.applied[0], 'v2-to-v3-h2-4-policy-assignments', 'H2.4 was not the first rung from v2.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 2,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
+  assertEqual(result.workspace.schemaVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migrated workspace has the wrong schemaVersion.');
+  assert(Array.isArray(result.workspace.policyAssignments), 'policyAssignments is missing.');
 });
 
 check('2. policyAssignments defaults to an empty array', () => {
@@ -572,8 +586,14 @@ check('17. A v1 workspace migrates the whole way to v3', () => {
   const result = migrateWorkspace<WorkspaceState>(v1);
   assert(result.status === 'ok', `v1 → v3 failed: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 1, 'Payload was not detected as v1.');
-  assertEqual(result.toVersion, 3, 'Migration did not reach v3.');
-  assertEqual(result.applied.length, 2, 'Expected two migrations from v1.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 1,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
+  assertEqual(result.applied[0], 'v1-to-v2-adr-002-relationship-type-and-level', 'ADR-002 did not run first.');
+  assertEqual(result.applied[1], 'v2-to-v3-h2-4-policy-assignments', 'H2.4 did not run second.');
   assertEqual(result.workspace.relationshipClasses[0].type, 'Board', 'ADR-002 mapping did not run.');
   assertEqual(result.workspace.relationshipClasses[0].level, 0, 'ADR-002 level mapping did not run.');
   assertEqual(result.workspace.policyAssignments.length, 0, 'H2.4 collection was not added.');
@@ -609,16 +629,20 @@ check('18. Malformed assignments are refused rather than loaded', () => {
 });
 
 check('19. Existing assignments survive a repeat migration pass', () => {
+  // Pinned to the *current* version so this stays a genuine no-op check as
+  // later schema versions land.
   const withAssignments = makeV2Workspace({
-    schemaVersion: 3,
+    schemaVersion: CURRENT_WORKSPACE_SCHEMA_VERSION,
     setupStage: 'assignments',
     policyAssignments: [
       { id: 'a-keep', relationshipClassId: 'class-managers', recognitionPolicyId: 'policy-standard', priority: 4, isActive: true, createdAt: T0, updatedAt: T1, countryCode: 'KE' },
     ],
+    peopleSources: [],
+    people: [],
   });
   const result = migrateWorkspace<WorkspaceState>(withAssignments);
-  assert(result.status === 'ok', 'A v3 workspace was refused.');
-  assertEqual(result.migrated, false, 'A v3 workspace was migrated again.');
+  assert(result.status === 'ok', 'A current-version workspace was refused.');
+  assertEqual(result.migrated, false, 'A current-version workspace was migrated again.');
   assertEqual(result.workspace.policyAssignments.length, 1, 'The existing assignment was lost.');
   assertEqual(result.workspace.policyAssignments[0].countryCode, 'KE', 'The assignment scope changed.');
   assertEqual(result.workspace.policyAssignments[0].priority, 4, 'The assignment priority changed.');

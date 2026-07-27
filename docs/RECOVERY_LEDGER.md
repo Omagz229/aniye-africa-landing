@@ -13,7 +13,8 @@
 | 0 | Schema versioning foundation | ✅ **Reconstructed** | R1 |
 | 1 | **ADR-002** — Relationship Type + numeric Relationship Level | ✅ **Reconstructed** | R1 |
 | 2 | **H2.4** — Policy Assignments | ✅ **Reconstructed** | R2 |
-| 3 | **H2.5** — People Sources and People | ⬅️ **Next** | — |
+| 3 | **H2.5** — People Sources and People | ✅ **Reconstructed** | R3 |
+| — | **Architecture-correction checkpoint** | ⬅️ **Next — required before Operations** | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
@@ -54,6 +55,37 @@ H2.4 was held until migration validation passed. `npm run validate:migration` re
 **Deliberately not addressed** (out of H2.4 scope, per instruction): conflicts C2, C4, and C5. The `PolicyStatus` lifecycle keeps its current three states — see C4 below for the resulting Atlas mismatch.
 
 **Not started in R2, per scope:** H2.5, Programs, and every Horizon 3 milestone.
+
+### R3 — H2.5 People Sources and People
+
+**H2.5 — reconstructed. Schema v4 introduced. H2 Configure recovery is complete.**
+
+The workspace could describe *how* it recognizes people — classes, policies, assignments — but not *who*. That gap is closed. `Person` and `PeopleSource` now exist as first-class objects with a `/workspace/people` route, manual entry, CSV import, and a pure domain layer in `lib/people.ts` and `lib/csv.ts`.
+
+**People Sources restored.** `PeopleSource` abstracts provenance: one source per CSV import (named from the file), one reusable Manual source per workspace. `HRIS` exists as a canonical source type only — no external integration was built. It is declared now so precedence has a stable top rung and a future connector needs no further migration.
+
+**People directory restored.** Search, filters by Relationship Type / Class / country / status, source and class badges, archive and restore, a desktop table and mobile cards, and derived coverage counts per class.
+
+**Schema v3 → v4.** Adds `peopleSources` and `people`. Purely additive: nothing existing is touched and `setupStage` is deliberately unchanged, so no backup is taken. A v1 workspace still walks v1 → v2 → v3 → v4 one rung at a time.
+
+**C3 resolved — by deriving, not storing.** `memberCount` is computed from Person records on read. Storing it would have created a second source of truth that every person edit, import, archive, and class change would have to keep in step. `lib/people.ts` derives active and total counts per class, people with no class, and people referencing inactive or missing classes.
+
+**Also fixed in R3:** the sidebar's Programs entry now carries an explicit `built: false` flag. Without it, confirming the people step would advance `setupStage` to `programs` and unlock a link to a route that does not exist. Programs stays permanently visible as the next unavailable stage.
+
+**Deliberately not addressed** (out of H2.5 scope, per instruction): C2, C4, C5, and C6. See the conflicts table.
+
+**Not started in R3, per scope:** Programs, Operations, and every Horizon 3 milestone.
+
+### ⚠️ Gate before Operations reconstruction
+
+**Operations reconstruction must not begin until the architecture-correction checkpoint is completed.** That checkpoint covers:
+
+1. **Program definition** — what a Program actually is, and how it relates to Moments
+2. **Workspace versus Operations boundary** — which domain owns what, per Atlas §3
+3. **Decision versus Operational Event distinction** — the Relationship Engine / Knowledge boundary in concrete terms
+4. **Minimum financial and Money model** — conflict C6, which must be settled before any budget arithmetic
+
+C6 in particular is now load-bearing: Money is still stored as face value rather than minor units, and the Decision Engine cannot do budget arithmetic safely until that is resolved.
 
 ---
 
@@ -141,7 +173,7 @@ All confirmed absent from the repository — verified by file inspection, not as
 |---|-----------|--------------------|
 | 1 | ~~**ADR-002** — Relationship Type + numeric Relationship Level~~ | ~~Atlas §18 stops at ADR-001. `lib/workspace.ts` still uses the two-axis `RelationshipCategory` + string `RelationshipTier` model.~~ **✅ Reconstructed in R1.** |
 | 2 | ~~**H2.4** — Policy Assignments~~ | ~~`PolicyAssignment` is specified in Atlas §4 and §11 but has **no TypeScript type, no route, no component**.~~ **✅ Reconstructed in R2.** |
-| 3 | **H2.5** — People Sources and People | `Person` specified in Atlas §4, `PeopleSource` in Atlas §12. No types, no `/workspace/people` route. `SETUP_STAGES` marks `people` as `available: false`. |
+| 3 | ~~**H2.5** — People Sources and People~~ | ~~`Person` specified in Atlas §4, `PeopleSource` in Atlas §12. No types, no `/workspace/people` route.~~ **✅ Reconstructed in R3.** |
 | 4 | **Relationship Operations Atlas** | No such file in `docs/`. Only `ANIYE_SYSTEM_ATLAS.md` exists. |
 | 5 | **ADR-003** — Decision Engine | Not present in Atlas §18. No decision-engine module anywhere in `lib/`. |
 | 6 | **H3.1** — Moment Engine | No `Moment` type in code (Atlas §4 defines it). No moment generation or scheduling logic. |
@@ -150,7 +182,7 @@ All confirmed absent from the repository — verified by file inspection, not as
 | 9 | **H3.4** — Gift Intelligence | `GIFT_CATEGORIES` exists as a flat string list only (`lib/workspace.ts:47`). No intent hierarchy, no recommendation logic. |
 | 10 | **H3.5** — Vendor Intelligence | No vendor types, routes, or logic. The `h3.5-vendor-intelligence` tag is a false marker (see §1). |
 
-**Nothing after H2.3 survived.** Item 1 was reconstructed in R1 and item 2 in R2 (see §0); items 3–10 remain outstanding.
+**Nothing after H2.3 survived.** Items 1–3 were reconstructed in R1, R2, and R3 (see §0), completing the H2 Configure arc. Items 4–10 remain outstanding, and are gated behind the architecture-correction checkpoint.
 
 ---
 
@@ -171,6 +203,7 @@ From `npm run build` output — 12 routes total:
 | `/workspace/policies/new` | Static | H2.3 | `app/workspace/policies/new/page.tsx` |
 | `/workspace/policies/[id]` | Dynamic | H2.3 | `app/workspace/policies/[id]/page.tsx` |
 | `/workspace/assignments` | Static | **H2.4 (R2)** | `app/workspace/assignments/page.tsx` |
+| `/workspace/people` | Static | **H2.5 (R3)** | `app/workspace/people/page.tsx` |
 | `/sitemap.xml` | Static | H1 | `app/sitemap.ts` |
 | `/_not-found` | Static | — | framework |
 
@@ -178,10 +211,12 @@ From `npm run build` output — 12 routes total:
 
 Declared in `lib/workspace.ts` `SETUP_STAGES` with `available: false`:
 
-- `/workspace/people` — required by H2.5
-- `/workspace/programs` — required by H3
+- `/workspace/programs` — required by H3, and **intentionally unimplemented**. The sidebar entry
+  carries an explicit `built: false` flag so it stays visible as the next unavailable stage and
+  cannot be linked to even once `setupStage` reaches `programs`.
 
 ~~No route exists for **Policy Assignments** (H2.4).~~ Added in R2.
+~~`/workspace/people` — required by H2.5.~~ Added in R3.
 
 ---
 
@@ -199,6 +234,8 @@ Declared in `lib/workspace.ts` `SETUP_STAGES` with `available: false`:
 | `RelationshipType` | — | **R1:** `Employee \| Client \| Partner \| Supplier \| Board \| Investor \| Government \| Community \| Other` |
 | `PolicyAssignment` | — | **R2:** `relationshipClassId` + `recognitionPolicyId` + optional `countryCode` + `priority` + `isActive`. References only, never denormalized |
 | `AssignmentScope` | — | **R2:** `Global \| Country`, *derived* from `countryCode` rather than stored |
+| `Person` | — | **R3:** required names, optional normalized email as the identity key, `relationshipClassIds` references, `sourceId` + `sourceType` provenance, `Active \| Archived` |
+| `PeopleSource` | — | **R3:** `Manual \| CSV \| HRIS`; one source per CSV import, one reusable Manual source per workspace. HRIS is a declared future type with no integration |
 | `Money` | 40 | `{ amount, currency }` — face value, not minor units |
 | `RecognitionPolicy` | 87 | Full ADR-001 shape incl. `version`, `parentPolicyId` |
 | `RecognitionRule` | 76 | `momentType`, `budgetPerPerson`, `isEnabled` |
@@ -215,10 +252,11 @@ Declared in `lib/workspace.ts` `SETUP_STAGES` with `available: false`:
 ### Specified in the Atlas but absent from code
 
 `Organization` (§4), `Workspace` (§4, as distinct from Organization), `Organization Profile` (§4, as a
-distinct object), `Relationship Profile` (§4), `Person` (§4), `Program` (§4), `Moment` (§4),
-`Gift / Item` (§4), `Fulfillment` (§4), `Memory` (§4), `Insight` (§4), `PeopleSource` (§12).
+distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
+`Gift / Item` (§4), `Fulfillment` (§4), `Memory` (§4), `Insight` (§4).
 
 ~~`Policy Assignment` (§4, §11)~~ — implemented in R2.
+~~`Person` (§4), `PeopleSource` (§12)~~ — implemented in R3.
 
 ---
 
@@ -228,7 +266,7 @@ distinct object), `Relationship Profile` (§4), `Person` (§4), `Program` (§4),
 
 | Key | Written by | Shape |
 |-----|-----------|-------|
-| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, now carrying `schemaVersion` (currently **v3**) |
+| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, now carrying `schemaVersion` (currently **v4**) |
 | `aniye_assessment` | `app/components/assessment/AssessmentWizard.tsx:34` | Assessment answers (H1, pre-workspace) |
 | `aniye_workspace_backup_v<n>_<ts>` | **R1:** `lib/migrations.ts` | Verbatim pre-migration payload, written before a destructive migration only |
 | `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
@@ -251,7 +289,7 @@ distinct object), `Relationship Profile` (§4), `Person` (§4), `Program` (§4),
 | S3 | **Money stored as face value**, not smallest currency unit. Deviation is documented in-code at `lib/workspace.ts:37-39` but contradicts Atlas §4 Money. | Must be reconciled before any budget arithmetic in the Decision Engine (ADR-003). |
 | S4 | **No `workspaceId` on `RelationshipClass`**, though `RecognitionPolicy` has one and Atlas §4 requires it on both. | Inconsistent ownership model; breaks once multi-workspace arrives. |
 | S5 | `WorkspaceState` carries `organizationId` only — Organization, Workspace, and Organization Profile are collapsed into one flat record. Atlas §4 defines three distinct objects. | Acceptable for H2/H3 local-storage phase, but must be recorded as intentional debt. |
-| S6 | No collection for ~~`policyAssignments`,~~ `people`, `peopleSources`, `programs`, or `moments`. | **Partly resolved in R2:** `policyAssignments` landed as schema v3, and did so as a routine additive bump on the R1 foundation — which is the pattern the remaining collections should follow. |
+| S6 | No collection for ~~`policyAssignments`, `people`, `peopleSources`,~~ `programs`, or `moments`. | **Resolved for the H2 collections.** `policyAssignments` landed as v3 (R2); `people` and `peopleSources` as v4 (R3), the latter a purely additive bump requiring no backup. `programs` and `moments` are gated behind the architecture-correction checkpoint, since where they live is one of the open questions. |
 
 ---
 
@@ -264,14 +302,29 @@ They must be resolved deliberately during reconstruction, not silently overwritt
 |---|----------|------|-------|-----------|
 | C1 | ~~**Relationship Class taxonomy** — the central conflict.~~ | ~~`category` + `tier`~~ | ~~§4: single `tier` enum~~ | **✅ Resolved in R1.** ADR-002 supersedes both. Code and Atlas §4/§10 now agree on `type` + numeric `level`. |
 | C2 | **Class lifecycle fields** — still open | `isDefault: boolean`, `isActive: boolean` | §4: `isCustom: boolean`, `status: Draft \| Active \| Archived` | Atlas is authoritative; `isActive` cannot express Draft, and Atlas §10 requires archive-not-delete. Deliberately **out of ADR-002 scope** — it is a lifecycle change, not a taxonomy one. Atlas §4 now carries an implementation note pointing here. |
-| C3 | **`memberCount` missing** | Not present on `RelationshipClass` | §4: `memberCount` computed from Person records | Deferred until H2.5 lands `Person`. |
+| C3 | ~~**`memberCount` missing**~~ | — | — | **✅ Resolved in R3** — by deriving rather than storing. `lib/people.ts` computes active/total counts per class, unassigned people, and invalid class references on read. Atlas §4 and §10 updated to say `memberCount` is derived, never persisted. |
 | C4 | **Policy lifecycle truncated** — still open, deliberately | `PolicyStatus = Draft \| Published \| Archived` | §4 and §11: `Draft → Preview → Approved → Published → Archived`, with approver ID + timestamp recorded at Approve | Code is missing the `Preview` and `Approved` states and the approval audit fields. **Held out of H2.4 by instruction.** H2.4 treats `Published` as the sole executable status, which is forward-compatible: when `Approved` and `Preview` arrive, only `EXECUTABLE_POLICY_STATUS` in `lib/migrations.ts` and the assignability gate need revisiting. Recorded here as the remaining Atlas mismatch. |
 | C5 | **Default class seed list incomplete** — still open | 11 classes in `DEFAULT_RELATIONSHIP_CLASSES` | §10 previously listed 16 standard classes | Out of ADR-002 scope. R1 aligned Atlas §10 to the 11 classes the code actually seeds, so the two no longer contradict each other; whether to seed more (Strategic Partners, Government, Media, Community) and whether `Staff` should be named `Employees` remain open product questions. |
-| C6 | **Money unit** | Face value (`500000` = NGN 500,000) | §4: smallest currency unit (kobo/cents) | Documented deviation. Must be settled before Decision Engine arithmetic. |
+| C6 | **Money unit** — still open, now load-bearing | Face value (`500000` = NGN 500,000) | §4: smallest currency unit (kobo/cents) | Documented deviation. Explicitly held out of R3 by instruction. **This is now the most consequential open conflict:** it is item 4 of the architecture-correction checkpoint and must be settled before the Decision Engine does any budget arithmetic. Floating-point face values will not survive contact with multi-currency spend. |
 | C7 | ~~**No Policy Assignment layer**~~ | — | — | **✅ Resolved in R2.** `PolicyAssignment`, the `policyAssignments` collection, `/workspace/assignments`, and `resolvePolicyAssignment()` now close the chain. |
 | C8 | ~~**Setup checklist has no assignments stage**~~ | — | — | **✅ Resolved in R2.** `assignments` inserted between `policies` and `people` across `SETUP_STAGES`, the sidebar, the checklist, and the stage-order helpers. |
 | C9 | ~~**Misleading git tag**~~ | — | — | **✅ Resolved in R2.** `h3.5-vendor-intelligence` deleted locally and from the remote; `recovery-r1-adr002` created against the real R1 commit. |
 | C10 | ~~**No `typecheck` npm script**~~ | — | — | **✅ Resolved in R1.** `typecheck` and `validate:migration` scripts added. |
+
+### People-specific compromises (new in R3)
+
+These are deliberate H2.5 scope decisions, not defects. Each is recorded so the checkpoint can revisit it.
+
+| # | Compromise | Why | When it matters |
+|---|-----------|-----|-----------------|
+| P1 | **No field-level provenance.** A higher-priority import replaces supplied fields wholesale; the record does not remember which source last set each individual field. | Atlas §12 specifies admin-`locked` fields and a `rawSource` audit blob. Both are connector-era concerns and would be speculative without a real HRIS. | When the first HR connector ships and two live sources contend for the same record. |
+| P2 | **No admin-locked fields.** Specified in Atlas §12, not built. | Same as P1 — the locking UI has no meaning until multiple automatic sources exist. | Same as P1. |
+| P3 | **Source priority is fixed, not configurable per workspace.** Atlas §12 says reranking is a workspace setting. | `HRIS > CSV > Manual` is the documented default; making it configurable before any integration exists would be a setting nobody could use. | H4 integrations. |
+| P4 | **Name + startDate conflict detection is not implemented.** Only normalized email matches automatically. | Deliberate: it is a heuristic, and H2.5's rule is that nothing merges without a real key. | When connectors supply records with no email. |
+| P5 | **Excel (.xlsx) import is not implemented**, though Atlas §12 lists it at H2. | CSV covers the same need with an RFC 4180 parser and no dependency. Excel would require a parsing library. | If operators actually arrive with .xlsx rather than .csv. |
+| P6 | **`Person.tags`, `department`, and `manager` are not implemented.** | `tags` is unused elsewhere; `department`/`manager` belong to the HR connector shape in Atlas §12, not the canonical model today. | Org-chart-aware recognition, H4+. |
+| P7 | **`Person.status` is `Active \| Archived`**, where Atlas §4 previously also listed `Inactive`. | `Inactive` and `Archived` expressed the same thing. Atlas §4 updated to two states rather than the code carrying a distinction with no meaning. | Resolved in the Atlas; noted for audit. |
+| P8 | **A repeated class id on one Person record is deduplicated at count time, not at write time.** | Counting once per class is the behaviour that matters; normalizing on write would need a migration for existing records. | Cosmetic only. |
 
 ---
 
@@ -291,6 +344,15 @@ They must be resolved deliberately during reconstruction, not silently overwritt
 > `package.json`, `tsconfig.json`, `scripts/validate-schema-migration.mts`, and both docs.
 > `VerifyGate.tsx` needed no change — it creates workspaces through `createWorkspace()`, which
 > picked up the new collection automatically. That is the R1 foundation paying off.
+>
+>
+> **R3 landed:** `lib/people.ts` (new), `lib/csv.ts` (new),
+> `app/components/workspace/PeopleDirectory.tsx` (new), `PersonForm.tsx` (new),
+> `PeopleImport.tsx` (new), `app/workspace/people/page.tsx` (new),
+> `scripts/validate-people.mts` (new), `lib/migrations.ts`, `lib/workspace.ts`,
+> `SetupChecklist.tsx`, `WorkspaceSidebar.tsx`, `package.json`,
+> `scripts/validate-policy-assignments.mts`, and both docs.
+> `VerifyGate.tsx` again needed no change, for the same reason as in R2.
 >
 > The tables below list the remaining work.
 
@@ -338,7 +400,8 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 0 | ✅ **Schema versioning foundation** — `schemaVersion` on `WorkspaceState`, ordered migration runner, `typecheck` script. | — | Gap S1/S2. ADR-002 is a *transform* migration; the presence-check pattern could not express it. Doing this after ADR-002 would have meant migrating twice. **Landed in R1.** |
 | 1 | ✅ **ADR-002** — Relationship Type + numeric Relationship Level | 0 | Resolves C1. Changes the shape of `RelationshipClass`, which every downstream object references, so doing it first avoids reworking H2.4, H2.5, and H3.1. **Landed in R1.** |
 | 2 | ✅ **H2.4** — Policy Assignments | 1 | Restored the broken link in the Atlas §11 canonical flow. Resolves C7 and C8. **Landed in R2.** |
-| 3 | ⬅️ **H2.5** — People Sources and People — *next* | 1, 2 | `Person.relationshipClassIds` needs the ADR-002 class shape. Unblocks `memberCount` (C3). Moments cannot exist without people. |
+| 3 | ✅ **H2.5** — People Sources and People | 1, 2 | Resolved C3 by deriving member counts. **Landed in R3.** Completes the H2 Configure arc. |
+| — | ⛔ **Architecture-correction checkpoint** — *required before Operations* | 3 | Program definition; Workspace vs Operations boundary; Decision vs Operational Event; minimum financial and Money model (C6). Steps 4–10 below are gated behind this. |
 | 4 | **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. Specification input for ADR-003. |
 | 5 | **ADR-003** — Decision Engine | 4 | Resolves "which policy applies to this person for this moment type in this country" — requires assignments, people, and scope precedence to all exist. Settle C6 (Money unit) here. |
 | 6 | **H3.1** — Moment Engine | 5 | Generates Moments by running the Decision Engine over People × Policies. |
@@ -347,22 +410,29 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 9 | **H3.4** — Gift Intelligence | 8 | Intent → Category → Collection → Item on top of the catalog. Replaces the flat `GIFT_CATEGORIES`. |
 | 10 | **H3.5** — Vendor Intelligence | 9 | Routes chosen gifts to vendors. Re-point the `h3.5-vendor-intelligence` tag (C9) once genuinely reached. |
 
-### Next reconstruction task
+### Next action
 
-**Step 3 — H2.5, People Sources and People.**
+**Not a reconstruction milestone — the architecture-correction checkpoint.**
 
-Steps 0–2 have landed. With Class → Assignment → Policy now whole, the missing input to the chain is
-the people themselves: a policy can be resolved for a class, but no one belongs to a class yet.
+Steps 0–3 have landed and the H2 Configure arc is complete: an organization can now define who
+matters (classes), how they are recognized (policies), which rules reach which group (assignments),
+and who the actual people are. Every link in the Atlas §11 chain up to Program exists.
 
-`Person` is specified in Atlas §4 and `PeopleSource` in §12; neither exists in code, and
-`SETUP_STAGES` still marks `people` as `available: false`. H2.5 also unblocks
-`RelationshipClass.memberCount` (conflict C3), which has been deferred since the audit because it is
-computed from `Person` records.
+The next link *is* Program, and that is exactly where the surviving architecture is least settled.
+Four questions must be answered before any Operations code is written:
 
-Expected shape of the work: `Person` and `PeopleSource` types with `people` and `peopleSources`
-collections on `WorkspaceState` (schema **v3 → v4**, additive), CSV/manual import per §12's
-normalization and source-priority rules, a `/workspace/people` route, and confirmation advancing
-`setupStage` from `people` to `programs`.
+1. **Program definition** — Atlas §4 defines a Program with a `policySnapshot` taken at Approval, but
+   never says whether a Program is a schedule, a campaign, or a budget envelope. Moment generation
+   depends on the answer.
+2. **Workspace versus Operations boundary** — everything so far lives in one `WorkspaceState`
+   document. Operations introduces records that are events rather than configuration, and Atlas §3's
+   Relationship Engine / Knowledge split needs to be made concrete before they are mixed.
+3. **Decision versus Operational Event** — `resolvePolicyAssignment()` produces a *decision*. A
+   Moment is an *event*. Whether decisions are persisted or recomputed changes the entire data model.
+4. **Minimum financial and Money model (C6)** — Money is still face value, not minor units. This must
+   be settled before the Decision Engine performs any budget arithmetic.
+
+Reconstruction steps 4–10 remain in the sequence above and are gated behind this checkpoint.
 
 ---
 
@@ -377,3 +447,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Audit basis: commit `b639349`, System Atlas v2.2.*
 *Updated after R1 (schema versioning + ADR-002) — System Atlas v2.3.*
 *Updated after R2 (H2.4 Policy Assignments, schema v3) — System Atlas v2.4.*
+*Updated after R3 (H2.5 People Sources and People, schema v4) — System Atlas v2.5. H2 Configure recovery complete.*

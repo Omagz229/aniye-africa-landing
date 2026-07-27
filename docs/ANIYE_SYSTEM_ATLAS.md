@@ -224,22 +224,63 @@ A live, structured representation of an organization's relationship health — o
 
 Any individual tracked in Aniyé — employee, client, partner, board member.
 
+**Implemented in H2.5** (schema v4).
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | — |
-| `workspaceId` | UUID | Owning workspace |
-| `firstName` | string | — |
-| `lastName` | string | — |
-| `email` | string | Primary email |
-| `phone` | string? | Optional |
-| `country` | string | ISO 3166-1 alpha-2 delivery country |
+| `firstName` | string | **Required** |
+| `lastName` | string | **Required** |
+| `email` | string? | Optional, but **normalized** (trimmed, lowercased) when present. The duplicate-identity key |
+| `phone` | string? | Optional. Never used as an identity key — see §12 |
+| `country` | string? | ISO 3166-1 alpha-2, uppercase |
 | `role` | string? | Job title or relationship role |
-| `startDate` | ISO date? | Employment or relationship start |
-| `birthday` | string? | MM-DD format (no year required) |
-| `sourceId` | UUID? | Reference to originating PeopleSource record |
-| `relationshipClassIds` | UUID[] | Classes this person belongs to |
-| `tags` | string[] | Freeform |
-| `status` | enum | Active / Inactive / Archived |
+| `startDate` | ISO date? | Employment or relationship start, `YYYY-MM-DD` |
+| `birthday` | string? | `MM-DD`. The year is not required and is discarded if supplied |
+| `relationshipClassIds` | UUID[] | Classes this person belongs to. References only, never denormalized |
+| `sourceId` | UUID | The PeopleSource this record last came from |
+| `sourceType` | enum | Manual / CSV / HRIS — denormalized deliberately, so precedence can be evaluated without a source lookup |
+| `externalId` | string? | Stable id in the originating system |
+| `status` | enum | Active / Archived |
+| `createdAt` | ISO timestamp | — |
+| `updatedAt` | ISO timestamp | — |
+| `archivedAt` | ISO timestamp? | Set when archived |
+
+A Person may belong to zero, one, or many Relationship Classes. Zero is valid and expected during setup — the person exists, but no policy reaches them until a class is assigned.
+
+**Archived people** keep every field and class reference. They are excluded from active member counts and must not be treated as program members, but they are never deleted.
+
+> **Implementation note:** `status` is `Active | Archived`; the Atlas previously also listed `Inactive`, which duplicated what archiving already expresses. `workspaceId` is omitted because the client-side workspace is a single document. `tags` and `department`/`manager` are not implemented — they belong with the HR connectors in §12.
+
+---
+
+### People Source
+
+Where a Person record came from. The abstraction that lets a CSV upload today and an HR connector tomorrow feed the same directory under the same precedence rules, without the Person model knowing which is which.
+
+**Implemented in H2.5** (schema v4).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | — |
+| `name` | string | Display label. Derived from the filename for CSV imports |
+| `type` | enum | Manual / CSV / **HRIS** |
+| `status` | enum | Active / Archived / Disconnected |
+| `filename` | string? | Original upload filename, for CSV sources |
+| `externalSystem` | string? | Name of the external system, for HRIS sources |
+| `importedAt` | ISO timestamp? | When rows were last brought in |
+| `lastSyncedAt` | ISO timestamp? | Reserved for HRIS |
+| `createdAt` | ISO timestamp | — |
+| `updatedAt` | ISO timestamp | — |
+
+**Cardinality rules:**
+
+- **One source per CSV import** — named from the file, recording `filename` and `importedAt`. Never one source per row.
+- **One Manual source per workspace**, reused for every hand-entered person. A source per person would make provenance meaningless.
+
+**`HRIS` is a canonical future source type only.** H2.5 builds no external integration. The value is declared now so that source precedence has a stable top rung and imported records can carry correct provenance the day a connector ships — without another schema migration. See §12 for the connector roadmap.
+
+**Archiving or disconnecting a source never touches its people.** The Person records remain, keep their `sourceId`, and stay fully operational; only the source's state changes.
 
 ---
 
@@ -257,13 +298,22 @@ Classes are described by two independent axes (**ADR-002**): a **Relationship Ty
 | `type` | enum | Relationship Type — Employee / Client / Partner / Supplier / Board / Investor / Government / Community / Other |
 | `level` | integer | Relationship Level — 0–99. **0 is the highest** recognition priority within the type |
 | `description` | string? | Optional context |
-| `memberCount` | number | Computed from Person records |
+| `memberCount` | number | **Derived, never stored** — see below |
 | `isCustom` | boolean | `false` for standard templates, `true` for org-created |
 | `status` | enum | Draft / Active / Archived |
 
 **Standard classes by type (see §10 for the full reference).**
 
-> **Implementation note (as of ADR-002):** the workspace implementation persists `isDefault` and `isActive` in place of `isCustom` and `status`, and does not yet compute `memberCount` (it depends on `Person`, which arrives in H2.5). These divergences predate ADR-002 and are tracked as C2 and C3 in `docs/RECOVERY_LEDGER.md`.
+**Member counts are derived, not stored.** As of H2.5 the implementation computes them from Person records on read rather than persisting a `memberCount` field. Storing it would create a second source of truth that every person edit, import, archive, and class change would have to keep in step — and that would be wrong the first time one of those paths forgot. The helpers in `lib/people.ts` derive:
+
+- **active member count** per class — people with `status: Active`
+- **total member count** per class — including archived people
+- **people with no class** — active people no policy can reach
+- **people referencing inactive or missing classes** — reported, never silently stripped
+
+A person is counted once per class even if the id is repeated on their record, and a reference to a class that no longer exists never corrupts another class's count.
+
+> **Implementation note (as of ADR-002):** the workspace implementation persists `isDefault` and `isActive` in place of `isCustom` and `status`. This divergence predates ADR-002 and is tracked as C2 in `docs/RECOVERY_LEDGER.md`. The `memberCount` divergence (C3) is **resolved** as of H2.5 — by deriving rather than storing.
 
 ---
 
@@ -816,11 +866,13 @@ External HR System
 
 ### Supported People Sources
 
-| Source | Type | Horizon |
-|--------|------|---------|
-| Manual entry | Built-in | H1 |
-| CSV upload | Built-in | H2 |
-| Excel upload | Built-in | H2 |
+Implementation status as of H2.5: **Manual and CSV are built.** Everything below them is a connector that produces the same canonical shape — none exist yet, and the `HRIS` source type stands in for all of them.
+
+| Source | Type | Horizon | Status |
+|--------|------|---------|--------|
+| Manual entry | Built-in | H1 | ✅ Implemented (H2.5) |
+| CSV upload | Built-in | H2 | ✅ Implemented (H2.5) |
+| Excel upload | Built-in | H2 | Not implemented |
 | Google Sheets | Integration | H3 |
 | BambooHR | Integration | H3 |
 | HiBob | Integration | H3 |
@@ -855,11 +907,26 @@ interface CanonicalPersonImport {
 
 ### Normalization Rules
 
-- Email is the primary deduplication key across all sources
-- If a person exists with the same email, the import updates their record and logs the change
-- If a person exists with a different email but matching name + startDate, flag as a **conflict** requiring manual review — do not auto-merge
-- Fields from a later import overwrite earlier fields unless marked `locked` by an admin
-- The `rawSource` field is stored but never used in downstream logic — Aniyé's canonical model is authoritative
+**Implemented in H2.5:**
+
+| Field | Rule |
+|-------|------|
+| `email` | Trimmed and lowercased. The **only** automatic duplicate key |
+| `country` | Trimmed and uppercased; must be two letters or the row is rejected |
+| `birthday` | `MM-DD`, `MM/DD`, `YYYY-MM-DD`, or `YYYY/MM/DD` accepted; stored as `MM-DD` |
+| `startDate` | `YYYY-MM-DD` or `YYYY/MM/DD` accepted; stored as `YYYY-MM-DD` |
+| `phone` | Trimmed, internal whitespace collapsed. Never normalized into an identity key |
+
+Email normalization stops at trim-and-lowercase. Plus-address stripping and provider-specific dot folding are deliberately **not** done: they are heuristics, and treating two genuinely different addresses as one person is a worse failure than leaving a duplicate for an operator to resolve.
+
+**Not yet implemented:** admin-`locked` fields, and the `rawSource` audit blob. Field-level provenance — remembering which source last set each individual field — is explicitly out of scope until connectors exist.
+
+### Duplicate Identity
+
+- **Normalized email is the primary automatic duplicate key.** A record with no usable email is **never** merged automatically — there is no key to match on, and inferring identity from a name is how directories get silently corrupted.
+- **Phone numbers never merge records.** A phone match is surfaced as a warning only. Numbers are shared, reassigned, and mistyped too often to be treated as identity.
+- **A repeated email within a single import file** is imported once; later rows are reported as duplicates pointing at the earlier row.
+- **Name + startDate matching** is specified above for a future connector; it is not implemented, and would flag for review rather than merge.
 
 ### Synchronization
 
@@ -870,25 +937,82 @@ interface CanonicalPersonImport {
 
 ### Source Priority
 
-Source priority is configurable per workspace. **Default ranking (highest to lowest):**
+**Canonical ranking (highest to lowest): `HRIS` > `CSV` > `Manual`.**
 
-1. HR integrations (BambooHR, HiBob, Workday, etc.)
-2. CSV / Excel upload
-3. Manual entry
+The reasoning is **authority, not recency**. An HRIS is the system of record for employment facts; a CSV is a deliberate bulk statement; a manual entry is one person typing. A higher-priority source may correct a lower one, never the reverse.
 
-When two sources provide conflicting values for the same field, the source with higher priority wins. Admins can rerank sources in workspace settings. Any field can be individually **locked** by an admin — locked fields are never overwritten by any source, regardless of priority.
+Precedence only ever decides *which record wins a collision*. It never deletes anything.
+
+**Implemented in H2.5.** Reranking per workspace and admin-locked fields are specified but not built.
+
+### Duplicate Behaviour
+
+When an incoming record matches an existing normalized email:
+
+| Case | Outcome |
+|------|---------|
+| **Existing source ranks higher** | The existing record is kept untouched. The incoming row is reported as a duplicate, with the reason naming both sources |
+| **Equal priority** | The existing record is kept. Reported as needing operator review rather than overwritten — an equal-authority collision has no automatic winner |
+| **Incoming source ranks higher** | The existing record is **updated in place** |
+
+An update under precedence preserves, in every case:
+
+- the existing **`id`** and `createdAt` — this is an update, not a replacement
+- **any field the incoming record did not supply.** Absence is not an instruction to erase
+- **class assignments**, unless the incoming record explicitly carried replacements
+- **`status` and `archivedAt`** — an import must never silently resurrect someone an operator archived
+
+...and records the new `sourceId` and `sourceType`.
+
+### Class Assignment on Import
+
+Class references resolve by **exact match only**, in this order:
+
+1. `relationship_class_id` — an exact class id
+2. an exact normalized display name (trimmed, lowercased, internal whitespace collapsed)
+3. an exact **Relationship Type + numeric Level** pair
+
+**There is no fuzzy matching at any step.** A near-miss on a class name would quietly put people into the wrong recognition tier — the kind of error nobody notices until a gift reaches the wrong person.
+
+| Situation | Behaviour |
+|-----------|-----------|
+| Reference matches exactly one class | Assigned |
+| Reference matches **more than one** class | Row is blocked as *Ambiguous class*. Nothing is assigned |
+| Reference matches nothing | Warned, left unassigned; the person still imports |
+| Reference matches an **inactive** class | Warned, not assigned; the person still imports |
+| No class reference at all | Person imports as *Ready — unassigned* |
+
+A person may be imported without a class. They are flagged as unassigned rather than rejected, because an unassigned person is recoverable and a rejected import row is not.
 
 ### Conflict Resolution
 
 | Scenario | Resolution |
 |----------|-----------|
 | New person, no match | Create canonical Person |
-| Email match, same source | Update in place, log change |
-| Email match, different source | Update with higher-priority source data; record both source IDs; log overridden values |
-| Name + startDate match, different email | Flag for manual review — do not auto-merge |
-| Person removed from source | Mark `status: Inactive` — never auto-delete |
-| Field conflict, equal priority sources | Prefer most recently updated; flag for admin review |
-| Admin-locked field, any source | Skip — never overwrite locked fields |
+| No usable email | Create — never merged automatically |
+| Email match, incoming source ranks higher | Update in place, preserving id and unsupplied fields |
+| Email match, incoming source ranks lower | Keep existing; report the incoming row as a duplicate |
+| Email match, equal priority | Keep existing; flag for operator review — never overwrite |
+| Email repeated within one import file | Import the first; report later rows against it |
+| Name + startDate match, different email | Flag for manual review — do not auto-merge *(specified, not implemented)* |
+| Person removed from source | Archive — never auto-delete |
+| Admin-locked field, any source | Skip — never overwrite locked fields *(specified, not implemented)* |
+
+### Import Result States
+
+Every previewed row carries exactly one outcome, shown before anything is written:
+
+| State | Meaning |
+|-------|---------|
+| **Ready** | Will be added, with classes assigned |
+| **Ready — unassigned** | Will be added with no Relationship Class |
+| **Will update higher-priority record** | Matches an existing person from a lower-priority source |
+| **Duplicate — existing record retained** | Matches an existing person from an equal or higher-priority source |
+| **Invalid** | A field failed normalization |
+| **Ambiguous class** | A class reference matched more than one class |
+| **Missing required field** | No first name or no last name |
+
+Only the first three write anything. Import returns counts for created, updated, skipped, and invalid rows.
 
 ### Event Handling
 
@@ -1021,7 +1145,7 @@ Until the backend exists, the workspace is persisted client-side and carries its
 - Migration **fails safely**: a payload that cannot be read or that fails post-migration validation is never overwritten. It is quarantined so the next workspace creation cannot destroy it
 - A payload from a **newer** schema version than the running build is refused rather than downgraded
 
-Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `npm run validate:assignments`.
+Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `npm run validate:assignments`, `npm run validate:people`.
 
 **Version history:**
 
@@ -1030,6 +1154,7 @@ Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `
 | v1 | H2.3 | The pre-versioning shape. Identified by the *absence* of `schemaVersion` |
 | v2 | ADR-002 | `RelationshipClass.category` + `tier` → `type` + numeric `level` |
 | v3 | H2.4 | Adds the `policyAssignments` collection and the `assignments` setup stage |
+| v4 | H2.5 | Adds the `peopleSources` and `people` collections |
 
 **Setup stage remap (v2 → v3).** The `assignments` step is new, so a v2 workspace that had already moved past `policies` had skipped a step that now exists:
 
@@ -1038,6 +1163,8 @@ Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `
 - `people`, `programs`, `active` → **`policies`**, when none does
 
 The second case matters: an assignment cannot be created without a Published policy, so routing the operator to `assignments` with nothing to assign would dead-end them. The remap is recorded as a migration warning rather than performed silently.
+
+**v3 → v4 is purely additive.** Two empty collections, nothing existing touched, `setupStage` deliberately left alone — the `people` stage already existed in the v3 stage list, so unlike the v2 → v3 remap there is no step a workspace could have skipped. Because nothing is rewritten, no backup is taken.
 
 ### Feature Flags
 - Named by domain: `identity.email_verification`, `engine.programs`, `integrations.bamboohr`
@@ -1220,8 +1347,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v2.4 — Aniyé Africa — July 2026*
+*System Atlas v2.5 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v2.5: H2.5 — Person and People Source implemented (schema v4); §4 gains the People Source object; §10/§4 member counts are derived rather than stored (resolves C3); §12 rewritten for the implemented normalization, source precedence, duplicate identity, class assignment, and import result states; HRIS documented as a future source abstraction only*
 *v2.4: H2.4 — Policy Assignment implemented (schema v3); §4 Policy Assignment updated to the implemented model; §11 gains the resolution algorithm and active/inactive/archived rules; §15 gains the schema version history and the v2 → v3 stage remap; ADR-001 confirmed fully implemented*
 *v2.3: ADR-002 — Relationship Type + numeric Relationship Level supersedes Category/Tier; §10 rewritten; client schema versioning added to §15*
 *v2.2: ADR-001 — Recognition Policy promoted to first-class reusable object; Policy Assignment introduced as linking layer; multinational policy support via country-scoped assignments; §11 Relationship Policy Model fully rewritten*

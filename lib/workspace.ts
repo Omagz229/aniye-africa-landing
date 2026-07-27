@@ -6,12 +6,21 @@ import {
   RELATIONSHIP_LEVEL_MIN,
   SCHEMA_V2_RELATIONSHIP_TYPES,
   SCHEMA_V3_SETUP_STAGES,
+  SCHEMA_V4_PEOPLE_SOURCE_STATUSES,
+  SCHEMA_V4_PEOPLE_SOURCE_TYPES,
+  SCHEMA_V4_PERSON_STATUSES,
   WORKSPACE_KEY,
   isSchemaV2RelationshipType,
   isValidRelationshipLevel,
   loadAndMigrateWorkspace,
 } from './migrations';
-import type { SchemaV2RelationshipType, SchemaV3SetupStage } from './migrations';
+import type {
+  SchemaV2RelationshipType,
+  SchemaV3SetupStage,
+  SchemaV4PeopleSourceStatus,
+  SchemaV4PeopleSourceType,
+  SchemaV4PersonStatus,
+} from './migrations';
 
 export {
   COUNTRY_CODE_PATTERN,
@@ -122,6 +131,8 @@ export interface WorkspaceState {
   relationshipClasses: RelationshipClass[];
   recognitionPolicies: RecognitionPolicy[];
   policyAssignments: PolicyAssignment[];
+  peopleSources: PeopleSource[];
+  people: Person[];
 }
 
 // ─── Money ───────────────────────────────────────────────────────────────────
@@ -269,6 +280,68 @@ export function isAssignablePolicy(policy: RecognitionPolicy): boolean {
   return policy.status === EXECUTABLE_POLICY_STATUS;
 }
 
+// ─── H2.5: People Sources and People ─────────────────────────────────────────
+// A PeopleSource records *where* a Person came from. It is the abstraction that
+// lets a CSV upload today and an HRIS connector tomorrow feed the same
+// directory under the same precedence rules, without the Person model knowing
+// which is which.
+
+export const PEOPLE_SOURCE_TYPES = SCHEMA_V4_PEOPLE_SOURCE_TYPES;
+export type PeopleSourceType = SchemaV4PeopleSourceType;
+
+export const PEOPLE_SOURCE_STATUSES = SCHEMA_V4_PEOPLE_SOURCE_STATUSES;
+export type PeopleSourceStatus = SchemaV4PeopleSourceStatus;
+
+export const PERSON_STATUSES = SCHEMA_V4_PERSON_STATUSES;
+export type PersonStatus = SchemaV4PersonStatus;
+
+export interface PeopleSource {
+  id: string;
+  name: string;
+  type: PeopleSourceType;
+  status: PeopleSourceStatus;
+  /** Original upload filename, for CSV sources. */
+  filename?: string;
+  /** Name of the external system, for HRIS sources. Unused in H2.5. */
+  externalSystem?: string;
+  /** When rows were last brought in from this source. */
+  importedAt?: string;
+  /** Reserved for HRIS. Never set in H2.5. */
+  lastSyncedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Person {
+  id: string;
+  firstName: string;
+  lastName: string;
+  /** Normalized (trimmed, lowercased) when present. The duplicate-identity key. */
+  email?: string;
+  phone?: string;
+  role?: string;
+  /** ISO 3166-1 alpha-2, uppercase. */
+  country?: string;
+  /** ISO date, YYYY-MM-DD. */
+  startDate?: string;
+  /** MM-DD. The year is deliberately not required — most orgs do not have it. */
+  birthday?: string;
+  /** References RelationshipClass.id. Never denormalized. */
+  relationshipClassIds: string[];
+  sourceId: string;
+  sourceType: PeopleSourceType;
+  /** Stable id in the originating system, when one exists. */
+  externalId?: string;
+  status: PersonStatus;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export function personFullName(person: Person): string {
+  return `${person.firstName} ${person.lastName}`.trim();
+}
+
 const NOW = '2026-06-25T00:00:00.000Z';
 
 /**
@@ -382,6 +455,8 @@ export function createWorkspace(input: NewWorkspaceInput): WorkspaceState {
     relationshipClasses: DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c })),
     recognitionPolicies: [],
     policyAssignments: [],
+    peopleSources: [],
+    people: [],
   };
 }
 
@@ -477,7 +552,7 @@ export const SETUP_STAGES: Array<{
     label: 'People',
     description: 'Import your employees, clients, and partners',
     href: '/workspace/people',
-    available: false,
+    available: true,
   },
   {
     key: 'programs',

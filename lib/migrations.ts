@@ -32,8 +32,8 @@
  */
 export const LEGACY_UNVERSIONED_SCHEMA_VERSION = 1;
 
-/** Schema v3 — H2.4: Policy Assignments + the `assignments` setup stage. */
-export const CURRENT_WORKSPACE_SCHEMA_VERSION = 3;
+/** Schema v4 — H2.5: People Sources and People. */
+export const CURRENT_WORKSPACE_SCHEMA_VERSION = 4;
 
 export const WORKSPACE_KEY = 'aniye_workspace';
 export const WORKSPACE_BACKUP_KEY_PREFIX = 'aniye_workspace_backup';
@@ -94,6 +94,25 @@ export const EXECUTABLE_POLICY_STATUS = 'Published';
 
 /** ISO 3166-1 alpha-2. Blank/absent means the assignment is Global. */
 export const COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/;
+
+// ─── Schema v4 canonical values (pinned — see module header) ─────────────────
+
+/**
+ * Where a Person record came from.
+ *
+ * `HRIS` exists as a canonical future source type only — H2.5 builds no
+ * external integration. It is declared now so that source precedence has a
+ * stable top rung and imported records can carry the right provenance the day
+ * a connector ships, without another schema migration.
+ */
+export const SCHEMA_V4_PEOPLE_SOURCE_TYPES = ['Manual', 'CSV', 'HRIS'] as const;
+export type SchemaV4PeopleSourceType = (typeof SCHEMA_V4_PEOPLE_SOURCE_TYPES)[number];
+
+export const SCHEMA_V4_PEOPLE_SOURCE_STATUSES = ['Active', 'Archived', 'Disconnected'] as const;
+export type SchemaV4PeopleSourceStatus = (typeof SCHEMA_V4_PEOPLE_SOURCE_STATUSES)[number];
+
+export const SCHEMA_V4_PERSON_STATUSES = ['Active', 'Archived'] as const;
+export type SchemaV4PersonStatus = (typeof SCHEMA_V4_PERSON_STATUSES)[number];
 
 // ─── ADR-002 legacy mapping (schema v1 → v2) ─────────────────────────────────
 
@@ -409,6 +428,24 @@ export const MIGRATIONS: readonly Migration[] = [
       };
     },
   },
+  {
+    id: 'v3-to-v4-h2-5-people-and-sources',
+    from: 3,
+    to: 4,
+    description: 'H2.5 — add the peopleSources and people collections.',
+    // Purely additive: two new empty collections, nothing existing is touched
+    // and `setupStage` is deliberately left alone. The `people` stage already
+    // existed in v3's stage list (it was simply unavailable), so unlike the
+    // v2 → v3 remap there is no stage a workspace could have skipped. Nothing
+    // is rewritten, so no backup is required.
+    destructive: false,
+    run: (workspace) => ({
+      ...workspace,
+      peopleSources: Array.isArray(workspace.peopleSources) ? workspace.peopleSources : [],
+      people: Array.isArray(workspace.people) ? workspace.people : [],
+      schemaVersion: 4,
+    }),
+  },
 ];
 
 // ─── Version detection ───────────────────────────────────────────────────────
@@ -461,6 +498,12 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
   }
   if (!Array.isArray(raw.policyAssignments)) {
     return { ok: false, reason: 'policyAssignments is not an array.' };
+  }
+  if (!Array.isArray(raw.peopleSources)) {
+    return { ok: false, reason: 'peopleSources is not an array.' };
+  }
+  if (!Array.isArray(raw.people)) {
+    return { ok: false, reason: 'people is not an array.' };
   }
 
   for (const [i, cls] of raw.relationshipClasses.entries()) {
@@ -523,6 +566,57 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
         ok: false,
         reason: `Policy assignment "${assignment.id}" has an invalid countryCode: ${String(assignment.countryCode)}. Expected a two-letter uppercase ISO 3166-1 alpha-2 code, or blank for Global.`,
       };
+    }
+  }
+
+  for (const [i, source] of raw.peopleSources.entries()) {
+    if (!isPlainObject(source)) {
+      return { ok: false, reason: `People source at index ${i} is not an object.` };
+    }
+    if (!isNonEmptyString(source.id)) {
+      return { ok: false, reason: `People source at index ${i} has no id.` };
+    }
+    if (
+      typeof source.type !== 'string' ||
+      !(SCHEMA_V4_PEOPLE_SOURCE_TYPES as readonly string[]).includes(source.type)
+    ) {
+      return { ok: false, reason: `People source "${source.id}" has an invalid type: ${String(source.type)}.` };
+    }
+    if (
+      typeof source.status !== 'string' ||
+      !(SCHEMA_V4_PEOPLE_SOURCE_STATUSES as readonly string[]).includes(source.status)
+    ) {
+      return { ok: false, reason: `People source "${source.id}" has an invalid status: ${String(source.status)}.` };
+    }
+  }
+
+  for (const [i, person] of raw.people.entries()) {
+    if (!isPlainObject(person)) {
+      return { ok: false, reason: `Person at index ${i} is not an object.` };
+    }
+    if (!isNonEmptyString(person.id)) {
+      return { ok: false, reason: `Person at index ${i} has no id.` };
+    }
+    if (!isNonEmptyString(person.firstName) || !isNonEmptyString(person.lastName)) {
+      return { ok: false, reason: `Person "${person.id}" is missing a first or last name.` };
+    }
+    if (
+      typeof person.status !== 'string' ||
+      !(SCHEMA_V4_PERSON_STATUSES as readonly string[]).includes(person.status)
+    ) {
+      return { ok: false, reason: `Person "${person.id}" has an invalid status: ${String(person.status)}.` };
+    }
+    if (
+      typeof person.sourceType !== 'string' ||
+      !(SCHEMA_V4_PEOPLE_SOURCE_TYPES as readonly string[]).includes(person.sourceType)
+    ) {
+      return { ok: false, reason: `Person "${person.id}" has an invalid sourceType: ${String(person.sourceType)}.` };
+    }
+    if (
+      !Array.isArray(person.relationshipClassIds) ||
+      person.relationshipClassIds.some(id => typeof id !== 'string')
+    ) {
+      return { ok: false, reason: `Person "${person.id}" has a malformed relationshipClassIds list.` };
     }
   }
 

@@ -172,6 +172,35 @@ export default function SetupChecklist() {
               </Link>
             </>
           )}
+          {workspace.setupStage === 'people' && (
+            <>
+              <h3 className="font-display font-semibold text-xl text-cream mb-2">
+                Add the people you recognize
+              </h3>
+              <p className="font-body text-sm text-cream/70 mb-5">
+                Import a CSV or add people one at a time. Assigning each person to a Relationship
+                Class is what connects them to the policies you have already defined.
+              </p>
+              <Link
+                href="/workspace/people"
+                className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
+              >
+                Add People &#8594;
+              </Link>
+            </>
+          )}
+          {workspace.setupStage === 'programs' && (
+            <>
+              <h3 className="font-display font-semibold text-xl text-cream mb-2">
+                Your workspace is configured
+              </h3>
+              <p className="font-body text-sm text-cream/70">
+                Classes, policies, assignments, and people are all in place. Programs — turning that
+                configuration into scheduled recognition — is the next capability, and is not
+                available yet.
+              </p>
+            </>
+          )}
         </div>
       )}
 
