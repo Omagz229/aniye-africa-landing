@@ -45,7 +45,7 @@ Behind every strong organization are people and relationships maintained through
 
 **Submission handling:**
 - `console.log` for debug visibility
-- `localStorage` persistence under key `aniye_assessment`
+- `localStorage` persistence under key `aniye_last_submission`, written once at submit *(corrected during the Experience Audit — this document previously recorded `aniye_assessment`, a key the code has never used)*
 - TODO: webhook to CRM/Notion/Airtable on submission
 
 **Data passing pattern (stateless, no auth):**

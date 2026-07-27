@@ -19,7 +19,8 @@
 | 1 | **ADR-002** — Relationship Type + numeric Relationship Level | ✅ **Reconstructed** | R1 |
 | 2 | **H2.4** — Policy Assignments | ✅ **Reconstructed** | R2 |
 | 3 | **H2.5** — People Sources and People | ✅ **Reconstructed** | R3 |
-| — | **Aniyé Experience Audit** | ⬅️ **Next — required before Programs or Operations** | — |
+| — | **Aniyé Experience Audit** | ✅ **Complete** | Audit |
+| — | **Experience Correction milestone** | ⬅️ **Next — 5 findings gate Programs** | — |
 | — | **Architecture-correction checkpoint** | ⛔ Required before Operations | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 
@@ -98,9 +99,38 @@ Applied to People:
 
 New components: `StepHeader.tsx`, `SetupProgress.tsx`. New localStorage key: `aniye_person_draft` (draft only, never workspace data, cleared on save or cancel).
 
-### ⚠️ Gate before Programs or Operations: Aniyé Experience Audit
+### ✅ Aniyé Experience Audit — complete
 
-**After H2.5, perform an Aniyé Experience Audit before implementing Programs or Operations.** R3a applied the Doctrine to People only; every surface built before it predates the standard and has not been measured against it.
+**Performed at commit `1b1025e`.** Inspection only — no application component or domain model was changed. Full findings: [`ANIYE_EXPERIENCE_AUDIT.md`](ANIYE_EXPERIENCE_AUDIT.md) and [`ANIYE_FRICTION_REGISTER.md`](ANIYE_FRICTION_REGISTER.md).
+
+| Severity | Count |
+|----------|-------|
+| **Critical** | 2 |
+| **High** | 8 |
+| **Medium** | 11 |
+| **Low** | 7 |
+| **Total** | **28** |
+
+**The two Critical findings are defects, not design opinions:**
+
+- **EX-C1 — `/verify` silently destroys a configured workspace.** `VerifyGate` calls `createWorkspace` then `saveWorkspace` unconditionally; `saveWorkspace` is a bare `setItem`. Re-opening an old verification link from an email or bookmark wipes every class, policy, assignment and person, with no confirmation and no recoverable copy. The migration backup does not apply — it fires on destructive *migration*, not on overwrite.
+- **EX-C2 — the workspace is unusable on mobile.** `WorkspaceShell` uses a hardcoded `ml-60` against a `fixed w-60` sidebar with no breakpoints anywhere. On a 375px viewport the content column is roughly 135px. All six setup routes are affected, and this **supersedes a claim in the R3 report**: the People components are genuinely responsive, but they render inside a frame that makes them unreachable on a phone.
+
+**Exact Programs gate — 5 findings must be corrected:**
+
+| ID | Correction | Effort |
+|----|-----------|--------|
+| EX-C1 | Guard workspace creation; back up before any replacement | S |
+| EX-C2 | Responsive workspace shell (drawer sidebar below `lg`) | M |
+| EX-H2 | `/workspace/policies/new` has no way back — dead end | XS |
+| EX-H4 | Three routes render the header title "Workspace" | XS |
+| EX-H6 | Setup progress renders on only 2 of 7 setup surfaces | S |
+
+**Recommended next milestone: Experience Correction.** One medium, two small, two extra-small — no visual redesign. The remaining five High findings (assessment autosave, `PolicyForm` restructure, Policy Library primary action, destructive-action confirmations) should be corrected before any external pilot but do **not** gate Programs: none of them change the shape of what Programs is built on.
+
+**After the Experience Correction milestone, the architecture-correction checkpoint remains the next gate** before any Operations work.
+
+### Audit scope (for reference)
 
 **Audit scope:**
 
@@ -125,7 +155,7 @@ New components: `StepHeader.tsx`, `SetupProgress.tsx`. New localStorage key: `an
 | **Medium** | Reduces clarity or enjoyment |
 | **Low** | Polish and delight |
 
-**The full audit was deliberately not performed during R3.** Known candidates already visible without auditing: the Policy Library and Policy Assignments pages still present several equally-weighted actions (§1.1), the assessment wizard predates the guided-flow pattern, and internal vocabulary — "Relationship Class", "Policy Assignment", "Level" — appears unexplained on several screens (§2.9).
+**All three pre-audit predictions were confirmed** and are now recorded as EX-H5 (Policy Library competing actions), EX-H1 (assessment predates the guided-flow pattern) and EX-M1 (unexplained internal vocabulary). The audit also found two Critical defects that inspection-from-memory had missed entirely.
 
 ### ⚠️ Gate before Operations reconstruction
 
@@ -318,7 +348,7 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 | Key | Written by | Shape |
 |-----|-----------|-------|
 | `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, now carrying `schemaVersion` (currently **v4**) |
-| `aniye_assessment` | `app/components/assessment/AssessmentWizard.tsx:34` | Assessment answers (H1, pre-workspace) |
+| `aniye_last_submission` | `app/components/assessment/AssessmentWizard.tsx:35` | Assessment answers, written **once at submit** (H1, pre-workspace). *Corrected during the Experience Audit — this ledger and Atlas §2 both previously recorded the key as `aniye_assessment`, which the code has never used (EX-L7).* |
 | `aniye_workspace_backup_v<n>_<ts>` | **R1:** `lib/migrations.ts` | Verbatim pre-migration payload, written before a destructive migration only |
 | `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
 | `aniye_person_draft` | **R3a:** `PersonForm.tsx` | An unfinished new person, so the flow can be resumed. Never workspace data; cleared on save or cancel; not written for edits |
@@ -453,7 +483,8 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 1 | ✅ **ADR-002** — Relationship Type + numeric Relationship Level | 0 | Resolves C1. Changes the shape of `RelationshipClass`, which every downstream object references, so doing it first avoids reworking H2.4, H2.5, and H3.1. **Landed in R1.** |
 | 2 | ✅ **H2.4** — Policy Assignments | 1 | Restored the broken link in the Atlas §11 canonical flow. Resolves C7 and C8. **Landed in R2.** |
 | 3 | ✅ **H2.5** — People Sources and People | 1, 2 | Resolved C3 by deriving member counts. **Landed in R3.** Completes the H2 Configure arc. |
-| — | ⬅️ **Aniyé Experience Audit** — *next* | 3 | Measure every surface built before the Experience Doctrine against it. Produces a prioritised friction register. Scope and priority bands in §0. |
+| — | ✅ **Aniyé Experience Audit** | 3 | 28 findings: 2 Critical, 8 High, 11 Medium, 7 Low. See `ANIYE_EXPERIENCE_AUDIT.md`. |
+| — | ⬅️ **Experience Correction** — *next* | Audit | The 5 findings that gate Programs: EX-C1, EX-C2, EX-H2, EX-H4, EX-H6. |
 | — | ⛔ **Architecture-correction checkpoint** — *required before Operations* | 3 | Program definition; Workspace vs Operations boundary; Decision vs Operational Event; minimum financial and Money model (C6). Steps 4–10 below are gated behind this. |
 | 4 | **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. Specification input for ADR-003. |
 | 5 | **ADR-003** — Decision Engine | 4 | Resolves "which policy applies to this person for this moment type in this country" — requires assignments, people, and scope precedence to all exist. Settle C6 (Money unit) here. |
@@ -467,7 +498,7 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 
 **Two gates, in order — neither is a reconstruction milestone.**
 
-**First: the Aniyé Experience Audit** (scope and friction-register format in §0). R3a applied the Experience Doctrine to People; every earlier surface predates the standard. Auditing before Programs means the pattern established for Programs is built on a corrected baseline rather than inheriting friction from H1–H2.3.
+**First: the Experience Correction milestone.** The Experience Audit is complete (§0). Five findings gate Programs — two Critical defects (workspace-destroying `/verify`, unusable mobile shell) and three small structural fixes. Estimated at one medium and four small-or-smaller corrections; explicitly not a redesign.
 
 **Then: the architecture-correction checkpoint.**
 
@@ -506,3 +537,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after R2 (H2.4 Policy Assignments, schema v3) — System Atlas v2.4.*
 *Updated after R3 (H2.5 People Sources and People, schema v4) — System Atlas v2.5. H2 Configure recovery complete.*
 *Updated after R3a (Experience Doctrine integration) — Experience Doctrine v1.0. No architectural change.*
+*Updated after the Aniyé Experience Audit — 28 findings, Programs blocked pending 5 corrections. Documentation only.*
