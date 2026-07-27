@@ -155,6 +155,23 @@ export default function SetupChecklist() {
               </Link>
             </>
           )}
+          {workspace.setupStage === 'assignments' && (
+            <>
+              <h3 className="font-display font-semibold text-xl text-cream mb-2">
+                Assign your policies
+              </h3>
+              <p className="font-body text-sm text-cream/70 mb-5">
+                Connect each Relationship Class to a published policy — globally, or per country.
+                This is the link that lets a Program know which rules apply to whom.
+              </p>
+              <Link
+                href="/workspace/assignments"
+                className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
+              >
+                Assign Policies &#8594;
+              </Link>
+            </>
+          )}
         </div>
       )}
 

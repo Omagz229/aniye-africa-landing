@@ -309,18 +309,26 @@ Programs reference Recognition Policies via Policy Assignments. At Program Appro
 
 The link between a Relationship Class and a Recognition Policy. Multiple assignments per class are supported, enabling country-specific policy overrides for multinational organizations.
 
+**Implemented in H2.4** (schema v3). This is the object that completes the canonical flow of §11 — without it, a Relationship Class has no route to a policy.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | — |
-| `workspaceId` | UUID | — |
-| `relationshipClassId` | UUID | The class being configured |
-| `recognitionPolicyId` | UUID | The policy being assigned |
-| `scope` | string? | ISO country code for country-specific override, or null for global |
-| `priority` | number | Higher priority wins when multiple assignments apply to the same moment |
-| `status` | enum | Active / Inactive |
+| `relationshipClassId` | UUID | The class being configured. A reference, never denormalized |
+| `recognitionPolicyId` | UUID | The policy being assigned. A reference, never denormalized |
+| `countryCode` | string? | ISO 3166-1 alpha-2, uppercase, for a country-specific override. Absent or blank means **Global** |
+| `priority` | integer | Higher wins among assignments of the same scope |
+| `isActive` | boolean | Inactive assignments are retained for audit but never resolve |
 | `createdAt` | ISO timestamp | — |
+| `updatedAt` | ISO timestamp | Also the second tiebreaker in resolution |
 
-**Scope rule:** Country-scoped assignments take precedence over global assignments for moments in that country. Assignment changes do not affect Programs already in Approved or Active status — their `policySnapshot` is immutable.
+An assignment holds references only. It never copies class or policy data, so a policy edit is immediately visible through every assignment that points at it.
+
+**Scope rule:** Country-scoped assignments take precedence over Global assignments for moments in that country. Assignment changes do not affect Programs already in Approved or Active status — their `policySnapshot` is immutable.
+
+See §11 for the full resolution algorithm.
+
+> **Implementation note:** the implemented model names the country field `countryCode` rather than `scope`, and uses a boolean `isActive` rather than a `status` enum. Scope is *derived* from `countryCode` rather than stored twice, which removes the possibility of the two disagreeing. `workspaceId` is omitted because the client-side workspace is a single document; it returns when the backend does.
 
 ---
 
@@ -708,10 +716,44 @@ Draft → Preview → Approve → Publish
 ### Policy Assignment Rules
 
 - A Relationship Class may have zero, one, or many Policy Assignments
-- A global assignment (no scope) applies to all countries
-- A country-scoped assignment takes precedence over the global assignment for moments in that country
+- A Global assignment (blank `countryCode`) applies to all countries
+- A country-scoped assignment takes precedence over the Global assignment for moments in that country
 - Multiple classes may reference the same Recognition Policy
+- Only a **Published** policy may be attached to a new assignment
 - Assignment changes do not affect Programs already in Approved or Active status
+
+### Assignment Resolution
+
+*Given a Relationship Class and a country, which policy governs recognition right now?*
+
+Implemented in `lib/assignments.ts` as `resolvePolicyAssignment()` — pure, framework-free, and returning a value for every outcome including failure. Nothing throws for ordinary absence.
+
+**Precedence, in order:**
+
+1. **The class must exist and be active.** An inactive class resolves nothing.
+2. **Only active assignments for that exact class** are considered. There is no fallback to another class's assignment under any circumstances.
+3. **Only assignments whose policy exists and is Published** remain candidates.
+4. **Country scope beats Global** for a country lookup.
+5. **Higher `priority` wins** within a scope.
+6. **Later `updatedAt`**, then **`id`** — so the order is total, and the result never depends on input order.
+
+**Executability is filtered before scope is applied.** An archived country override therefore cannot shadow a working Global assignment: it is not a candidate at all, and the Global assignment resolves instead. Every such fallback is reported on the result's `skipped` list rather than happening silently — an operator must be able to see that a narrower rule was passed over.
+
+**Unresolved reasons** are explicit: `class-not-found`, `class-inactive`, `no-active-assignments`, `no-executable-policy`.
+
+### Active, Inactive, and Archived
+
+| State | Resolves? | Retained? | Notes |
+|-------|-----------|-----------|-------|
+| Active assignment → Published policy | Yes | Yes | The operational case |
+| Inactive assignment | No | **Yes** | Deactivation is the reversible alternative to deletion. Preserved for audit |
+| Assignment on an **inactive class** | No | **Yes** | Deactivating a class never deletes its assignments |
+| Assignment → **Archived** policy | No | **Yes** | Historical reference is preserved; the policy cannot be selected for a new assignment |
+| Assignment → **missing** policy | No | Yes | Reported as `policy-missing`; the assignment is not auto-deleted |
+
+The rule throughout: **resolution is restrictive, retention is permissive.** Nothing is deleted as a side effect of a state change, and nothing that is not currently executable is treated as if it were.
+
+A country code that is stored but malformed is never treated as Global — silently widening an override's reach would be the opposite of the operator's intent. It is ignored and reported.
 
 ### Standard Moment Types
 
@@ -979,7 +1021,23 @@ Until the backend exists, the workspace is persisted client-side and carries its
 - Migration **fails safely**: a payload that cannot be read or that fails post-migration validation is never overwritten. It is quarantined so the next workspace creation cannot destroy it
 - A payload from a **newer** schema version than the running build is refused rather than downgraded
 
-Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`.
+Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`, `npm run validate:assignments`.
+
+**Version history:**
+
+| Version | Milestone | Change |
+|---------|-----------|--------|
+| v1 | H2.3 | The pre-versioning shape. Identified by the *absence* of `schemaVersion` |
+| v2 | ADR-002 | `RelationshipClass.category` + `tier` → `type` + numeric `level` |
+| v3 | H2.4 | Adds the `policyAssignments` collection and the `assignments` setup stage |
+
+**Setup stage remap (v2 → v3).** The `assignments` step is new, so a v2 workspace that had already moved past `policies` had skipped a step that now exists:
+
+- `profile`, `classes`, `policies` — unchanged
+- `people`, `programs`, `active` → **`assignments`**, when at least one Published policy exists
+- `people`, `programs`, `active` → **`policies`**, when none does
+
+The second case matters: an assignment cannot be created without a Published policy, so routing the operator to `assignments` with nothing to assign would dead-end them. The remap is recorded as a migration warning rather than performed silently.
 
 ### Feature Flags
 - Named by domain: `identity.email_verification`, `engine.programs`, `integrations.bamboohr`
@@ -1064,7 +1122,7 @@ These decisions were resolved before H2 implementation. Documented for audit tra
 | 3 | Concierge handoff format | Structured 10-field intake form per consultation → Fulfillment Object. Recipient address required. Same schema H3 automation inherits. | §13 Fulfillment Architecture |
 | 4 | Relationship Profile versioning trigger | Program status changes (Active/Completed) + nightly background recalculation if Moments changed that day. Not per-Moment in real time. | §4 Relationship Profile |
 | 5 | Person deduplication authority | Configurable source priority per workspace. Default: HR integrations > CSV/Excel > Manual. Admin-locked fields never overwritten. Conflicts logged. | §12 Integration Layer |
-| ADR-001 | Recognition Policy promoted to first-class reusable object | Policies are standalone objects not owned by any class. Classes reference policies via Policy Assignments. Supports multinational orgs (country-scoped assignments) and cross-class reuse. `policySnapshot` at Program Approval makes programs immutable to policy changes. | §4 Recognition Policy, §4 Policy Assignment, §11 Recognition Policy Model |
+| ADR-001 | Recognition Policy promoted to first-class reusable object | Policies are standalone objects not owned by any class. Classes reference policies via Policy Assignments. Supports multinational orgs (country-scoped assignments) and cross-class reuse. `policySnapshot` at Program Approval makes programs immutable to policy changes. **Fully implemented as of H2.4** — the Policy Assignment linking layer now exists, closing the Class → Assignment → Policy chain that ADR-001 specified. | §4 Recognition Policy, §4 Policy Assignment, §11 Recognition Policy Model |
 | ADR-002 | Relationship Class described by Relationship Type + numeric Relationship Level | The `RelationshipCategory` + `RelationshipTier` model is superseded. Type states the nature of the relationship (nine canonical values); Level states relative recognition priority within that type, as an organization-defined integer 0–99 where 0 is highest. Existing persisted workspaces are migrated by an explicit, versioned mapping. | §4 Relationship Class, §10 Relationship Classes, ADR-002 below |
 
 ### ADR-002 — Relationship Type + Relationship Level
@@ -1162,8 +1220,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v2.3 — Aniyé Africa — July 2026*
+*System Atlas v2.4 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v2.4: H2.4 — Policy Assignment implemented (schema v3); §4 Policy Assignment updated to the implemented model; §11 gains the resolution algorithm and active/inactive/archived rules; §15 gains the schema version history and the v2 → v3 stage remap; ADR-001 confirmed fully implemented*
 *v2.3: ADR-002 — Relationship Type + numeric Relationship Level supersedes Category/Tier; §10 rewritten; client schema versioning added to §15*
 *v2.2: ADR-001 — Recognition Policy promoted to first-class reusable object; Policy Assignment introduced as linking layer; multinational policy support via country-scoped assignments; §11 Relationship Policy Model fully rewritten*
 *v2.1: Resolved 5 pre-H2 open questions (currency default, individual auth, concierge handoff, profile versioning, deduplication authority)*

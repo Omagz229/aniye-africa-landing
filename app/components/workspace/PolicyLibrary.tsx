@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { RecognitionPolicy, PolicyStatus } from '@/lib/workspace';
+import type { RecognitionPolicy, PolicyStatus, SetupStage } from '@/lib/workspace';
 import { getWorkspace, updateWorkspace, isStageComplete } from '@/lib/workspace';
 
 const STATUS_STYLES: Record<PolicyStatus, string> = {
@@ -94,6 +94,7 @@ export default function PolicyLibrary() {
   const [policies, setPolicies] = useState<RecognitionPolicy[] | null>(null);
   const [classesNotConfirmed, setClassesNotConfirmed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [stage, setStage] = useState<SetupStage | null>(null);
 
   useEffect(() => {
     const ws = getWorkspace();
@@ -103,7 +104,18 @@ export default function PolicyLibrary() {
       return;
     }
     setPolicies(ws.recognitionPolicies ?? []);
+    setStage(ws.setupStage);
   }, [router]);
+
+  /**
+   * H2.4 — the Policy Library previously had no way forward, because the step
+   * after it did not exist. Advancing requires a Published policy: assignments
+   * cannot be made against drafts.
+   */
+  function handleContinue() {
+    updateWorkspace({ setupStage: 'assignments' });
+    router.push('/workspace/assignments');
+  }
 
   function persist(updated: RecognitionPolicy[]) {
     updateWorkspace({ recognitionPolicies: updated });
@@ -257,6 +269,30 @@ export default function PolicyLibrary() {
         >
           {showArchived ? 'Hide' : 'Show'} {archivedCount} archived polic{archivedCount !== 1 ? 'ies' : 'y'}
         </button>
+      )}
+
+      {/* Continue to assignments */}
+      {stage === 'policies' && (
+        <div className="pt-2 space-y-2">
+          {publishedCount > 0 ? (
+            <>
+              <button
+                type="button"
+                onClick={handleContinue}
+                className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
+              >
+                Continue to Policy Assignments &#8594;
+              </button>
+              <p className="font-body text-xs text-stone/60">
+                Next you&apos;ll connect these policies to your Relationship Classes.
+              </p>
+            </>
+          ) : (
+            <p className="font-body text-sm text-stone">
+              Publish at least one policy to continue to Policy Assignments.
+            </p>
+          )}
+        </div>
       )}
 
     </div>

@@ -32,8 +32,8 @@
  */
 export const LEGACY_UNVERSIONED_SCHEMA_VERSION = 1;
 
-/** Schema v2 — ADR-002: Relationship Type + numeric Relationship Level. */
-export const CURRENT_WORKSPACE_SCHEMA_VERSION = 2;
+/** Schema v3 — H2.4: Policy Assignments + the `assignments` setup stage. */
+export const CURRENT_WORKSPACE_SCHEMA_VERSION = 3;
 
 export const WORKSPACE_KEY = 'aniye_workspace';
 export const WORKSPACE_BACKUP_KEY_PREFIX = 'aniye_workspace_backup';
@@ -73,6 +73,27 @@ const SCHEMA_V2_SETUP_STAGES = [
   'programs',
   'active',
 ] as const;
+
+// ─── Schema v3 canonical values (pinned — see module header) ─────────────────
+
+/** H2.4 inserts `assignments` between `policies` and `people`. */
+export const SCHEMA_V3_SETUP_STAGES = [
+  'profile',
+  'classes',
+  'policies',
+  'assignments',
+  'people',
+  'programs',
+  'active',
+] as const;
+
+export type SchemaV3SetupStage = (typeof SCHEMA_V3_SETUP_STAGES)[number];
+
+/** Only a Published policy may be assigned, and only Published resolves. */
+export const EXECUTABLE_POLICY_STATUS = 'Published';
+
+/** ISO 3166-1 alpha-2. Blank/absent means the assignment is Global. */
+export const COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/;
 
 // ─── ADR-002 legacy mapping (schema v1 → v2) ─────────────────────────────────
 
@@ -340,6 +361,54 @@ export const MIGRATIONS: readonly Migration[] = [
       };
     },
   },
+  {
+    id: 'v2-to-v3-h2-4-policy-assignments',
+    from: 2,
+    to: 3,
+    description:
+      'H2.4 — add the policyAssignments collection and insert the `assignments` setup stage between `policies` and `people`.',
+    // Destructive: `setupStage` is rewritten for workspaces that had already
+    // moved past policies, so the pre-migration payload is backed up first.
+    destructive: true,
+    run: (workspace, ctx) => {
+      const policies = Array.isArray(workspace.recognitionPolicies)
+        ? workspace.recognitionPolicies
+        : [];
+
+      const hasPublishedPolicy = policies.some(
+        (policy) =>
+          isPlainObject(policy) && policy.status === EXECUTABLE_POLICY_STATUS,
+      );
+
+      // Stage remap. A v2 workspace never saw an `assignments` step, so any
+      // workspace already past `policies` skipped a step that now exists. It is
+      // walked back rather than left ahead of a step it never completed.
+      //
+      //   profile / classes / policies → unchanged
+      //   people / programs / active   → assignments, if a Published policy exists
+      //                                → policies, if none does
+      //
+      // The second case matters: assignments cannot be made without a Published
+      // policy, so sending the operator to an unusable step would dead-end them.
+      const stage = workspace.setupStage;
+      let setupStage = stage;
+      if (stage === 'people' || stage === 'programs' || stage === 'active') {
+        setupStage = hasPublishedPolicy ? 'assignments' : 'policies';
+        ctx.warn(
+          `Setup stage moved from "${String(stage)}" to "${setupStage}": the assignments step is new in schema v3 and had not been completed.`,
+        );
+      }
+
+      return {
+        ...workspace,
+        setupStage,
+        policyAssignments: Array.isArray(workspace.policyAssignments)
+          ? workspace.policyAssignments
+          : [],
+        schemaVersion: 3,
+      };
+    },
+  },
 ];
 
 // ─── Version detection ───────────────────────────────────────────────────────
@@ -380,7 +449,7 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
   }
   if (
     typeof raw.setupStage !== 'string' ||
-    !(SCHEMA_V2_SETUP_STAGES as readonly string[]).includes(raw.setupStage)
+    !(SCHEMA_V3_SETUP_STAGES as readonly string[]).includes(raw.setupStage)
   ) {
     return { ok: false, reason: `Unrecognized setupStage: ${String(raw.setupStage)}.` };
   }
@@ -389,6 +458,9 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
   }
   if (!Array.isArray(raw.recognitionPolicies)) {
     return { ok: false, reason: 'recognitionPolicies is not an array.' };
+  }
+  if (!Array.isArray(raw.policyAssignments)) {
+    return { ok: false, reason: 'policyAssignments is not an array.' };
   }
 
   for (const [i, cls] of raw.relationshipClasses.entries()) {
@@ -414,6 +486,42 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
       return {
         ok: false,
         reason: `Relationship class "${cls.id}" still carries superseded category/tier fields.`,
+      };
+    }
+  }
+
+  for (const [i, assignment] of raw.policyAssignments.entries()) {
+    if (!isPlainObject(assignment)) {
+      return { ok: false, reason: `Policy assignment at index ${i} is not an object.` };
+    }
+    if (!isNonEmptyString(assignment.id)) {
+      return { ok: false, reason: `Policy assignment at index ${i} has no id.` };
+    }
+    if (!isNonEmptyString(assignment.relationshipClassId)) {
+      return { ok: false, reason: `Policy assignment "${assignment.id}" has no relationshipClassId.` };
+    }
+    if (!isNonEmptyString(assignment.recognitionPolicyId)) {
+      return { ok: false, reason: `Policy assignment "${assignment.id}" has no recognitionPolicyId.` };
+    }
+    if (!Number.isInteger(assignment.priority)) {
+      return {
+        ok: false,
+        reason: `Policy assignment "${assignment.id}" has a non-integer priority: ${String(assignment.priority)}.`,
+      };
+    }
+    if (typeof assignment.isActive !== 'boolean') {
+      return { ok: false, reason: `Policy assignment "${assignment.id}" has a non-boolean isActive.` };
+    }
+    // Absent or blank means Global. Anything present must be a valid alpha-2 code.
+    if (
+      assignment.countryCode !== undefined &&
+      assignment.countryCode !== null &&
+      assignment.countryCode !== '' &&
+      (typeof assignment.countryCode !== 'string' || !COUNTRY_CODE_PATTERN.test(assignment.countryCode))
+    ) {
+      return {
+        ok: false,
+        reason: `Policy assignment "${assignment.id}" has an invalid countryCode: ${String(assignment.countryCode)}. Expected a two-letter uppercase ISO 3166-1 alpha-2 code, or blank for Global.`,
       };
     }
   }

@@ -18,9 +18,9 @@ import {
   WORKSPACE_QUARANTINE_KEY,
   loadAndMigrateWorkspace,
   migrateWorkspace,
-} from '../lib/migrations.ts';
-import { createWorkspace, sortRelationshipClasses } from '../lib/workspace.ts';
-import type { RelationshipClass, WorkspaceState } from '../lib/workspace.ts';
+} from '../lib/migrations';
+import { createWorkspace, sortRelationshipClasses } from '../lib/workspace';
+import type { RelationshipClass, WorkspaceState } from '../lib/workspace';
 
 // ─── Tiny assertion harness ──────────────────────────────────────────────────
 
@@ -168,7 +168,9 @@ function migrateLegacyFixture(): WorkspaceState {
 // ─── Cases ───────────────────────────────────────────────────────────────────
 
 console.log('\nWorkspace schema migration — validation\n');
-console.log(`  schema v${LEGACY_UNVERSIONED_SCHEMA_VERSION} (H2.3, unversioned) → v${CURRENT_WORKSPACE_SCHEMA_VERSION} (ADR-002)\n`);
+console.log(`  schema v${LEGACY_UNVERSIONED_SCHEMA_VERSION} (H2.3, unversioned) → v${CURRENT_WORKSPACE_SCHEMA_VERSION} (current)\n`);
+console.log('  Focus: the versioning foundation and the ADR-002 v1 → v2 mapping.');
+console.log('  Later schema steps are covered by their own suites (validate:assignments).\n');
 
 check('1. A new workspace is created at the current schema version', () => {
   const ws = createWorkspace({
@@ -204,8 +206,19 @@ check('2. An unversioned H2.3 workspace migrates successfully', () => {
   assertEqual(result.fromVersion, LEGACY_UNVERSIONED_SCHEMA_VERSION, 'Legacy payload was not detected as v1.');
   assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
   assertEqual(result.migrated, true, 'Migration did not report that it ran.');
-  assertEqual(result.applied.length, 1, 'Expected exactly one migration to run.');
   assertEqual(result.workspace.schemaVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migrated workspace has the wrong schemaVersion.');
+
+  // The chain walks one rung at a time — one migration per version crossed —
+  // and the ADR-002 step is always the first of them.
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - LEGACY_UNVERSIONED_SCHEMA_VERSION,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
+  assert(
+    result.applied[0].includes('adr-002'),
+    `Expected the ADR-002 migration to run first, got: ${result.applied[0]}`,
+  );
   assertEqual(result.warnings.length, 0, `Clean legacy data produced warnings: ${result.warnings.join('; ')}`);
 });
 

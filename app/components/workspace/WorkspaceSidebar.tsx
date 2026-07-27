@@ -15,7 +15,8 @@ const NAV_ITEMS = [
   { label: 'Organization',          href: '/workspace/profile',  exact: false, unlockedAfter: null },
   { label: 'Relationship Classes',  href: '/workspace/classes',  exact: false, unlockedAfter: 'profile' as const },
   { label: 'Policies',              href: '/workspace/policies', exact: false, unlockedAfter: 'classes' as const },
-  { label: 'People',                href: '/workspace/people',   exact: false, unlockedAfter: 'policies' as const },
+  { label: 'Policy Assignments',    href: '/workspace/assignments', exact: false, unlockedAfter: 'classes' as const },
+  { label: 'People',                href: '/workspace/people',   exact: false, unlockedAfter: 'assignments' as const },
   { label: 'Programs',              href: '/workspace/programs', exact: false, unlockedAfter: 'people' as const },
 ];
 

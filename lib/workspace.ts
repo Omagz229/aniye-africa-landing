@@ -1,24 +1,29 @@
 import {
+  COUNTRY_CODE_PATTERN,
   CURRENT_WORKSPACE_SCHEMA_VERSION,
+  EXECUTABLE_POLICY_STATUS,
   RELATIONSHIP_LEVEL_MAX,
   RELATIONSHIP_LEVEL_MIN,
   SCHEMA_V2_RELATIONSHIP_TYPES,
+  SCHEMA_V3_SETUP_STAGES,
   WORKSPACE_KEY,
   isSchemaV2RelationshipType,
   isValidRelationshipLevel,
   loadAndMigrateWorkspace,
-} from './migrations.ts';
-import type { SchemaV2RelationshipType } from './migrations.ts';
+} from './migrations';
+import type { SchemaV2RelationshipType, SchemaV3SetupStage } from './migrations';
 
 export {
+  COUNTRY_CODE_PATTERN,
   CURRENT_WORKSPACE_SCHEMA_VERSION,
+  EXECUTABLE_POLICY_STATUS,
   RELATIONSHIP_LEVEL_MAX,
   RELATIONSHIP_LEVEL_MIN,
   WORKSPACE_KEY,
   isValidRelationshipLevel,
 };
 
-export type SetupStage = 'profile' | 'classes' | 'policies' | 'people' | 'programs' | 'active';
+export type SetupStage = SchemaV3SetupStage;
 
 // ─── ADR-002: Relationship Type + Relationship Level ─────────────────────────
 // Supersedes RelationshipCategory + RelationshipTier (schema v1).
@@ -116,6 +121,7 @@ export interface WorkspaceState {
   createdAt: string;
   relationshipClasses: RelationshipClass[];
   recognitionPolicies: RecognitionPolicy[];
+  policyAssignments: PolicyAssignment[];
 }
 
 // ─── Money ───────────────────────────────────────────────────────────────────
@@ -188,6 +194,79 @@ export interface RecognitionPolicy {
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
+}
+
+// ─── H2.4: Policy Assignment ─────────────────────────────────────────────────
+// The link between a Relationship Class and a Recognition Policy, restoring the
+// canonical flow of Atlas §11:
+//
+//   Relationship Class → Policy Assignment → Recognition Policy → Program → Moment
+//
+// An assignment holds references only. It never copies class or policy data —
+// a policy edit must be visible through every assignment that points at it.
+// Resolution lives in lib/assignments.ts, deliberately free of React and of
+// storage so it can be reused by the Decision Engine (ADR-003).
+
+export interface PolicyAssignment {
+  id: string;
+  /** References RelationshipClass.id. Never denormalized. */
+  relationshipClassId: string;
+  /** References RecognitionPolicy.id. Never denormalized. */
+  recognitionPolicyId: string;
+  /**
+   * ISO 3166-1 alpha-2, uppercase. Absent or blank means **Global**.
+   * A country-scoped assignment outranks a Global one for that country.
+   */
+  countryCode?: string;
+  /** Integer. Higher wins among assignments of the same scope. */
+  priority: number;
+  /**
+   * Inactive assignments are preserved for audit but never resolve.
+   * Deactivating is the reversible alternative to removal.
+   */
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An assignment's scope, derived from `countryCode` rather than stored twice. */
+export type AssignmentScope = 'Global' | 'Country';
+
+export function assignmentScope(assignment: PolicyAssignment): AssignmentScope {
+  return isBlankCountryCode(assignment.countryCode) ? 'Global' : 'Country';
+}
+
+function isBlankCountryCode(value: string | undefined | null): boolean {
+  return value === undefined || value === null || value.trim() === '';
+}
+
+export type CountryCodeParse =
+  | { ok: true; countryCode: string | undefined }
+  | { ok: false; reason: string };
+
+/**
+ * Normalize operator input into a stored country code.
+ *
+ * Blank is Global, not an error. Anything else is trimmed and uppercased, then
+ * required to be two letters — a malformed code is rejected rather than quietly
+ * coerced, because silently falling back to Global would widen an assignment's
+ * reach instead of narrowing it.
+ */
+export function parseCountryCode(raw: string | undefined | null): CountryCodeParse {
+  if (isBlankCountryCode(raw)) return { ok: true, countryCode: undefined };
+  const normalized = raw!.trim().toUpperCase();
+  if (!COUNTRY_CODE_PATTERN.test(normalized)) {
+    return {
+      ok: false,
+      reason: `"${raw!.trim()}" is not a valid country code. Use a two-letter ISO 3166-1 alpha-2 code such as NG, KE, or ZA — or leave it blank for Global.`,
+    };
+  }
+  return { ok: true, countryCode: normalized };
+}
+
+/** A policy may be attached to a new active assignment only while Published. */
+export function isAssignablePolicy(policy: RecognitionPolicy): boolean {
+  return policy.status === EXECUTABLE_POLICY_STATUS;
 }
 
 const NOW = '2026-06-25T00:00:00.000Z';
@@ -302,6 +381,7 @@ export function createWorkspace(input: NewWorkspaceInput): WorkspaceState {
     createdAt: now,
     relationshipClasses: DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c })),
     recognitionPolicies: [],
+    policyAssignments: [],
   };
 }
 
@@ -386,6 +466,13 @@ export const SETUP_STAGES: Array<{
     available: true,
   },
   {
+    key: 'assignments',
+    label: 'Policy Assignments',
+    description: 'Connect each Relationship Class to a published policy',
+    href: '/workspace/assignments',
+    available: true,
+  },
+  {
     key: 'people',
     label: 'People',
     description: 'Import your employees, clients, and partners',
@@ -401,7 +488,8 @@ export const SETUP_STAGES: Array<{
   },
 ];
 
-const STAGE_ORDER: SetupStage[] = ['profile', 'classes', 'policies', 'people', 'programs', 'active'];
+/** Canonical stage order, pinned to schema v3 in lib/migrations.ts. */
+const STAGE_ORDER: readonly SetupStage[] = SCHEMA_V3_SETUP_STAGES;
 
 export function isStageComplete(stage: SetupStage, currentStage: SetupStage): boolean {
   return STAGE_ORDER.indexOf(currentStage) > STAGE_ORDER.indexOf(stage);
