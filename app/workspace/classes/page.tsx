@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import RelationshipClassesPage from '@/app/components/workspace/RelationshipClassesPage';
 
 export const metadata: Metadata = {
-  title: 'Relationship Classes — Aniyé Africa',
+  title: 'Relationship groups — Aniyé Africa',
   robots: { index: false },
 };
 

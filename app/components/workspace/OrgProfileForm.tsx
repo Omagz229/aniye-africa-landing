@@ -12,6 +12,7 @@ import {
   TIMEZONE_LABELS,
 } from '@/lib/workspace';
 import { INDUSTRIES } from '@/lib/assessment';
+import SetupProgress from './SetupProgress';
 
 const inputCls =
   'w-full rounded-xl border border-stone/30 bg-white px-4 py-3 font-body text-sm text-ink placeholder:text-stone/50 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-shadow';
@@ -91,13 +92,14 @@ export default function OrgProfileForm() {
       {/* Page intro */}
       <div>
         <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-          Organization Profile
+          Your organization
         </p>
         <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink">
           {form.companyName || 'Your Organization'}
         </h2>
         <p className="font-body text-sm text-stone mt-1">
-          Pre-filled from your Relationship Assessment. Confirm and update as needed.
+          Already filled in from your assessment — check it over and change anything that&apos;s
+          not quite right.
         </p>
       </div>
 
@@ -263,8 +265,10 @@ export default function OrgProfileForm() {
       </div>
 
       <p className="font-body text-xs text-stone/60">
-        Confirming your profile advances your workspace setup to Relationship Classes.
+        Next you&apos;ll set up the groups of people you recognize.
       </p>
+
+      <SetupProgress workspace={form} compact />
 
     </div>
   );

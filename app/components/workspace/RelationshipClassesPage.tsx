@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { RelationshipClass, RelationshipType } from '@/lib/workspace';
+import type { RelationshipClass, RelationshipType, WorkspaceState } from '@/lib/workspace';
 import {
   getWorkspace,
   updateWorkspace,
@@ -15,15 +15,22 @@ import {
   RELATIONSHIP_LEVEL_MIN,
   RELATIONSHIP_TYPES,
 } from '@/lib/workspace';
+import { activeMemberCount } from '@/lib/people';
+import SetupProgress from './SetupProgress';
+import ConfirmDialog from './ConfirmDialog';
 
 export default function RelationshipClassesPage() {
   const router = useRouter();
   const [classes, setClasses] = useState<RelationshipClass[] | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [profileNotConfirmed, setProfileNotConfirmed] = useState(false);
+  const [pendingDeactivate, setPendingDeactivate] = useState<RelationshipClass | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<RelationshipClass | null>(null);
 
   useEffect(() => {
     const ws = getWorkspace();
     if (!ws) { router.push('/assessment'); return; }
+    setWorkspace(ws);
     if (ws.setupStage === 'profile') {
       setProfileNotConfirmed(true);
       return;
@@ -36,7 +43,8 @@ export default function RelationshipClassesPage() {
   }, [router]);
 
   function persist(updated: RelationshipClass[]) {
-    updateWorkspace({ relationshipClasses: updated });
+    const next = updateWorkspace({ relationshipClasses: updated });
+    if (next) setWorkspace(next);
   }
 
   function patchClass(id: string, patch: Partial<RelationshipClass>) {
@@ -98,20 +106,21 @@ export default function RelationshipClassesPage() {
       <div className="space-y-6 max-w-xl">
         <div>
           <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-            Relationship Classes
+            Relationship groups
           </p>
           <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-2">
-            Complete your profile first
+            One step to go first
           </h2>
           <p className="font-body text-stone">
-            Confirm your Organization Profile before configuring Relationship Classes.
+            Confirm your organization details, then you can set up the groups of people you
+            recognize.
           </p>
         </div>
         <Link
           href="/workspace/profile"
           className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
         >
-          Go to Organization Profile &#8594;
+          Confirm your organization &#8594;
         </Link>
       </div>
     );
@@ -127,28 +136,27 @@ export default function RelationshipClassesPage() {
       {/* Page intro */}
       <div>
         <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-          Relationship Classes
+          Relationship groups
         </p>
         <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-1">
           Define who matters
         </h2>
         <p className="font-body text-stone">
-          Define the groups of people your organization recognizes differently.
+          The groups of people your organization recognizes differently.
         </p>
       </div>
 
       {/* Type and Level explainer */}
       <div className="bg-cream rounded-2xl border border-stone/20 p-5 space-y-3">
         <p className="font-body text-sm text-ink leading-relaxed">
-          Each class drives distinct Recognition Policies — budgets, approval flows, gift
-          preferences, and delivery timelines. Classes represent how your organization
-          differentiates people, not just how you categorize them.
+          Each group gets its own recognition rules — budgets, approvals, gift preferences and
+          delivery. Groups are how your organization tells people apart, not just how you file them.
         </p>
         <div className="grid sm:grid-cols-2 gap-3 pt-1">
           <div>
             <p className="font-body text-xs font-semibold text-ink mb-0.5">Type</p>
             <p className="font-body text-xs text-stone leading-snug">
-              The nature of the relationship — Employee, Client, Board, and so on.
+              The nature of the relationship — employee, client, board member, and so on.
             </p>
           </div>
           <div>
@@ -156,9 +164,9 @@ export default function RelationshipClassesPage() {
               Level &mdash; 0 is highest
             </p>
             <p className="font-body text-xs text-stone leading-snug">
-              Recognition priority within a type. Level 0 receives the highest recognition;
-              higher numbers rank lower. Use as many levels ({RELATIONSHIP_LEVEL_MIN}&ndash;
-              {RELATIONSHIP_LEVEL_MAX}) as your organization needs.
+              Recognition priority within a type. Level 0 receives the most; higher numbers rank
+              lower. Use as many levels ({RELATIONSHIP_LEVEL_MIN}&ndash;{RELATIONSHIP_LEVEL_MAX}) as
+              you need.
             </p>
           </div>
         </div>
@@ -168,7 +176,7 @@ export default function RelationshipClassesPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <p className="font-body text-xs text-stone uppercase tracking-widest">
-            {activeCount} active class{activeCount !== 1 ? 'es' : ''}
+            {activeCount} active group{activeCount !== 1 ? 's' : ''}
           </p>
           <p className="font-body text-xs text-stone/50">{classes.length} total</p>
         </div>
@@ -189,7 +197,13 @@ export default function RelationshipClassesPage() {
               cls={cls}
               isLast={i === ordered.length - 1}
               onChange={(patch) => patchClass(cls.id, patch)}
-              onRemove={() => removeCustomClass(cls.id)}
+              // Turning a group off stops every rule reaching it, so it is
+              // confirmed. Turning one back on is harmless and is not.
+              onToggleActive={() => {
+                if (cls.isActive) setPendingDeactivate(cls);
+                else patchClass(cls.id, { isActive: true });
+              }}
+              onRemove={() => setPendingRemove(cls)}
             />
           ))}
         </div>
@@ -201,38 +215,69 @@ export default function RelationshipClassesPage() {
           className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-stone/30 py-3 font-body text-sm text-stone hover:border-stone/50 hover:text-ink hover:bg-white transition-all"
         >
           <span className="text-base leading-none font-medium">+</span>
-          Add custom class
+          Add another group
         </button>
         <p className="font-body text-xs text-stone/60 mt-2">
-          A type can hold as many levels as you need — add several Employee classes at
-          levels 0, 1, 2 and up to build your own ladder.
-        </p>
-      </div>
-
-      {/* Policies note */}
-      <div className="bg-white rounded-2xl border border-stone/20 p-5">
-        <p className="font-body text-xs text-stone uppercase tracking-widest mb-2">Coming next</p>
-        <p className="font-body text-sm text-ink font-semibold mb-1">
-          Policies, budgets, approvals, and gift preferences
-        </p>
-        <p className="font-body text-sm text-stone">
-          These will be configured per class in the Recognition Policies step.
+          A type can hold as many levels as you need — add several employee groups at levels 0, 1, 2
+          and up to build your own ladder.
         </p>
       </div>
 
       {/* Confirm CTA */}
-      <div className="flex flex-col sm:flex-row items-start gap-3 pt-2">
+      <div className="space-y-2 pt-2">
         <button
           type="button"
           onClick={handleConfirm}
           className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
         >
-          Confirm Relationship Classes &#8594;
+          Confirm your groups &#8594;
         </button>
+        <p className="font-body text-xs text-stone/60">
+          Next you&apos;ll set the recognition rules for these groups.
+        </p>
       </div>
-      <p className="font-body text-xs text-stone/60 -mt-4">
-        Confirming advances your workspace setup to Recognition Policies.
-      </p>
+
+      {workspace && <SetupProgress workspace={workspace} compact />}
+
+      {/* Deactivating a group stops every rule reaching it — named consequence, named buttons */}
+      {pendingDeactivate && (
+        <ConfirmDialog
+          title={`Turn off ${pendingDeactivate.name || 'this group'}?`}
+          body="People already in this group stay in your records, but the group will no longer receive an active recognition rule until you turn it back on."
+          impact={[
+            `${activeMemberCount(pendingDeactivate.id, workspace?.people ?? [])} people are currently in this group`,
+            `${(workspace?.policyAssignments ?? []).filter(a => a.relationshipClassId === pendingDeactivate.id && a.isActive).length} active rule assignments point at it`,
+            'You can turn it back on at any time',
+          ]}
+          cancelLabel="Keep group active"
+          confirmLabel="Turn off group"
+          onCancel={() => setPendingDeactivate(null)}
+          onConfirm={() => {
+            patchClass(pendingDeactivate.id, { isActive: false });
+            setPendingDeactivate(null);
+          }}
+        />
+      )}
+
+      {/* Deleting is not reversible and leaves people pointing at nothing */}
+      {pendingRemove && (
+        <ConfirmDialog
+          title={`Delete ${pendingRemove.name || 'this group'}?`}
+          body="This cannot be undone. Anyone currently in this group will keep the reference in their record, but it will point at a group that no longer exists."
+          impact={[
+            `${activeMemberCount(pendingRemove.id, workspace?.people ?? [])} people are currently in this group`,
+            `${(workspace?.policyAssignments ?? []).filter(a => a.relationshipClassId === pendingRemove.id).length} rule assignments reference it`,
+            'To stop using it without losing the history, turn it off instead',
+          ]}
+          cancelLabel="Keep group"
+          confirmLabel="Delete group"
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => {
+            removeCustomClass(pendingRemove.id);
+            setPendingRemove(null);
+          }}
+        />
+      )}
 
     </div>
   );
@@ -244,6 +289,7 @@ interface ClassRowProps {
   cls: RelationshipClass;
   isLast: boolean;
   onChange: (patch: Partial<RelationshipClass>) => void;
+  onToggleActive: () => void;
   onRemove: () => void;
 }
 
@@ -253,7 +299,7 @@ const ghostInput =
 const ghostSelect =
   'bg-transparent font-body text-xs text-stone rounded-lg px-2 py-1 border border-transparent focus:border-stone/30 focus:bg-white focus:outline-none transition-colors appearance-none w-full';
 
-function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
+function ClassRow({ cls, isLast, onChange, onToggleActive, onRemove }: ClassRowProps) {
   return (
     <div className={`px-4 py-3 ${!isLast ? 'border-b border-stone/10' : ''}`}>
 
@@ -268,7 +314,7 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
             aria-label="Class name"
             className={`flex-1 rounded-lg border border-stone/20 bg-white px-3 py-2 font-body text-sm text-ink placeholder:text-stone/40 focus:outline-none focus:ring-2 focus:ring-gold transition-shadow ${!cls.isActive ? 'opacity-50' : ''}`}
           />
-          <Toggle active={cls.isActive} onToggle={() => onChange({ isActive: !cls.isActive })} />
+          <Toggle active={cls.isActive} onToggle={onToggleActive} />
           {!cls.isDefault && (
             <button
               type="button"
@@ -323,7 +369,7 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
           className={ghostSelect}
         />
         <div className="flex justify-center">
-          <Toggle active={cls.isActive} onToggle={() => onChange({ isActive: !cls.isActive })} />
+          <Toggle active={cls.isActive} onToggle={onToggleActive} />
         </div>
         <div className="flex justify-center">
           {!cls.isDefault && (

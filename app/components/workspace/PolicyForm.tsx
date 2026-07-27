@@ -25,7 +25,7 @@ const selectCls =
   'w-full rounded-xl border border-stone/30 bg-white px-4 py-3 font-body text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-shadow appearance-none';
 
 const budgetInputCls =
-  'w-36 rounded-xl border border-stone/30 bg-white px-3 py-2 font-body text-sm text-ink placeholder:text-stone/50 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-shadow text-right';
+  'w-28 sm:w-36 rounded-xl border border-stone/30 bg-white px-3 py-2 font-body text-sm text-ink placeholder:text-stone/50 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent transition-shadow text-right';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -61,10 +61,10 @@ function buildBlankPolicy(workspaceId: string, baseCurrency: string): Recognitio
 function FormSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-2xl border border-stone/20 overflow-hidden">
-      <div className="px-6 py-4 border-b border-stone/10">
+      <div className="px-5 sm:px-6 py-4 border-b border-stone/10">
         <p className="font-body text-xs text-stone uppercase tracking-widest">{label}</p>
       </div>
-      <div className="px-6 py-5 space-y-4">{children}</div>
+      <div className="px-5 sm:px-6 py-5 space-y-4">{children}</div>
     </div>
   );
 }
@@ -121,6 +121,10 @@ interface Props {
 
 export default function PolicyForm({ existingPolicy, onCancel }: Props) {
   const router = useRouter();
+  // EX-H2 — /workspace/policies/new rendered this component with no props, so
+  // the Cancel button never appeared and the only way out was the sidebar,
+  // which is itself hidden on mobile. There is now always a way back.
+  const leave = onCancel ?? (() => router.push('/workspace/policies'));
   const [form, setForm] = useState<RecognitionPolicy | null>(null);
   const [baseCurrency, setBaseCurrency] = useState('NGN');
 
@@ -188,29 +192,36 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
   return (
     <div className="space-y-8">
 
-      {/* Page intro */}
+      {/* Page intro — with a persistent way back (EX-H2) */}
       <div>
+        <button
+          type="button"
+          onClick={leave}
+          className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 -ml-1 px-1 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-stone"
+        >
+          &#8592; Back to recognition rules
+        </button>
         <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-          {isEdit ? 'Edit' : 'New'} Recognition Policy
+          {isEdit ? 'Edit rule' : 'New rule'}
         </p>
         <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink">
-          {isEdit ? (form.name || 'Untitled Policy') : 'Create a Recognition Policy'}
+          {isEdit ? (form.name || 'Untitled rule') : 'Write a recognition rule'}
         </h2>
         {!isEdit && (
           <p className="font-body text-stone mt-1">
-            Policies are reusable. You&apos;ll assign them to Relationship Classes in the next step.
+            Rules are reusable — you&apos;ll decide who this one applies to in the next step.
           </p>
         )}
       </div>
 
       {/* Section 0: Policy Details */}
-      <FormSection label="Policy Details">
+      <FormSection label="Rule details">
         <Field label="Policy name">
           <input
             type="text"
             value={form.name}
             onChange={e => patch({ name: e.target.value })}
-            placeholder="e.g. Executive Recognition Policy"
+            placeholder="e.g. Executive recognition"
             className={inputCls}
           />
         </Field>
@@ -226,21 +237,21 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
       </FormSection>
 
       {/* Section 1: Recognition Rules */}
-      <FormSection label="Recognition Rules">
+      <FormSection label="Occasions and budgets">
         <p className="font-body text-xs text-stone/70 -mt-1">
-          Enable the moment types this policy covers. Set a per-person budget for each.
+          Turn on the occasions this rule covers, and set a budget per person for each.
         </p>
-        <div className="divide-y divide-stone/10 -mx-6">
+        <div className="divide-y divide-stone/10 -mx-5 sm:-mx-6">
           {form.recognitionRules.map(rule => (
             <div
               key={rule.momentType}
-              className={`flex items-center gap-4 px-6 py-3.5 transition-opacity ${!rule.isEnabled ? 'opacity-50' : ''}`}
+              className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-5 sm:px-6 py-3.5 transition-opacity ${!rule.isEnabled ? 'opacity-50' : ''}`}
             >
               <Toggle
                 active={rule.isEnabled}
                 onToggle={() => patchRule(rule.momentType, { isEnabled: !rule.isEnabled })}
               />
-              <span className="flex-1 font-body text-sm text-ink">{rule.momentType}</span>
+              <span className="flex-1 min-w-[8rem] font-body text-sm text-ink">{rule.momentType}</span>
               {rule.isEnabled && (
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <input
@@ -265,13 +276,13 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           ))}
         </div>
         <p className="font-body text-xs text-stone/60 -mb-1">
-          Budgets are per person, per moment. Currency defaults to your workspace base currency ({baseCurrency}).
+          Budgets are per person, per occasion, in {baseCurrency}.
         </p>
       </FormSection>
 
       {/* Section 2: Approval Workflow */}
-      <FormSection label="Approval Workflow">
-        <Field label="Who must approve before a program can execute?">
+      <FormSection label="Approvals">
+        <Field label="Who signs this off before it happens?">
           <select
             value={form.approvalWorkflow}
             onChange={e => patch({ approvalWorkflow: e.target.value as ApprovalWorkflow })}
@@ -291,7 +302,7 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
       </FormSection>
 
       {/* Section 3: Experience Preferences */}
-      <FormSection label="Experience Preferences">
+      <FormSection label="Gift preferences">
         <div>
           <p className="font-body text-sm font-medium text-ink mb-3">Preferred gift categories</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -357,7 +368,7 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
       </FormSection>
 
       {/* Section 4: Delivery Requirements */}
-      <FormSection label="Delivery Requirements">
+      <FormSection label="Delivery">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Delivery method">
             <select
@@ -426,7 +437,7 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           onClick={() => save('Draft')}
           className="rounded-full border border-stone/30 text-ink font-semibold text-sm px-6 py-3 hover:border-stone/60 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-stone focus-visible:ring-offset-2"
         >
-          Save as Draft
+          Save as draft
         </button>
         <button
           type="button"
@@ -434,27 +445,25 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           disabled={!canPublish}
           className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Publish Policy
+          Publish rule
         </button>
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="font-body text-sm text-stone hover:text-ink transition-colors py-3"
-          >
-            Cancel
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={leave}
+          className="font-body text-sm text-stone hover:text-ink transition-colors py-3 sm:ml-auto"
+        >
+          Cancel
+        </button>
       </div>
 
       {!canPublish && form.name.trim().length > 0 && (
         <p className="font-body text-xs text-stone/60 -mt-4">
-          Enable at least one Recognition Rule to publish this policy.
+          Turn on at least one occasion before you can publish this rule.
         </p>
       )}
       {!form.name.trim() && (
         <p className="font-body text-xs text-stone/60 -mt-4">
-          Add a policy name to publish.
+          Give this rule a name before you can publish it.
         </p>
       )}
 

@@ -20,10 +20,9 @@
 | 2 | **H2.4** — Policy Assignments | ✅ **Reconstructed** | R2 |
 | 3 | **H2.5** — People Sources and People | ✅ **Reconstructed** | R3 |
 | — | **Aniyé Experience Audit** | ✅ **Complete** | Audit |
-| — | **Experience Correction milestone** | ⬅️ **Next — 5 findings gate Programs** | — |
-| — | **Architecture-correction checkpoint** | ⛔ Required before Operations | — |
+| — | **Experience Correction E1** | ✅ **Complete — Programs unblocked (experience)** | E1 |
+| — | **Architecture-correction checkpoint** | ⬅️ **Next — mandatory before Programs** | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
-
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
 | 6 | H3.1 — Moment Engine | ⬜ Not started | — |
 | 7 | H3.2 — Execution Brief | ⬜ Not started | — |
@@ -126,9 +125,38 @@ New components: `StepHeader.tsx`, `SetupProgress.tsx`. New localStorage key: `an
 | EX-H4 | Three routes render the header title "Workspace" | XS |
 | EX-H6 | Setup progress renders on only 2 of 7 setup surfaces | S |
 
-**Recommended next milestone: Experience Correction.** One medium, two small, two extra-small — no visual redesign. The remaining five High findings (assessment autosave, `PolicyForm` restructure, Policy Library primary action, destructive-action confirmations) should be corrected before any external pilot but do **not** gate Programs: none of them change the shape of what Programs is built on.
+### ✅ Experience Correction E1 — complete
 
-**After the Experience Correction milestone, the architecture-correction checkpoint remains the next gate** before any Operations work.
+**All five Programs-gating findings corrected**, plus three more High findings and three Low ones picked up along the way. Corrections only: no domain model changed, no schema version introduced, no Programs or Operations work. `lib/workspace.ts` changed solely in `SETUP_STAGES` display copy.
+
+| Finding | Outcome |
+|---------|---------|
+| **EX-C1** | ✅ `/verify` reads before writing. An existing workspace is always continued, never replaced — replacement is not implemented at all. Decision lives in `lib/verification.ts`, pure with injected storage, proven by `npm run validate:verification` (9 checks incl. byte-equivalence and idempotence) |
+| **EX-C2** | ✅ Off-canvas drawer below `lg`; `lg:ml-60` content, `left-0 lg:left-60` header, scrim, Escape, route-change close, body scroll lock. Desktop unchanged |
+| **EX-H2** | ✅ `/workspace/policies/new` has a persistent back link and an always-rendered Cancel |
+| **EX-H4** | ✅ Longest-match title map covering every route, in plain language |
+| **EX-H5** | ✅ Recognition rules page has one state-chosen primary action |
+| **EX-H6** | ✅ `SetupProgress` on all five setup routes, derived from `SETUP_STAGES` |
+| **EX-H7 / EX-H8** | ✅ Shared `ConfirmDialog` with named buttons and real impact numbers, guarding group deactivation/deletion, assignment removal/deactivation and person archiving |
+| **Language** | ✅ Relationship Classes → *relationship groups*, Recognition Policies → *recognition rules*, Policy Assignments → *who each rule applies to*, applied consistently. Canonical names untouched in types, routes and the Atlas |
+
+**Programs is unblocked from an experience perspective.** Zero Critical, zero Programs-gating findings remain.
+
+**The architecture-correction checkpoint remains mandatory before Programs**, independently of the experience work. That gate has not moved.
+
+### Deferred pre-pilot experience work
+
+Not resolved in E1, and not marked resolved. None gates Programs; all should be closed before external customers:
+
+| ID | Deferred work | Why |
+|----|--------------|-----|
+| **EX-H1** | Assessment autosave — ~15 fields still lost on refresh | Pre-workspace surface; Programs does not touch it |
+| **EX-H3** | `PolicyForm` guided rebuild into steps | Explicitly out of E1 scope. E1 made it readable on mobile and renamed its sections, but it is still one long form |
+| **EX-M5** | Policy draft autosave | Depends on EX-H3 |
+| **EX-M4, M7, M8, M9, M10, M11** | Countries round-trip, People page length, table fallbacks, review shortcut, large-CSV rendering, wizard focus management | Medium-severity polish |
+| **EX-L4 – EX-L7** | Dialog scroll containment, `<a>` → `<Link>`, import stat readability | Low |
+
+**Responsive verification limitation, recorded honestly:** the Chrome extension was not connected during E1, so the responsive review was static analysis plus an HTTP smoke test across all ten routes — not a live visual pass. Every route returns 200 and every layout offset is breakpoint-gated, but no screenshot was taken at any width. A real-device check remains outstanding before pilot.
 
 ### Audit scope (for reference)
 
@@ -353,6 +381,8 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 | `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
 | `aniye_person_draft` | **R3a:** `PersonForm.tsx` | An unfinished new person, so the flow can be resumed. Never workspace data; cleared on save or cancel; not written for edits |
 
+**E1 added no storage keys.** `/verify` now writes `aniye_workspace` only when no workspace exists.
+
 ### Storage model
 
 - **One blob, one key.** Policies and classes are nested arrays inside `WorkspaceState`,
@@ -484,7 +514,7 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 2 | ✅ **H2.4** — Policy Assignments | 1 | Restored the broken link in the Atlas §11 canonical flow. Resolves C7 and C8. **Landed in R2.** |
 | 3 | ✅ **H2.5** — People Sources and People | 1, 2 | Resolved C3 by deriving member counts. **Landed in R3.** Completes the H2 Configure arc. |
 | — | ✅ **Aniyé Experience Audit** | 3 | 28 findings: 2 Critical, 8 High, 11 Medium, 7 Low. See `ANIYE_EXPERIENCE_AUDIT.md`. |
-| — | ⬅️ **Experience Correction** — *next* | Audit | The 5 findings that gate Programs: EX-C1, EX-C2, EX-H2, EX-H4, EX-H6. |
+| — | ✅ **Experience Correction E1** | Audit | Closed all 5 Programs-gating findings plus EX-H5, EX-H7, EX-H8 and three Low. **Landed in E1.** |
 | — | ⛔ **Architecture-correction checkpoint** — *required before Operations* | 3 | Program definition; Workspace vs Operations boundary; Decision vs Operational Event; minimum financial and Money model (C6). Steps 4–10 below are gated behind this. |
 | 4 | **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. Specification input for ADR-003. |
 | 5 | **ADR-003** — Decision Engine | 4 | Resolves "which policy applies to this person for this moment type in this country" — requires assignments, people, and scope precedence to all exist. Settle C6 (Money unit) here. |
@@ -498,9 +528,9 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 
 **Two gates, in order — neither is a reconstruction milestone.**
 
-**First: the Experience Correction milestone.** The Experience Audit is complete (§0). Five findings gate Programs — two Critical defects (workspace-destroying `/verify`, unusable mobile shell) and three small structural fixes. Estimated at one medium and four small-or-smaller corrections; explicitly not a redesign.
+**The Experience Audit and Experience Correction E1 are both complete.** Programs is unblocked from an experience perspective — zero Critical findings and zero Programs-gating findings remain.
 
-**Then: the architecture-correction checkpoint.**
+**The architecture-correction checkpoint is now the only remaining gate before Programs.**
 
 Steps 0–3 have landed and the H2 Configure arc is complete: an organization can now define who
 matters (classes), how they are recognized (policies), which rules reach which group (assignments),
@@ -538,3 +568,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after R3 (H2.5 People Sources and People, schema v4) — System Atlas v2.5. H2 Configure recovery complete.*
 *Updated after R3a (Experience Doctrine integration) — Experience Doctrine v1.0. No architectural change.*
 *Updated after the Aniyé Experience Audit — 28 findings, Programs blocked pending 5 corrections. Documentation only.*
+*Updated after Experience Correction E1 — all 5 gating findings closed; Programs unblocked on experience. Architecture checkpoint remains mandatory.*

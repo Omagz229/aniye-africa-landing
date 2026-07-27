@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "validate:migration": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-schema-migration.mts",
     "validate:assignments": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-policy-assignments.mts",
-    "validate:people": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-people.mts"
+    "validate:people": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-people.mts",
+    "validate:verification": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-verification.mts"
   },
   "dependencies": {
     "next": "16.2.9",

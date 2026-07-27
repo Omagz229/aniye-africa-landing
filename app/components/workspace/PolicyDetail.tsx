@@ -74,7 +74,7 @@ function PolicyDocument({ policy }: { policy: RecognitionPolicy }) {
       {/* Document header */}
       <div className="pb-6 border-b border-stone/15">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-          <p className="font-body text-xs text-stone uppercase tracking-widest">Recognition Policy</p>
+          <p className="font-body text-xs text-stone uppercase tracking-widest">Recognition rule</p>
           <div className="flex items-center gap-2">
             <StatusBadge status={policy.status} />
             <span className="font-body text-xs text-stone/50">v{policy.version}</span>

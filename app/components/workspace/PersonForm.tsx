@@ -368,7 +368,7 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
                 Which groups does {draft.firstName || 'this person'} belong to?
               </p>
               <p className="font-body text-sm text-stone">
-                This is what connects them to your recognition policies. You can skip it and come
+                This is what connects them to your recognition rules. You can skip it and come
                 back later.
               </p>
             </div>

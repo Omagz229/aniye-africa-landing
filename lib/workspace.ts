@@ -519,45 +519,48 @@ export const SETUP_STAGES: Array<{
   href: string;
   available: boolean;
 }> = [
+  // Labels and descriptions are *display copy*, written in the language a
+  // first-time administrator would use (Experience Doctrine §2.9). The stage
+  // keys, routes, and canonical object names are unchanged.
   {
     key: 'profile',
-    label: 'Organization',
-    description: 'Company details, location, currency, and contact',
+    label: 'Your organization',
+    description: 'Confirm your company details, currency and contact',
     href: '/workspace/profile',
     available: true,
   },
   {
     key: 'classes',
-    label: 'Relationship Classes',
-    description: 'Define who matters to your organization',
+    label: 'Relationship groups',
+    description: 'Decide which groups of people you recognize differently',
     href: '/workspace/classes',
     available: true,
   },
   {
     key: 'policies',
-    label: 'Recognition Policies',
-    description: 'Define reusable policies for budgets, approvals, and delivery',
+    label: 'Recognition rules',
+    description: 'Set the budgets, approvals and delivery for each occasion',
     href: '/workspace/policies',
     available: true,
   },
   {
     key: 'assignments',
-    label: 'Policy Assignments',
-    description: 'Connect each Relationship Class to a published policy',
+    label: 'Who each rule applies to',
+    description: 'Connect each group to a published rule',
     href: '/workspace/assignments',
     available: true,
   },
   {
     key: 'people',
     label: 'People',
-    description: 'Import your employees, clients, and partners',
+    description: 'Add the employees, clients and partners you recognize',
     href: '/workspace/people',
     available: true,
   },
   {
     key: 'programs',
     label: 'Programs',
-    description: 'Create your first recognition program',
+    description: 'Turn all of this into recognition that happens',
     href: '/workspace/programs',
     available: false,
   },

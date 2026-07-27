@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { RecognitionPolicy, PolicyStatus, SetupStage } from '@/lib/workspace';
+import type { WorkspaceState } from '@/lib/workspace';
 import { getWorkspace, updateWorkspace, isStageComplete } from '@/lib/workspace';
+import SetupProgress from './SetupProgress';
 
 const STATUS_STYLES: Record<PolicyStatus, string> = {
   Draft:     'bg-stone/10 text-stone',
@@ -95,6 +97,7 @@ export default function PolicyLibrary() {
   const [classesNotConfirmed, setClassesNotConfirmed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [stage, setStage] = useState<SetupStage | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
 
   useEffect(() => {
     const ws = getWorkspace();
@@ -105,6 +108,7 @@ export default function PolicyLibrary() {
     }
     setPolicies(ws.recognitionPolicies ?? []);
     setStage(ws.setupStage);
+    setWorkspace(ws);
   }, [router]);
 
   /**
@@ -118,7 +122,8 @@ export default function PolicyLibrary() {
   }
 
   function persist(updated: RecognitionPolicy[]) {
-    updateWorkspace({ recognitionPolicies: updated });
+    const next = updateWorkspace({ recognitionPolicies: updated });
+    if (next) setWorkspace(next);
     setPolicies(updated);
   }
 
@@ -153,19 +158,20 @@ export default function PolicyLibrary() {
     return (
       <div className="space-y-6 max-w-xl">
         <div>
-          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">Recognition Policies</p>
+          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">Recognition rules</p>
           <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-2">
-            Confirm your Relationship Classes first
+            One step to go first
           </h2>
           <p className="font-body text-stone">
-            Define and confirm your Relationship Classes before building Recognition Policies.
+            Confirm your relationship groups, then you can set the rules for how each one is
+            recognized.
           </p>
         </div>
         <Link
           href="/workspace/classes"
           className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
         >
-          Go to Relationship Classes &#8594;
+          Go to relationship groups &#8594;
         </Link>
       </div>
     );
@@ -178,42 +184,81 @@ export default function PolicyLibrary() {
   const publishedCount = policies.filter(p => p.status === 'Published').length;
   const draftCount = policies.filter(p => p.status === 'Draft').length;
 
+  // EX-H5 — one recommended action, chosen from state, instead of four gold
+  // buttons of equal weight. The recommendation follows what actually unblocks
+  // the operator next.
+  const latestDraft = [...policies]
+    .filter(p => p.status === 'Draft')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+  const primary =
+    policies.length === 0
+      ? { label: 'Create your first rule', href: '/workspace/policies/new' as const }
+      : publishedCount === 0 && latestDraft
+        ? { label: `Finish and publish ${latestDraft.name || 'your draft'}`, href: `/workspace/policies/${latestDraft.id}` }
+        : publishedCount > 0 && stage === 'policies'
+          ? { label: 'Continue to who each rule applies to', onClick: handleContinue }
+          : { label: 'New rule', href: '/workspace/policies/new' as const };
+
+  const primaryClass =
+    'inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2';
+
   return (
     <div className="space-y-8">
 
       {/* Page intro */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-            Recognition Policies
-          </p>
-          <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-1">
-            Policy Library
-          </h2>
-          <p className="font-body text-stone">
-            Define reusable policies for budgets, approvals, and delivery.
-          </p>
-        </div>
-        <Link
-          href="/workspace/policies/new"
-          className="flex-shrink-0 inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-5 py-2.5 hover:brightness-105 hover:shadow-md transition-all"
-        >
-          + New Policy
-        </Link>
+      <div>
+        <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
+          Recognition rules
+        </p>
+        <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-1">
+          How each group is recognized
+        </h2>
+        <p className="font-body text-stone">
+          A rule sets the budget, who approves it, and how it&apos;s delivered — for each occasion
+          worth marking.
+        </p>
       </div>
 
       {/* Explanation */}
       <div className="bg-cream rounded-2xl border border-stone/20 p-5">
         <p className="font-body text-sm text-ink leading-relaxed">
-          Recognition Policies are reusable. Each policy defines how recognition happens — budgets,
-          approval workflow, delivery requirements, and reporting. In the next step, you&apos;ll assign
-          policies to your Relationship Classes.
+          Rules are reusable — one rule can cover several groups. Write them here, then decide who
+          each one applies to in the next step. A rule has to be published before it can be used.
         </p>
       </div>
 
+      {/* One primary action */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+        {'onClick' in primary ? (
+          <button type="button" onClick={primary.onClick} className={primaryClass}>
+            {primary.label} &#8594;
+          </button>
+        ) : (
+          <Link href={primary.href} className={primaryClass}>
+            {primary.label} &#8594;
+          </Link>
+        )}
+        {/* Secondary only when the primary isn't already "write a new rule" */}
+        {policies.length > 0 && !('href' in primary && primary.href === '/workspace/policies/new') && (
+          <Link
+            href="/workspace/policies/new"
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors"
+          >
+            Write another rule
+          </Link>
+        )}
+      </div>
+
+      {publishedCount === 0 && policies.length > 0 && (
+        <p className="font-body text-sm text-stone -mt-4">
+          Nothing is published yet. Open a draft and publish it to move on.
+        </p>
+      )}
+
       {/* Stats */}
       {policies.length > 0 && (
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-6">
           {publishedCount > 0 && (
             <div>
               <p className="font-display font-bold text-2xl text-ink">{publishedCount}</p>
@@ -235,16 +280,14 @@ export default function PolicyLibrary() {
         </div>
       )}
 
-      {/* Policy grid or empty state */}
+      {/* Rules or empty state */}
       {policies.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-stone/30 py-16 text-center">
-          <p className="font-body text-stone mb-6">No recognition policies yet.</p>
-          <Link
-            href="/workspace/policies/new"
-            className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
-          >
-            Create your first policy &#8594;
-          </Link>
+        <div className="bg-white rounded-2xl border border-dashed border-stone/30 py-14 px-6 text-center">
+          <p className="font-body text-ink font-semibold mb-1">No rules yet</p>
+          <p className="font-body text-sm text-stone max-w-md mx-auto">
+            Start with one — most organizations write a rule for their employees first, then add
+            others as they go.
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -267,33 +310,11 @@ export default function PolicyLibrary() {
           onClick={() => setShowArchived(v => !v)}
           className="font-body text-sm text-stone hover:text-ink transition-colors underline underline-offset-4"
         >
-          {showArchived ? 'Hide' : 'Show'} {archivedCount} archived polic{archivedCount !== 1 ? 'ies' : 'y'}
+          {showArchived ? 'Hide' : 'Show'} {archivedCount} archived rule{archivedCount !== 1 ? 's' : ''}
         </button>
       )}
 
-      {/* Continue to assignments */}
-      {stage === 'policies' && (
-        <div className="pt-2 space-y-2">
-          {publishedCount > 0 ? (
-            <>
-              <button
-                type="button"
-                onClick={handleContinue}
-                className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
-              >
-                Continue to Policy Assignments &#8594;
-              </button>
-              <p className="font-body text-xs text-stone/60">
-                Next you&apos;ll connect these policies to your Relationship Classes.
-              </p>
-            </>
-          ) : (
-            <p className="font-body text-sm text-stone">
-              Publish at least one policy to continue to Policy Assignments.
-            </p>
-          )}
-        </div>
-      )}
+      {workspace && <SetupProgress workspace={workspace} compact />}
 
     </div>
   );

@@ -346,3 +346,61 @@ No findings are recorded for interfaces that do not exist. These are the Doctrin
 
 *Aniyé Experience Audit — 27 July 2026 — audited at commit `1b1025e`.*
 *Inspection only. No application component or domain model was modified.*
+
+---
+
+## Appendix A — Experience Correction E1
+
+> Applied 2026-07-27. Corrections only — no domain model changed, no schema version introduced,
+> no Programs or Operations work. `lib/workspace.ts` changed only in `SETUP_STAGES` display copy.
+
+### What changed
+
+| Finding | Correction |
+|---------|-----------|
+| **EX-C1** | The verification decision moved out of the component into `lib/verification.ts` — pure, with storage injected — because "does this destroy the customer's data?" should not be a question only answerable by rendering React. `/verify` now reads before it writes. An existing workspace is **always** continued and never replaced; workspace replacement is not implemented at all. The gate shows what is already there (groups, rules, assignments, people) and resumes at the correct unfinished step. Proven by `npm run validate:verification` — 9 checks, including byte-equivalence of every collection and idempotence across repeated opens |
+| **EX-C2** | The shell is responsive. Below `lg` the sidebar is an off-canvas drawer opened from a header menu button; content offset is `lg:ml-60`, header is `left-0 lg:left-60`. A scrim blocks background interaction, Escape and any route change close the drawer, and body scroll locks while it is open. Desktop is unchanged |
+| **EX-H2** | `PolicyForm` derives `leave = onCancel ?? (() => router.push('/workspace/policies'))`. A persistent "← Back to recognition rules" link sits above the heading and Cancel always renders, so `/workspace/policies/new` is no longer a dead end |
+| **EX-H4** | `PAGE_TITLES` became a longest-match prefix list covering every route, plus a regex branch for policy detail. All three previously-untitled routes are named |
+| **EX-H5** | Policy Library has one primary action chosen from state: *Create your first rule* → *Finish and publish {draft}* → *Continue to who each rule applies to* → *New rule*. Everything else dropped to text weight |
+| **EX-H6** | `SetupProgress` renders on all five setup routes, rewritten to derive entirely from `SETUP_STAGES` and `setupStage`. No duplicated progress state. Programs appears honestly as "Not yet" |
+| **EX-H7 / EX-H8** | A shared `ConfirmDialog` guards group deactivation, group deletion, assignment removal, assignment deactivation and person archiving. Every dialog names its consequence and its buttons ("Keep group active" / "Turn off group"). Impact lines carry real numbers — people in the group, assignments pointing at it, whether that assignment is the one currently in effect. Reversible actions such as re-activating stay one click |
+| **Language** | Relationship Classes → **relationship groups**, Recognition Policies / Policy Library → **recognition rules**, Policy Assignments → **who each rule applies to**. Applied consistently across the sidebar, checklist, page headings, route metadata, empty states, blocked states and continuation buttons. Canonical names are untouched in types, routes, and this Atlas |
+| **Picked up en route** | EX-L1 (notification button now genuinely disabled), EX-L2 (focus trap, Escape, focus restore in `ConfirmDialog`), EX-L3 (missing `aria-label` on the desktop remove control) |
+
+### Remaining findings
+
+| Severity | Open | Which |
+|----------|------|-------|
+| **Critical** | **0** | — |
+| **High** | **2** | EX-H1 (assessment autosave), EX-H3 (`PolicyForm` guided rebuild) |
+| **Medium** | 8 | EX-M2 … EX-M11, less those absorbed by the language work |
+| **Low** | 4 | EX-L4 … EX-L7 |
+
+### What still blocks an external pilot
+
+Neither remaining High finding blocks Programs, but both should be closed before real customers arrive:
+
+1. **EX-H1** — the assessment still loses ~15 fields on refresh. It is the first thing a stranger fills in, and the only surface in the product with no save-and-return.
+2. **EX-H3** — `PolicyForm` is still a single long form. E1 made it readable on a phone and renamed its sections into plain language, but did not restructure it into steps.
+
+### Honest limitation of the responsive verification
+
+The Chrome extension was not connected during E1, so the responsive review below is **static analysis plus an HTTP smoke test, not a live visual pass**. Every route returns 200 and every offset is breakpoint-gated, but no screenshot was taken at any width. A visual check on a real device remains outstanding and should happen before pilot.
+
+| Surface | 375px | 768px | Desktop | Notes |
+|---------|-------|-------|---------|-------|
+| Workspace home | ✅ | ✅ | ✅ | Drawer nav; checklist is single-column throughout |
+| Your organization | ✅ | ✅ | ✅ | Two-column field grid collapses at `sm` |
+| Relationship groups | ✅ | ✅ | ✅ | Dedicated mobile branch below `sm`; desktop grid above |
+| Recognition rules | ✅ | ✅ | ✅ | Card grid is `1 → 2` at `sm`. Occasion rows now wrap; budget input `w-28 sm:w-36` |
+| Who each rule applies to | ✅ | ✅ | ✅ | Assignment rows use `flex-wrap`; add-form grid is single-column below `sm` |
+| People list | ✅ | ✅ | ✅ | Cards below `lg`, table above. The table's `overflow-x-auto` is inside `hidden lg:block`, so it never applies on mobile |
+| CSV import | ✅ | ✅ | ✅ | Rewritten as grouped lists in R3a — no table, no horizontal scroll |
+
+**Known remaining mobile limitations**, unchanged by E1 and recorded honestly:
+
+- **EX-M7** — the People page is still a long scroll on a phone. `SetupProgress` now sits last, but the coverage grid is always expanded.
+- **EX-M8** — desktop tables still rely on `overflow-x-auto` as a fallback above `lg`. This is correct behaviour, not a defect, but it is not a card layout.
+- The 375px Policy Library card grid is single-column, so a long rule name wraps rather than truncating. Acceptable, not elegant.
+

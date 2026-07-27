@@ -26,6 +26,7 @@ import {
 import PersonForm from './PersonForm';
 import PeopleImport from './PeopleImport';
 import SetupProgress from './SetupProgress';
+import ConfirmDialog from './ConfirmDialog';
 
 type Mode = 'list' | 'choose' | 'add' | 'edit' | 'import';
 
@@ -150,10 +151,10 @@ export default function PeopleDirectory() {
       warnings.push('There\'s nobody in your directory yet. You can continue and add people later — but nothing can be recognised until someone is here.');
     }
     if (unassigned.length > 0) {
-      warnings.push(`${unassigned.length} ${unassigned.length === 1 ? 'person has' : 'people have'} no relationship group, so no policy reaches them yet.`);
+      warnings.push(`${unassigned.length} ${unassigned.length === 1 ? 'person has' : 'people have'} no relationship group, so no rule reaches them yet.`);
     }
     if (invalidRefs.length > 0) {
-      warnings.push(`${invalidRefs.length} ${invalidRefs.length === 1 ? 'person is' : 'people are'} linked to a group that's no longer in use. We keep the link for your records, but it won't apply a policy.`);
+      warnings.push(`${invalidRefs.length} ${invalidRefs.length === 1 ? 'person is' : 'people are'} linked to a group that's no longer in use. We keep the link for your records, but it won't apply a rule.`);
     }
 
     if (warnings.length > 0 && confirmWarning === null) {
@@ -170,7 +171,7 @@ export default function PeopleDirectory() {
     return (
       <BlockedState
         heading="A couple of steps to go first"
-        body="People slot into the relationship groups and policies you've set up. Finish those and this step will be waiting."
+        body="People slot into the relationship groups and recognition rules you've set up. Finish those and this step will be waiting."
         href="/workspace"
         cta="Back to setup"
       />
@@ -194,7 +195,7 @@ export default function PeopleDirectory() {
               ? `${saved.firstName} ${saved.lastName} is in your directory.`
               : `${saved.firstName} ${saved.lastName} updated.`,
             detail: saved.relationshipClassIds.length === 0
-              ? 'They don\'t have a relationship group yet, so no policy reaches them. Open their record to add one.'
+              ? 'They don\'t have a relationship group yet, so no rule reaches them. Open their record to add one.'
               : coverageLine(ws),
           });
         }}
@@ -292,7 +293,7 @@ export default function PeopleDirectory() {
         </h2>
         <p className="font-body text-stone">
           {isEmpty
-            ? 'The employees, clients and partners your recognition policies apply to.'
+            ? 'The employees, clients and partners your recognition rules apply to.'
             : coverageLine(workspace)}
         </p>
       </div>
@@ -367,7 +368,7 @@ export default function PeopleDirectory() {
           </p>
           <p className="font-body text-sm text-stone">
             Each person joins one or more of the relationship groups you defined. That&apos;s what
-            connects them to a recognition policy — so Aniyé knows what to do, for whom, and when.
+            connects them to a recognition rule — so Aniyé knows what to do, for whom, and when.
           </p>
         </div>
       ) : (
@@ -562,8 +563,15 @@ export default function PeopleDirectory() {
       {pendingArchive && (
         <ConfirmDialog
           title={`Archive ${personFullName(pendingArchive)}?`}
-          body="They'll be kept in your records with all their details and group links, but won't be included in any recognition. You can restore them at any time."
-          confirmLabel="Archive"
+          body="They stay in your records with all their details and group links, but won't be included in any recognition."
+          impact={[
+            pendingArchive.relationshipClassIds.length > 0
+              ? `They'll be removed from ${pendingArchive.relationshipClassIds.length} group${pendingArchive.relationshipClassIds.length === 1 ? '' : 's'} for counting purposes`
+              : 'They are not in any relationship group',
+            'Nothing is deleted — you can restore them at any time',
+          ]}
+          cancelLabel="Keep them active"
+          confirmLabel="Archive person"
           onConfirm={() => { setPersonStatus(pendingArchive.id, 'Archived'); setPendingArchive(null); }}
           onCancel={() => setPendingArchive(null)}
         />
@@ -657,32 +665,6 @@ function RowActions({
           Restore
         </button>
       )}
-    </div>
-  );
-}
-
-function ConfirmDialog({
-  title, body, confirmLabel, onConfirm, onCancel,
-}: {
-  title: string; body: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 bg-ink/40"
-      role="dialog" aria-modal="true" aria-label={title}>
-      <div className="bg-white rounded-2xl border border-stone/20 p-6 max-w-md w-full shadow-lg space-y-3">
-        <p className="font-display font-semibold text-lg text-ink">{title}</p>
-        <p className="font-body text-sm text-stone leading-relaxed">{body}</p>
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <button type="button" onClick={onConfirm}
-            className="rounded-full bg-gold text-ink font-semibold text-sm px-5 py-2.5 hover:brightness-105 transition-all">
-            {confirmLabel}
-          </button>
-          <button type="button" onClick={onCancel}
-            className="font-body text-sm text-stone hover:text-ink transition-colors">
-            Keep them active
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -24,6 +24,8 @@ import {
   resolvePolicyAssignment,
   validateNewAssignment,
 } from '@/lib/assignments';
+import SetupProgress from './SetupProgress';
+import ConfirmDialog from './ConfirmDialog';
 
 const STATUS_STYLES: Record<PolicyStatus, string> = {
   Draft:     'bg-stone/10 text-stone',
@@ -37,6 +39,8 @@ export default function PolicyAssignmentsPage() {
   const [stepLocked, setStepLocked] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [pendingWarning, setPendingWarning] = useState<RelationshipClass[] | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<PolicyAssignment | null>(null);
+  const [pendingDeactivate, setPendingDeactivate] = useState<PolicyAssignment | null>(null);
 
   useEffect(() => {
     const ws = getWorkspace();
@@ -124,7 +128,7 @@ export default function PolicyAssignmentsPage() {
       workspace.recognitionPolicies,
     )) {
       setConfirmError(
-        'Assign at least one published policy to an active Relationship Class before continuing.',
+        'Connect at least one published rule to an active group before continuing.',
       );
       return;
     }
@@ -151,9 +155,9 @@ export default function PolicyAssignmentsPage() {
   if (stepLocked) {
     return (
       <BlockedState
-        eyebrow="Policy Assignments"
-        heading="Complete the earlier steps first"
-        body="Confirm your Organization Profile and Relationship Classes before assigning policies."
+        eyebrow="Who each rule applies to"
+        heading="A couple of steps to go first"
+        body="Confirm your organization details and relationship groups, then you can connect rules to groups."
         href="/workspace"
         cta="Back to setup"
       />
@@ -165,11 +169,11 @@ export default function PolicyAssignmentsPage() {
   if (activeClasses.length === 0) {
     return (
       <BlockedState
-        eyebrow="Policy Assignments"
-        heading="Activate a Relationship Class first"
-        body="Policy Assignments connect a Relationship Class to a policy. You have no active classes — activate one, or create a new class, then come back."
+        eyebrow="Who each rule applies to"
+        heading="Turn on a relationship group first"
+        body="This step connects a group to a rule, and you have no active groups. Turn one on, or add a new one, then come back."
         href="/workspace/classes"
-        cta="Go to Relationship Classes"
+        cta="Go to relationship groups"
       />
     );
   }
@@ -178,15 +182,15 @@ export default function PolicyAssignmentsPage() {
     const hasAnyPolicy = workspace.recognitionPolicies.length > 0;
     return (
       <BlockedState
-        eyebrow="Policy Assignments"
-        heading="Publish a Recognition Policy first"
+        eyebrow="Who each rule applies to"
+        heading="Publish a recognition rule first"
         body={
           hasAnyPolicy
-            ? 'Only a Published policy can be assigned. Your policies are all still in draft or archived — publish one, then come back.'
-            : 'Only a Published policy can be assigned. Build a Recognition Policy and publish it, then come back to assign it.'
+            ? 'Only a published rule can be used here. Yours are all still drafts or archived — publish one, then come back.'
+            : 'Only a published rule can be used here. Write a recognition rule and publish it, then come back.'
         }
         href="/workspace/policies"
-        cta="Go to the Policy Library"
+        cta="Go to recognition rules"
       />
     );
   }
@@ -200,27 +204,26 @@ export default function PolicyAssignmentsPage() {
 
       <div>
         <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-          Policy Assignments
+          Who each rule applies to
         </p>
         <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-1">
-          Connect classes to policies
+          Connect groups to rules
         </h2>
         <p className="font-body text-stone">
-          A Policy Assignment decides which Recognition Policy governs a class — globally, or in one
-          country.
+          Decide which recognition rule covers each group — everywhere, or in one country.
         </p>
       </div>
 
       <div className="bg-cream rounded-2xl border border-stone/20 p-5 space-y-3">
         <p className="font-body text-sm text-ink leading-relaxed">
-          Policies are reusable. One policy can govern several classes, and one class can carry
-          several assignments — a Global default plus country-specific overrides.
+          Rules are reusable. One rule can cover several groups, and one group can have several
+          assignments — a default for everywhere, plus country-specific exceptions.
         </p>
         <div className="grid sm:grid-cols-2 gap-3 pt-1">
           <div>
             <p className="font-body text-xs font-semibold text-ink mb-0.5">Scope</p>
             <p className="font-body text-xs text-stone leading-snug">
-              A country-specific assignment beats the Global one for moments in that country.
+              A country-specific assignment wins over the everywhere one, in that country.
             </p>
           </div>
           <div>
@@ -235,7 +238,7 @@ export default function PolicyAssignmentsPage() {
             href="/workspace/policies"
             className="font-body text-xs font-semibold text-ink hover:text-gold transition-colors"
           >
-            Manage the Policy Library &#8594;
+            Manage your recognition rules &#8594;
           </Link>
         </div>
       </div>
@@ -253,8 +256,17 @@ export default function PolicyAssignmentsPage() {
                 onAdd={(policyId, countryCode, priority) =>
                   addAssignment(cls.id, policyId, countryCode, priority)
                 }
-                onSetActive={setAssignmentActive}
-                onRemove={removeAssignment}
+                onSetActive={(id, isActive) => {
+                  // Turning one on is harmless; turning one off changes which
+                  // rule reaches the group, so it is confirmed.
+                  const target = workspace.policyAssignments.find(a => a.id === id);
+                  if (isActive || !target) setAssignmentActive(id, true);
+                  else setPendingDeactivate(target);
+                }}
+                onRemove={(id) => {
+                  const target = workspace.policyAssignments.find(a => a.id === id);
+                  if (target) setPendingRemove(target);
+                }}
                 onRename={(name) => renameClass(cls.id, name)}
               />
             ))}
@@ -272,12 +284,13 @@ export default function PolicyAssignmentsPage() {
         {pendingWarning && pendingWarning.length > 0 && (
           <div className="bg-white rounded-2xl border border-stone/20 p-5">
             <p className="font-body text-sm font-semibold text-ink mb-1">
-              {pendingWarning.length} active class{pendingWarning.length !== 1 ? 'es have' : ' has'} no
-              assignment
+              {pendingWarning.length} active group{pendingWarning.length !== 1 ? 's have' : ' has'} no
+              rule yet
             </p>
             <p className="font-body text-sm text-stone mb-2">
-              {pendingWarning.map(c => c.name || 'Untitled class').join(', ')}. These classes will not
-              receive recognition until a policy is assigned. You can continue and assign them later.
+              {pendingWarning.map(c => c.name || 'Untitled group').join(', ')}. Nobody in{' '}
+              {pendingWarning.length === 1 ? 'that group' : 'those groups'} will be recognized until
+              a rule is connected. You can carry on and come back to this.
             </p>
             <p className="font-body text-xs text-stone/60">
               Confirm again to continue.
@@ -289,15 +302,75 @@ export default function PolicyAssignmentsPage() {
           onClick={handleConfirm}
           className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
         >
-          {pendingWarning ? 'Confirm anyway →' : 'Confirm assignments →'}
+          {pendingWarning ? 'Continue anyway →' : 'Confirm and continue →'}
         </button>
         <p className="font-body text-xs text-stone/60">
-          Confirming advances your workspace setup to People.
+          Next you&apos;ll add the people who belong to these groups.
         </p>
       </div>
 
+      <SetupProgress workspace={workspace} compact />
+
+      {pendingDeactivate && (
+        <ConfirmDialog
+          title="Turn off this assignment?"
+          body="The group keeps its other assignments, but this one stops applying. Nothing is deleted — you can turn it back on whenever you like."
+          impact={assignmentImpact(pendingDeactivate, workspace)}
+          cancelLabel="Keep assignment"
+          confirmLabel="Turn off assignment"
+          onCancel={() => setPendingDeactivate(null)}
+          onConfirm={() => {
+            setAssignmentActive(pendingDeactivate.id, false);
+            setPendingDeactivate(null);
+          }}
+        />
+      )}
+
+      {pendingRemove && (
+        <ConfirmDialog
+          title="Remove this assignment?"
+          body="This cannot be undone. If you only want to pause it, turn it off instead — that keeps the record and can be reversed."
+          impact={assignmentImpact(pendingRemove, workspace)}
+          cancelLabel="Keep assignment"
+          confirmLabel="Remove assignment"
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => {
+            removeAssignment(pendingRemove.id);
+            setPendingRemove(null);
+          }}
+        />
+      )}
+
     </div>
   );
+}
+
+/** Names the concrete consequence of touching one assignment. */
+function assignmentImpact(assignment: PolicyAssignment, workspace: WorkspaceState): string[] {
+  const cls = workspace.relationshipClasses.find(c => c.id === assignment.relationshipClassId);
+  const policy = workspace.recognitionPolicies.find(p => p.id === assignment.recognitionPolicyId);
+  const scope = assignmentScope(assignment);
+
+  const resolution = cls
+    ? resolvePolicyAssignment({
+        relationshipClassId: cls.id,
+        countryCode: assignment.countryCode,
+        classes: workspace.relationshipClasses,
+        assignments: workspace.policyAssignments,
+        policies: workspace.recognitionPolicies,
+      })
+    : null;
+
+  const inEffect = resolution?.status === 'resolved' && resolution.assignment.id === assignment.id;
+
+  return [
+    `Group: ${cls?.name || 'unknown group'}`,
+    `Rule: ${policy?.name || 'a rule that no longer exists'}`,
+    scope === 'Country' ? `Applies in ${assignment.countryCode} only` : 'Applies everywhere',
+    inEffect
+      ? 'This is the assignment currently in effect for that group'
+      : 'This is not the assignment currently in effect',
+  ];
 }
 
 // ─── Class card ──────────────────────────────────────────────────────────────
@@ -501,7 +574,7 @@ function AddAssignmentForm({
         <select
           value={policyId}
           onChange={(e) => { setPolicyId(e.target.value); setError(null); }}
-          aria-label="Recognition Policy"
+          aria-label="Recognition rule"
           className={fieldClass}
         >
           {assignablePolicies.map(p => (

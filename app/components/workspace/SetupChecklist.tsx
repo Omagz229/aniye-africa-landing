@@ -107,68 +107,68 @@ export default function SetupChecklist() {
           {workspace.setupStage === 'profile' && (
             <>
               <h3 className="font-display font-semibold text-xl text-cream mb-2">
-                Review your Organization Profile
+                Check your organization details
               </h3>
               <p className="font-body text-sm text-cream/70 mb-5">
-                We&apos;ve pre-filled it from your Relationship Assessment. Confirm the details,
-                then set your base currency and timezone.
+                We&apos;ve filled these in from your assessment. Confirm them, then set your
+                currency and timezone.
               </p>
               <Link
                 href="/workspace/profile"
                 className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
               >
-                Review Organization Profile &#8594;
+                Check your details &#8594;
               </Link>
             </>
           )}
           {workspace.setupStage === 'classes' && (
             <>
               <h3 className="font-display font-semibold text-xl text-cream mb-2">
-                Define your Relationship Classes
+                Set up your relationship groups
               </h3>
               <p className="font-body text-sm text-cream/70 mb-5">
-                Choose the groups of people your organization recognizes differently.
-                These classes will drive your Policies, budgets, and gift preferences.
+                Choose the groups of people your organization recognizes differently. Each group
+                gets its own budgets, approvals and gift preferences.
               </p>
               <Link
                 href="/workspace/classes"
                 className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
               >
-                Set Up Relationship Classes &#8594;
+                Set up your groups &#8594;
               </Link>
             </>
           )}
           {workspace.setupStage === 'policies' && (
             <>
               <h3 className="font-display font-semibold text-xl text-cream mb-2">
-                Build your Recognition Policies
+                Write your recognition rules
               </h3>
               <p className="font-body text-sm text-cream/70 mb-5">
-                Recognition Policies are reusable. Define budgets, approval workflows, and delivery
-                requirements — then assign them to your Relationship Classes in the next step.
+                Rules are reusable — set the budget, who approves it and how it&apos;s delivered,
+                then decide which groups each one covers.
               </p>
               <Link
                 href="/workspace/policies"
                 className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
               >
-                Build Recognition Policies &#8594;
+                Write your rules &#8594;
               </Link>
             </>
           )}
           {workspace.setupStage === 'assignments' && (
             <>
               <h3 className="font-display font-semibold text-xl text-cream mb-2">
-                Assign your policies
+                Decide who each rule applies to
               </h3>
               <p className="font-body text-sm text-cream/70 mb-5">
-                Connect each Relationship Class to a published policy — globally, or per country.
-                This is the link that lets a Program know which rules apply to whom.
+                Connect each group to a published rule — everywhere, or per country. This is what
+                lets Aniyé know which rule applies to whom.
               </p>
               <Link
                 href="/workspace/assignments"
                 className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
               >
-                Assign Policies &#8594;
+                Connect groups to rules &#8594;
               </Link>
             </>
           )}
@@ -178,14 +178,14 @@ export default function SetupChecklist() {
                 Add the people you recognize
               </h3>
               <p className="font-body text-sm text-cream/70 mb-5">
-                Import a CSV or add people one at a time. Assigning each person to a Relationship
-                Class is what connects them to the policies you have already defined.
+                Import a list or add people one at a time. Putting each person in a relationship
+                group is what connects them to the rules you&apos;ve already written.
               </p>
               <Link
                 href="/workspace/people"
                 className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
               >
-                Add People &#8594;
+                Add your people &#8594;
               </Link>
             </>
           )}
@@ -195,8 +195,8 @@ export default function SetupChecklist() {
                 Your workspace is configured
               </h3>
               <p className="font-body text-sm text-cream/70">
-                Classes, policies, assignments, and people are all in place. Programs — turning that
-                configuration into scheduled recognition — is the next capability, and is not
+                Groups, rules, assignments and people are all in place. Turning that into
+                recognition that actually happens is the next capability, and it isn&apos;t
                 available yet.
               </p>
             </>
