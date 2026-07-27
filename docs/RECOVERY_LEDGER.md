@@ -21,7 +21,8 @@
 | 3 | **H2.5** — People Sources and People | ✅ **Reconstructed** | R3 |
 | — | **Aniyé Experience Audit** | ✅ **Complete** | Audit |
 | — | **Experience Correction E1** | ✅ **Complete — Programs unblocked (experience)** | E1 |
-| — | **Architecture-correction checkpoint** | ⬅️ **Next — mandatory before Programs** | — |
+| — | **H2 → H3 Architecture Checkpoint** | ✅ **Complete — 6 ADRs awaiting Council** | Checkpoint |
+| — | **Council approval of ADR-004 … ADR-009** | ⬅️ **Next — blocks all implementation** | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
 | 6 | H3.1 — Moment Engine | ⬜ Not started | — |
@@ -184,6 +185,45 @@ Not resolved in E1, and not marked resolved. None gates Programs; all should be 
 | **Low** | Polish and delight |
 
 **All three pre-audit predictions were confirmed** and are now recorded as EX-H5 (Policy Library competing actions), EX-H1 (assessment predates the guided-flow pattern) and EX-M1 (unexplained internal vocabulary). The audit also found two Critical defects that inspection-from-memory had missed entirely.
+
+### ✅ H2 → H3 Architecture Checkpoint — complete
+
+**Prepared at commit `9c8e7d2`. Documentation only** — no application code, domain model, or schema version changed. Full analysis: [`H2_H3_ARCHITECTURE_CHECKPOINT.md`](H2_H3_ARCHITECTURE_CHECKPOINT.md). Draft ADRs: [`adr/`](adr/).
+
+All six decisions are **Proposed — Council Review Required**. None is accepted, and the System Atlas was deliberately left unchanged so it never claims a decision that has not been made.
+
+| ADR | Decision | Schema impact | Blocks Programs |
+|-----|----------|---------------|-----------------|
+| **ADR-004** | Program is an operational commitment; policy resolves **per Moment**, never pinned at Program level | New `programs` collection (additive) | ✅ Yes |
+| **ADR-005** | Workspace and Operations are separate surfaces; Operations never writes configuration | None client-side | Decision only |
+| **ADR-006** | Decisions vs Operational Events; recorded **only on confirmation**; `Confirmed`/`Superseded` only | Backend objects | Decision only |
+| **ADR-007** | Money as integer minor units + ISO 4217; `RecognitionOrder` as the financial object | **v4 → v5, destructive** | ✅ **Hard prerequisite** |
+| **ADR-008** | Person gains `Inactive` (supersedes P7) | v5, additive | ✅ Yes |
+| **ADR-009** | Policy lifecycle stays three states; approval is a record (resolves C4) | **None** | Decision only |
+
+**Two findings the checkpoint surfaced that were not previously recorded:**
+
+1. **The proposed Program field list contradicted ADR-001.** Carrying `policyAssignmentId` on a Program would pin one policy to a whole run, which cannot represent the country-scoped assignments ADR-001 exists to support — a multinational program would silently apply one country's rule to everyone. ADR-004 resolves this by resolving policy per Moment.
+2. **ADR-003 is deliberately left unused.** This ledger reserved it for a "Decision Engine" the lost implementation apparently had. The analysis concluded no such object is needed: `resolvePolicyAssignment()` already resolves policy, and recording judgements is ADR-006's `Decision`. Reusing the number would imply a decision never made.
+
+**C4 and C6 both have proposed resolutions.** C4 resolves with no code change (ADR-009 amends the Atlas instead). C6 resolves via the v5 Money migration (ADR-007) and is the single hard prerequisite for Programs.
+
+### Exact implementation gate
+
+**No implementation may begin until the Council approves ADR-004 through ADR-009.** After approval, the sequence is fixed by dependency:
+
+1. **Schema v5** — Money minor units, `Person.Inactive`, new canonical types *(ADR-007, ADR-008)*
+2. **Minimum Programs — Campaign mode only** *(ADR-004)*
+3. Moment generation with per-Moment policy snapshot
+
+Milestones 4–13 are set out in the checkpoint, Part 3.
+
+### Still required before an external pilot
+
+- **Live responsive testing on real devices.** E1's responsive work was verified by static analysis and an HTTP smoke test only — the Chrome extension was not connected, and no screenshot was taken at any width. This remains outstanding.
+- **EX-H1** — assessment autosave (~15 fields still lost on refresh).
+- **EX-H3** — `PolicyForm` guided rebuild.
+- A backend with real tenant isolation, if the pilot involves more than one organization.
 
 ### ⚠️ Gate before Operations reconstruction
 
@@ -528,9 +568,12 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 
 **Two gates, in order — neither is a reconstruction milestone.**
 
-**The Experience Audit and Experience Correction E1 are both complete.** Programs is unblocked from an experience perspective — zero Critical findings and zero Programs-gating findings remain.
+**The Experience Audit, Experience Correction E1, and the H2 → H3 Architecture Checkpoint are all complete.**
 
-**The architecture-correction checkpoint is now the only remaining gate before Programs.**
+- Experience: **zero Critical findings**, zero Programs-gating findings. Programs is unblocked on experience.
+- Architecture: six decisions analysed and drafted as ADR-004 … ADR-009, all **Proposed — Council Review Required**.
+
+**The only remaining gate is Council approval.** Nothing may be implemented until then. The first implementation milestone after approval is schema v5 (Money + Person lifecycle), because a Program budget envelope is arithmetic and the current floating-point face-value representation will not survive it.
 
 Steps 0–3 have landed and the H2 Configure arc is complete: an organization can now define who
 matters (classes), how they are recognized (policies), which rules reach which group (assignments),
@@ -569,3 +612,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after R3a (Experience Doctrine integration) — Experience Doctrine v1.0. No architectural change.*
 *Updated after the Aniyé Experience Audit — 28 findings, Programs blocked pending 5 corrections. Documentation only.*
 *Updated after Experience Correction E1 — all 5 gating findings closed; Programs unblocked on experience. Architecture checkpoint remains mandatory.*
+*Updated after the H2 → H3 Architecture Checkpoint — 6 ADRs drafted, all Proposed. Council approval is now the only gate. Documentation only; no schema version changed.*
