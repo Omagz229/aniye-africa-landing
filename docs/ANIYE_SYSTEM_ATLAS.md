@@ -247,18 +247,23 @@ Any individual tracked in Aniyé — employee, client, partner, board member.
 
 A named group of people who receive similar recognition treatment. Classes are configurable per workspace.
 
+Classes are described by two independent axes (**ADR-002**): a **Relationship Type**, which states the nature of the relationship, and a numeric **Relationship Level**, which states relative recognition priority within that type.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | — |
 | `workspaceId` | UUID | — |
-| `name` | string | Label |
-| `tier` | enum | Internal / External / Governance / Ecosystem |
+| `name` | string | Display label. Editable at any time; carries no canonical meaning |
+| `type` | enum | Relationship Type — Employee / Client / Partner / Supplier / Board / Investor / Government / Community / Other |
+| `level` | integer | Relationship Level — 0–99. **0 is the highest** recognition priority within the type |
 | `description` | string? | Optional context |
 | `memberCount` | number | Computed from Person records |
 | `isCustom` | boolean | `false` for standard templates, `true` for org-created |
 | `status` | enum | Draft / Active / Archived |
 
-**Standard classes by tier (see §11 for full list).**
+**Standard classes by type (see §10 for the full reference).**
+
+> **Implementation note (as of ADR-002):** the workspace implementation persists `isDefault` and `isActive` in place of `isCustom` and `status`, and does not yet compute `memberCount` (it depends on `Person`, which arrives in H2.5). These divergences predate ADR-002 and are tracked as C2 and C3 in `docs/RECOVERY_LEDGER.md`.
 
 ---
 
@@ -589,44 +594,60 @@ The customer buys from **Aniyé**. The vendor is a fulfillment partner.
 
 ## 10. Relationship Classes (Full Reference)
 
-Relationship Classes are configurable per workspace. The list below contains standard templates. Organizations may add custom classes at any time.
+Relationship Classes are configurable per workspace. Every class carries a **Relationship Type** and a numeric **Relationship Level** (ADR-002). The list below contains standard templates. Organizations may add custom classes at any time.
 
-### Standard Classes by Tier
+### Relationship Type
 
-**Internal — Employees:**
-| Class | Typical Use |
-|-------|------------|
-| Executive Leadership | C-suite, founders |
-| Senior Leadership | VPs, Directors |
-| Managers | People managers |
-| Employees | All remaining staff |
+The nature of the relationship. A closed canonical set of nine values — the only part of a class the platform reasons about categorically.
 
-**External — Clients:**
-| Class | Typical Use |
-|-------|------------|
-| VIP Clients | Highest-value, strategic accounts |
-| Strategic Clients | Growth-stage, high-potential accounts |
-| Standard Clients | Active customer base |
+| Type | Covers |
+|------|--------|
+| `Employee` | People employed by the organization |
+| `Client` | Organizations or individuals who buy from the organization |
+| `Partner` | Collaboration, channel, and referral relationships |
+| `Supplier` | Vendors and service providers |
+| `Board` | Board of directors and governance seats |
+| `Investor` | Shareholders, LPs, and funding partners |
+| `Government` | Regulatory contacts and public sector relationships |
+| `Community` | NGO, foundation, and civic relationships |
+| `Other` | Anything the set above does not cover |
 
-**Governance:**
-| Class | Typical Use |
-|-------|------------|
-| Board Members | Board of directors |
-| Investors | Active shareholders, LPs |
+### Relationship Level
 
-**Ecosystem:**
-| Class | Typical Use |
-|-------|------------|
-| Strategic Partners | Deep collaboration relationships |
-| Partners | Channel or referral partners |
-| Suppliers | Vendors and service providers |
-| Government | Regulatory contacts, public sector relationships |
-| Media | Press, journalists, content partnerships |
-| Community | NGO, foundation, civic relationships |
+Relative recognition priority **within a type**.
+
+- Integer, range **0–99**
+- **Level 0 is the highest** priority; higher numbers rank lower
+- No fixed number of levels — an organization defines as many rungs per type as its structure requires
+- Levels need not be dense. Gaps are meaningful and permitted: a single Partner class at level 1 with nothing at level 0 is valid
+- The canonical identifier is the number. The class **name** is a display label the organization may rename at any time without changing the class's position
+- No job title is encoded in the hierarchy. "Executive Leadership" is a name an organization chose, not a platform concept
+
+Level is comparable only within a type. `Employee` level 0 and `Client` level 0 are both "highest of their kind"; they are not equivalent to each other and the platform never compares them.
+
+### Standard Classes
+
+| Class | Type | Level | Typical Use |
+|-------|------|-------|-------------|
+| Executive Leadership | Employee | 0 | C-suite, founders |
+| Senior Leadership | Employee | 1 | VPs, Directors |
+| Managers | Employee | 2 | People managers |
+| Staff | Employee | 3 | All remaining employees |
+| VIP Clients | Client | 0 | Highest-value, strategic accounts |
+| Strategic Clients | Client | 1 | Growth-stage, high-potential accounts |
+| Standard Clients | Client | 2 | Active customer base |
+| Partners | Partner | 0 | Channel or referral partners |
+| Suppliers | Supplier | 0 | Vendors and service providers |
+| Board Members | Board | 0 | Board of directors |
+| Investors | Investor | 0 | Active shareholders, LPs |
+
+These are the levels a **newly created** workspace is seeded with. A workspace migrated from schema v1 derives its levels from the legacy tier mapping in ADR-002 and may differ — see the migration note there.
+
+**Display order:** by Type in the canonical order above, then by ascending Level, then by name.
 
 **Flexibility rules:**
 - Organizations can rename any standard class to match their internal language
-- Organizations can create additional classes beyond this list
+- Organizations can create additional classes beyond this list, including multiple levels under the same type
 - Classes can be archived (not deleted) to preserve historical records
 - A Person may belong to multiple classes (e.g., a client who is also an investor)
 
@@ -946,6 +967,20 @@ Draft → Preview → Approve → Publish
 - Large data migrations run as background jobs — never blocking deploys
 - Every migration is reversible or has a documented rollback procedure
 
+### Client Schema Versioning
+
+Until the backend exists, the workspace is persisted client-side and carries its own schema version. The same discipline applies as to database migrations, adapted to a store that cannot be migrated centrally — every browser holds a payload that may be any age, and the app must be able to read all of them.
+
+- `WorkspaceState.schemaVersion` is an integer stamped on every write. A payload with **no** version is by definition the pre-versioning H2.3 schema (v1)
+- Migrations form an **ordered chain**, one version to the next. The runner walks the chain and never skips a rung
+- Migrations are **idempotent** and never re-run: a payload already at the current version is returned untouched, with no write
+- Migrations are **pinned to the schema version they target**. A migration validates against the value set as it stood at that version, deliberately decoupled from the app's live enums, so that a later ADR extending an enum cannot retroactively change how historical data was migrated
+- A **backup** of the verbatim pre-migration payload is written before any destructive migration is persisted, keyed `aniye_workspace_backup_v<from>_<timestamp>`. No backup is taken on a normal read
+- Migration **fails safely**: a payload that cannot be read or that fails post-migration validation is never overwritten. It is quarantined so the next workspace creation cannot destroy it
+- A payload from a **newer** schema version than the running build is refused rather than downgraded
+
+Implementation: `lib/migrations.ts`. Validation: `npm run validate:migration`.
+
 ### Feature Flags
 - Named by domain: `identity.email_verification`, `engine.programs`, `integrations.bamboohr`
 - Boolean by default; percentage rollout available for gradual releases
@@ -1030,6 +1065,70 @@ These decisions were resolved before H2 implementation. Documented for audit tra
 | 4 | Relationship Profile versioning trigger | Program status changes (Active/Completed) + nightly background recalculation if Moments changed that day. Not per-Moment in real time. | §4 Relationship Profile |
 | 5 | Person deduplication authority | Configurable source priority per workspace. Default: HR integrations > CSV/Excel > Manual. Admin-locked fields never overwritten. Conflicts logged. | §12 Integration Layer |
 | ADR-001 | Recognition Policy promoted to first-class reusable object | Policies are standalone objects not owned by any class. Classes reference policies via Policy Assignments. Supports multinational orgs (country-scoped assignments) and cross-class reuse. `policySnapshot` at Program Approval makes programs immutable to policy changes. | §4 Recognition Policy, §4 Policy Assignment, §11 Recognition Policy Model |
+| ADR-002 | Relationship Class described by Relationship Type + numeric Relationship Level | The `RelationshipCategory` + `RelationshipTier` model is superseded. Type states the nature of the relationship (nine canonical values); Level states relative recognition priority within that type, as an organization-defined integer 0–99 where 0 is highest. Existing persisted workspaces are migrated by an explicit, versioned mapping. | §4 Relationship Class, §10 Relationship Classes, ADR-002 below |
+
+### ADR-002 — Relationship Type + Relationship Level
+
+**Status:** Accepted. Supersedes the Category/Tier model introduced in H2.2.
+
+**Context.** H2.2 described a Relationship Class with two string enums: `category` (Internal, Client, Governance, Partner, Supplier, Community, Other) and `tier` (Strategic, Priority, Standard, Custom). Three problems surfaced:
+
+1. **`tier` was a closed four-value scale.** An organization with five rungs of seniority could not express the fifth. The ceiling was arbitrary and structural.
+2. **`category` conflated distinct relationships.** `Governance` covered both board seats and shareholdings, and there was no way at all to express a government or regulatory relationship.
+3. **Tier names implied a fixed hierarchy.** "Strategic" and "Standard" read as platform-defined seniority, which invited job titles into what should be an organization-defined ordering.
+
+**Decision.**
+
+- A Relationship Class is described by two independent axes: **Relationship Type** and **Relationship Level**.
+- **Relationship Type** represents the *nature* of the relationship. Nine canonical values: `Employee`, `Client`, `Partner`, `Supplier`, `Board`, `Investor`, `Government`, `Community`, `Other`. This is the only part of a class the platform reasons about categorically.
+- **Relationship Level** represents *relative recognition priority within that type*. It is a numeric integer in the range 0–99.
+- **Level 0 is the highest** priority. Higher numbers rank lower.
+- **Levels are organization-defined.** There is no fixed maximum number of organizational levels, levels need not be dense, and gaps are meaningful rather than errors.
+- **The canonical identifier is numeric.** The class display name remains freely editable and carries no canonical meaning. No job title — CEO, Director, Staff — is encoded in the hierarchy.
+- Level is comparable only **within** a type. The platform never compares an `Employee` level against a `Client` level.
+
+**Consequence: existing persisted workspaces require migration.** Every H2.3 workspace in a browser carries the superseded fields. The migration is explicit and versioned — schema v1 → v2, implemented in `lib/migrations.ts` — not inferred at read time.
+
+**Migration mapping (schema v1 → v2).**
+
+*Category → Type (fallback):*
+
+| Legacy `category` | Relationship Type |
+|-------------------|-------------------|
+| Internal | `Employee` |
+| Client | `Client` |
+| Governance | `Board` |
+| Partner | `Partner` |
+| Supplier | `Supplier` |
+| Community | `Community` |
+| Other | `Other` |
+
+*Name rules (applied first, taking precedence over the category fallback):*
+
+| Legacy class name matches | Relationship Type |
+|---------------------------|-------------------|
+| `investor` / `investors` | `Investor` |
+| `government` / `public sector` | `Government` |
+| `board` / `boards` / `governance` | `Board` |
+
+These are word-boundary matches on a closed, explicit list — not fuzzy inference. They exist solely to recover the two types v1 had no way to express (`Investor`, `Government`) and to confirm `Board`. First match wins, so `Investor` is tested before `Board`. An unrecognized category falls back to `Other`; a class is never dropped for being unrecognizable.
+
+*Tier → Level (fallback):*
+
+| Legacy `tier` | Relationship Level |
+|---------------|--------------------|
+| Strategic | 0 |
+| Priority | 1 |
+| Standard | 2 |
+| Custom | 3 |
+
+A missing or unrecognized tier maps to level 3.
+
+*Preserved verbatim:* `id`, `name`, `description`, `isDefault`, `isActive`, `createdAt`, `updatedAt`, and every field of the workspace outside the class list — including all Recognition Policies. Custom classes are never deleted.
+
+*Dropped:* `category`, `tier` — superseded, and refused by post-migration validation if still present.
+
+**Known consequence of the mapping.** Legacy `tier` was a single four-value scale applied across every category; v2 level is a per-type ladder. The mapping is order-preserving but not gap-free, so a migrated workspace can have (say) a lone Partner class at level 1 with nothing at level 0. This is valid — level is a priority number, not a dense index — and differs from the clean 0-based ladder a newly created workspace is seeded with (§10). Organizations may renumber at any time.
 
 ---
 
@@ -1063,8 +1162,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v2.2 — Aniyé Africa — June 2026*
+*System Atlas v2.3 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v2.3: ADR-002 — Relationship Type + numeric Relationship Level supersedes Category/Tier; §10 rewritten; client schema versioning added to §15*
 *v2.2: ADR-001 — Recognition Policy promoted to first-class reusable object; Policy Assignment introduced as linking layer; multinational policy support via country-scoped assignments; §11 Relationship Policy Model fully rewritten*
 *v2.1: Resolved 5 pre-H2 open questions (currency default, individual auth, concierge handoff, profile versioning, deduplication authority)*
 *v2.0: 12 architectural decisions — domain boundaries, Money object, Progressive Trust, enterprise foundations*

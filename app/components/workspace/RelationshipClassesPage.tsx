@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { RelationshipClass, RelationshipCategory, RelationshipTier } from '@/lib/workspace';
+import type { RelationshipClass, RelationshipType } from '@/lib/workspace';
 import {
   getWorkspace,
   updateWorkspace,
+  clampRelationshipLevel,
+  nextLevelForType,
+  sortRelationshipClasses,
   DEFAULT_RELATIONSHIP_CLASSES,
+  RELATIONSHIP_LEVEL_MAX,
+  RELATIONSHIP_LEVEL_MIN,
+  RELATIONSHIP_TYPES,
 } from '@/lib/workspace';
-
-const CATEGORIES: RelationshipCategory[] = [
-  'Internal', 'Client', 'Governance', 'Partner', 'Supplier', 'Community', 'Other',
-];
-const TIERS: RelationshipTier[] = ['Strategic', 'Priority', 'Standard', 'Custom'];
 
 export default function RelationshipClassesPage() {
   const router = useRouter();
@@ -50,19 +51,21 @@ export default function RelationshipClassesPage() {
   }
 
   function addCustomClass() {
-    const newClass: RelationshipClass = {
-      id: `class-custom-${Date.now()}`,
-      name: '',
-      category: 'Other',
-      description: '',
-      tier: 'Standard',
-      isDefault: false,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
     setClasses(prev => {
-      const next = [...(prev ?? []), newClass];
+      const current = prev ?? [];
+      const now = new Date().toISOString();
+      const newClass: RelationshipClass = {
+        id: `class-custom-${Date.now()}`,
+        name: '',
+        type: 'Other',
+        level: nextLevelForType(current, 'Other'),
+        description: '',
+        isDefault: false,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const next = [...current, newClass];
       persist(next);
       return next;
     });
@@ -82,6 +85,13 @@ export default function RelationshipClassesPage() {
     updateWorkspace({ setupStage: 'policies', relationshipClasses: classes });
     router.push('/workspace');
   }
+
+  // Display order is canonical: by type, then ascending level. Storage order is
+  // left alone so rows do not shuffle underneath an edit in progress.
+  const ordered = useMemo(
+    () => (classes ? sortRelationshipClasses(classes) : []),
+    [classes],
+  );
 
   if (profileNotConfirmed) {
     return (
@@ -127,13 +137,31 @@ export default function RelationshipClassesPage() {
         </p>
       </div>
 
-      {/* Why classes matter */}
-      <div className="bg-cream rounded-2xl border border-stone/20 p-5">
+      {/* Type and Level explainer */}
+      <div className="bg-cream rounded-2xl border border-stone/20 p-5 space-y-3">
         <p className="font-body text-sm text-ink leading-relaxed">
-          Each class drives distinct Relationship Policies — budgets, approval flows, gift
+          Each class drives distinct Recognition Policies — budgets, approval flows, gift
           preferences, and delivery timelines. Classes represent how your organization
           differentiates people, not just how you categorize them.
         </p>
+        <div className="grid sm:grid-cols-2 gap-3 pt-1">
+          <div>
+            <p className="font-body text-xs font-semibold text-ink mb-0.5">Type</p>
+            <p className="font-body text-xs text-stone leading-snug">
+              The nature of the relationship — Employee, Client, Board, and so on.
+            </p>
+          </div>
+          <div>
+            <p className="font-body text-xs font-semibold text-ink mb-0.5">
+              Level &mdash; 0 is highest
+            </p>
+            <p className="font-body text-xs text-stone leading-snug">
+              Recognition priority within a type. Level 0 receives the highest recognition;
+              higher numbers rank lower. Use as many levels ({RELATIONSHIP_LEVEL_MIN}&ndash;
+              {RELATIONSHIP_LEVEL_MAX}) as your organization needs.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Class list */}
@@ -147,19 +175,19 @@ export default function RelationshipClassesPage() {
 
         <div className="bg-white rounded-2xl border border-stone/20 overflow-hidden">
           {/* Column headers — desktop only */}
-          <div className="hidden sm:grid sm:grid-cols-[1fr_9rem_9rem_3.5rem_2rem] gap-3 px-5 py-3 border-b border-stone/10">
+          <div className="hidden sm:grid sm:grid-cols-[1fr_9rem_5rem_3.5rem_2rem] gap-3 px-5 py-3 border-b border-stone/10">
             <span className="font-body text-xs text-stone uppercase tracking-wider">Name</span>
-            <span className="font-body text-xs text-stone uppercase tracking-wider">Category</span>
-            <span className="font-body text-xs text-stone uppercase tracking-wider">Tier</span>
+            <span className="font-body text-xs text-stone uppercase tracking-wider">Type</span>
+            <span className="font-body text-xs text-stone uppercase tracking-wider">Level</span>
             <span className="font-body text-xs text-stone uppercase tracking-wider text-center">Active</span>
             <span />
           </div>
 
-          {classes.map((cls, i) => (
+          {ordered.map((cls, i) => (
             <ClassRow
               key={cls.id}
               cls={cls}
-              isLast={i === classes.length - 1}
+              isLast={i === ordered.length - 1}
               onChange={(patch) => patchClass(cls.id, patch)}
               onRemove={() => removeCustomClass(cls.id)}
             />
@@ -175,6 +203,10 @@ export default function RelationshipClassesPage() {
           <span className="text-base leading-none font-medium">+</span>
           Add custom class
         </button>
+        <p className="font-body text-xs text-stone/60 mt-2">
+          A type can hold as many levels as you need — add several Employee classes at
+          levels 0, 1, 2 and up to build your own ladder.
+        </p>
       </div>
 
       {/* Policies note */}
@@ -184,7 +216,7 @@ export default function RelationshipClassesPage() {
           Policies, budgets, approvals, and gift preferences
         </p>
         <p className="font-body text-sm text-stone">
-          These will be configured per class in the Relationship Policies step.
+          These will be configured per class in the Recognition Policies step.
         </p>
       </div>
 
@@ -199,7 +231,7 @@ export default function RelationshipClassesPage() {
         </button>
       </div>
       <p className="font-body text-xs text-stone/60 -mt-4">
-        Confirming advances your workspace setup to Relationship Policies.
+        Confirming advances your workspace setup to Recognition Policies.
       </p>
 
     </div>
@@ -233,6 +265,7 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
             value={cls.name}
             onChange={(e) => onChange({ name: e.target.value })}
             placeholder="Class name"
+            aria-label="Class name"
             className={`flex-1 rounded-lg border border-stone/20 bg-white px-3 py-2 font-body text-sm text-ink placeholder:text-stone/40 focus:outline-none focus:ring-2 focus:ring-gold transition-shadow ${!cls.isActive ? 'opacity-50' : ''}`}
           />
           <Toggle active={cls.isActive} onToggle={() => onChange({ isActive: !cls.isActive })} />
@@ -240,6 +273,7 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
             <button
               type="button"
               onClick={onRemove}
+              aria-label={`Remove ${cls.name || 'class'}`}
               className="text-stone/40 hover:text-stone transition-colors text-xl leading-none flex-shrink-0 w-6 text-center"
             >
               &times;
@@ -248,47 +282,46 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
         </div>
         <div className="flex gap-2">
           <select
-            value={cls.category}
-            onChange={(e) => onChange({ category: e.target.value as RelationshipCategory })}
+            value={cls.type}
+            onChange={(e) => onChange({ type: e.target.value as RelationshipType })}
+            aria-label="Relationship type"
             className="flex-1 rounded-lg border border-stone/20 bg-white px-3 py-1.5 font-body text-xs text-stone focus:outline-none focus:ring-2 focus:ring-gold transition-shadow appearance-none"
           >
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select
-            value={cls.tier}
-            onChange={(e) => onChange({ tier: e.target.value as RelationshipTier })}
-            className="flex-1 rounded-lg border border-stone/20 bg-white px-3 py-1.5 font-body text-xs text-stone focus:outline-none focus:ring-2 focus:ring-gold transition-shadow appearance-none"
-          >
-            {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <LevelInput
+            level={cls.level}
+            onCommit={(level) => onChange({ level })}
+            className="w-24 rounded-lg border border-stone/20 bg-white px-3 py-1.5 font-body text-xs text-stone focus:outline-none focus:ring-2 focus:ring-gold transition-shadow"
+          />
         </div>
       </div>
 
       {/* Desktop layout: single row */}
       <div
-        className={`hidden sm:grid sm:grid-cols-[1fr_9rem_9rem_3.5rem_2rem] gap-3 items-center ${!cls.isActive ? 'opacity-50' : ''}`}
+        className={`hidden sm:grid sm:grid-cols-[1fr_9rem_5rem_3.5rem_2rem] gap-3 items-center ${!cls.isActive ? 'opacity-50' : ''}`}
       >
         <input
           type="text"
           value={cls.name}
           onChange={(e) => onChange({ name: e.target.value })}
           placeholder="Class name"
+          aria-label="Class name"
           className={ghostInput}
         />
         <select
-          value={cls.category}
-          onChange={(e) => onChange({ category: e.target.value as RelationshipCategory })}
+          value={cls.type}
+          onChange={(e) => onChange({ type: e.target.value as RelationshipType })}
+          aria-label="Relationship type"
           className={ghostSelect}
         >
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select
-          value={cls.tier}
-          onChange={(e) => onChange({ tier: e.target.value as RelationshipTier })}
+        <LevelInput
+          level={cls.level}
+          onCommit={(level) => onChange({ level })}
           className={ghostSelect}
-        >
-          {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+        />
         <div className="flex justify-center">
           <Toggle active={cls.isActive} onToggle={() => onChange({ isActive: !cls.isActive })} />
         </div>
@@ -297,6 +330,7 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
             <button
               type="button"
               onClick={onRemove}
+              aria-label={`Remove ${cls.name || 'class'}`}
               className="text-stone/30 hover:text-stone transition-colors text-xl leading-none"
             >
               &times;
@@ -306,6 +340,55 @@ function ClassRow({ cls, isLast, onChange, onRemove }: ClassRowProps) {
       </div>
 
     </div>
+  );
+}
+
+// ─── LevelInput ──────────────────────────────────────────────────────────────
+
+/**
+ * Level edits are held locally and committed on blur or Enter. Committing on
+ * every keystroke would re-sort the list mid-edit, since level is part of the
+ * display order.
+ */
+function LevelInput({
+  level,
+  onCommit,
+  className,
+}: {
+  level: number;
+  onCommit: (level: number) => void;
+  className: string;
+}) {
+  const [draft, setDraft] = useState(String(level));
+
+  useEffect(() => {
+    setDraft(String(level));
+  }, [level]);
+
+  function commit() {
+    const parsed = Number.parseInt(draft, 10);
+    const next = Number.isNaN(parsed) ? level : clampRelationshipLevel(parsed);
+    setDraft(String(next));
+    if (next !== level) onCommit(next);
+  }
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={RELATIONSHIP_LEVEL_MIN}
+      max={RELATIONSHIP_LEVEL_MAX}
+      step={1}
+      value={draft}
+      aria-label="Relationship level — 0 is highest"
+      title="0 is the highest recognition priority within this type"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+      }}
+      className={className}
+    />
   );
 }
 

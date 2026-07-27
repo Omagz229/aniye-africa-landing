@@ -2,7 +2,38 @@
 
 > Recovery audit performed 2026-07-27 after loss of the previous development machine.
 > This document records the surviving state of the repository, what is confirmed missing,
-> and the proposed reconstruction sequence. **No missing milestones are implemented here.**
+> and the reconstruction sequence.
+
+---
+
+## 0. Reconstruction Status
+
+| Step | Milestone | Status | Landed in |
+|------|-----------|--------|-----------|
+| 0 | Schema versioning foundation | ✅ **Reconstructed** | R1 |
+| 1 | **ADR-002** — Relationship Type + numeric Relationship Level | ✅ **Reconstructed** | R1 |
+| 2 | **H2.4** — Policy Assignments | ⛔ Blocked → now unblocked, see below | — |
+| 3 | H2.5 — People Sources and People | ⬜ Not started | — |
+| 4 | Relationship Operations Atlas | ⬜ Not started | — |
+| 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
+| 6 | H3.1 — Moment Engine | ⬜ Not started | — |
+| 7 | H3.2 — Execution Brief | ⬜ Not started | — |
+| 8 | H3.3 — Catalog Intelligence | ⬜ Not started | — |
+| 9 | H3.4 — Gift Intelligence | ⬜ Not started | — |
+| 10 | H3.5 — Vendor Intelligence | ⬜ Not started | — |
+
+### R1 — Schema versioning + ADR-002
+
+**Schema versioning foundation — reconstructed.**
+`WorkspaceState.schemaVersion` now exists and is stamped on every write. `lib/migrations.ts` holds an ordered, idempotent migration chain with post-migration structural validation, pre-migration backup, and safe-failure quarantine. All reads pass through it via `getWorkspace()`. Schema versions: **v1** (legacy H2.3, unversioned) → **v2** (ADR-002, current).
+
+**ADR-002 — reconstructed.**
+`RelationshipCategory` and `RelationshipTier` are removed from the canonical type. `RelationshipClass` now carries `type` (nine canonical Relationship Types) and `level` (integer 0–99, 0 highest). The legacy mapping is explicit, documented in code and in Atlas ADR-002, and covered by validation.
+
+**H2.4 gate — passed.**
+H2.4 was held until migration validation passed. `npm run validate:migration` reports **18/18 checks passing**, including all twelve required cases. Typecheck and build are green. The gate is satisfied; H2.4 is the next reconstruction milestone.
+
+**Not started in R1, per scope:** H2.4, H2.5, and every Horizon 3 milestone.
 
 ---
 
@@ -88,7 +119,7 @@ All confirmed absent from the repository — verified by file inspection, not as
 
 | # | Milestone | Evidence of Absence |
 |---|-----------|--------------------|
-| 1 | **ADR-002** — Relationship Type + numeric Relationship Level | Atlas §18 stops at ADR-001. `lib/workspace.ts` still uses the two-axis `RelationshipCategory` + string `RelationshipTier` model. |
+| 1 | ~~**ADR-002** — Relationship Type + numeric Relationship Level~~ | ~~Atlas §18 stops at ADR-001. `lib/workspace.ts` still uses the two-axis `RelationshipCategory` + string `RelationshipTier` model.~~ **✅ Reconstructed in R1.** |
 | 2 | **H2.4** — Policy Assignments | `PolicyAssignment` is specified in Atlas §4 and §11 but has **no TypeScript type, no route, no component**. `WorkspaceState` has no `policyAssignments` field. |
 | 3 | **H2.5** — People Sources and People | `Person` specified in Atlas §4, `PeopleSource` in Atlas §12. No types, no `/workspace/people` route. `SETUP_STAGES` marks `people` as `available: false`. |
 | 4 | **Relationship Operations Atlas** | No such file in `docs/`. Only `ANIYE_SYSTEM_ATLAS.md` exists. |
@@ -99,7 +130,7 @@ All confirmed absent from the repository — verified by file inspection, not as
 | 9 | **H3.4** — Gift Intelligence | `GIFT_CATEGORIES` exists as a flat string list only (`lib/workspace.ts:47`). No intent hierarchy, no recommendation logic. |
 | 10 | **H3.5** — Vendor Intelligence | No vendor types, routes, or logic. The `h3.5-vendor-intelligence` tag is a false marker (see §1). |
 
-**Nothing after H2.3 survived.**
+**Nothing after H2.3 survived.** Items 2–10 remain outstanding; item 1 was reconstructed in R1 (see §0).
 
 ---
 
@@ -141,9 +172,10 @@ No route exists for **Policy Assignments** (H2.4) — the setup checklist has no
 |---------------|------|-------|
 | `WorkspaceState` | 18 | Root persisted object; flattens Organization + Workspace + Organization Profile |
 | `SetupStage` | 1 | `profile \| classes \| policies \| people \| programs \| active` |
-| `RelationshipClass` | 6 | Two-axis model: `category` + `tier` |
-| `RelationshipCategory` | 3 | `Internal \| Client \| Governance \| Partner \| Supplier \| Community \| Other` |
-| `RelationshipTier` | 4 | `Strategic \| Priority \| Standard \| Custom` |
+| `RelationshipClass` | — | **R1:** two-axis model is now `type` + numeric `level` (ADR-002) |
+| ~~`RelationshipCategory`~~ | — | **R1:** removed. Superseded by `RelationshipType`; survives only as `LegacyRelationshipCategoryV1` in `lib/migrations.ts` |
+| ~~`RelationshipTier`~~ | — | **R1:** removed. Superseded by numeric `level`; survives only as `LegacyRelationshipTierV1` in `lib/migrations.ts` |
+| `RelationshipType` | — | **R1:** `Employee \| Client \| Partner \| Supplier \| Board \| Investor \| Government \| Community \| Other` |
 | `Money` | 40 | `{ amount, currency }` — face value, not minor units |
 | `RecognitionPolicy` | 87 | Full ADR-001 shape incl. `version`, `parentPolicyId` |
 | `RecognitionRule` | 76 | `momentType`, `budgetPerPerson`, `isEnabled` |
@@ -172,8 +204,10 @@ distinct object), `Relationship Profile` (§4), `Person` (§4), **`Policy Assign
 
 | Key | Written by | Shape |
 |-----|-----------|-------|
-| `aniye_workspace` | `lib/workspace.ts:166` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState` |
+| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, now carrying `schemaVersion` |
 | `aniye_assessment` | `app/components/assessment/AssessmentWizard.tsx:34` | Assessment answers (H1, pre-workspace) |
+| `aniye_workspace_backup_v<n>_<ts>` | **R1:** `lib/migrations.ts` | Verbatim pre-migration payload, written before a destructive migration only |
+| `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
 
 ### Storage model
 
@@ -188,12 +222,12 @@ distinct object), `Relationship Profile` (§4), `Person` (§4), **`Policy Assign
 
 | # | Gap | Impact on reconstruction |
 |---|-----|-------------------------|
-| S1 | **No `schemaVersion` field** on `WorkspaceState`. | Migrations cannot be ordered or made idempotent. Every future migration must re-run presence checks forever. |
-| S2 | **Migrations are ad-hoc presence checks** (`lib/workspace.ts:174-185`) — "if field missing, seed it." | Cannot express a *transform* migration, which ADR-002 requires (`category` + `tier` → `type` + numeric `level`). This is the blocking gap. |
+| S1 | ~~**No `schemaVersion` field** on `WorkspaceState`.~~ | **✅ Resolved in R1.** `schemaVersion` is stamped on every write; `createWorkspace()` is the single construction point. |
+| S2 | ~~**Migrations are ad-hoc presence checks** — "if field missing, seed it."~~ | **✅ Resolved in R1.** `lib/migrations.ts` provides an ordered, idempotent, validated migration chain with backup and safe failure. |
 | S3 | **Money stored as face value**, not smallest currency unit. Deviation is documented in-code at `lib/workspace.ts:37-39` but contradicts Atlas §4 Money. | Must be reconciled before any budget arithmetic in the Decision Engine (ADR-003). |
 | S4 | **No `workspaceId` on `RelationshipClass`**, though `RecognitionPolicy` has one and Atlas §4 requires it on both. | Inconsistent ownership model; breaks once multi-workspace arrives. |
 | S5 | `WorkspaceState` carries `organizationId` only — Organization, Workspace, and Organization Profile are collapsed into one flat record. Atlas §4 defines three distinct objects. | Acceptable for H2/H3 local-storage phase, but must be recorded as intentional debt. |
-| S6 | No collection for `policyAssignments`, `people`, `peopleSources`, `programs`, or `moments`. | Each missing milestone needs both a type and a `WorkspaceState` field plus migration. |
+| S6 | No collection for `policyAssignments`, `people`, `peopleSources`, `programs`, or `moments`. | Each missing milestone needs both a type and a `WorkspaceState` field plus migration. Adding one is now a routine schema bump (v2 → v3 …) rather than a bespoke presence check. |
 
 ---
 
@@ -204,20 +238,28 @@ They must be resolved deliberately during reconstruction, not silently overwritt
 
 | # | Conflict | Code | Atlas | Resolution |
 |---|----------|------|-------|-----------|
-| C1 | **Relationship Class taxonomy** — the central conflict. | `category` (7 values: Internal/Client/Governance/Partner/Supplier/Community/Other) **plus** `tier` (4 values: Strategic/Priority/Standard/Custom) | §4: single `tier` enum = Internal / External / Governance / Ecosystem | Neither is correct going forward. **ADR-002** (Relationship Type + numeric Relationship Level) supersedes both. |
-| C2 | **Class lifecycle fields** | `isDefault: boolean`, `isActive: boolean` | §4: `isCustom: boolean`, `status: Draft \| Active \| Archived` | Atlas is authoritative; `isActive` cannot express Draft, and Atlas §10 requires archive-not-delete. |
+| C1 | ~~**Relationship Class taxonomy** — the central conflict.~~ | ~~`category` + `tier`~~ | ~~§4: single `tier` enum~~ | **✅ Resolved in R1.** ADR-002 supersedes both. Code and Atlas §4/§10 now agree on `type` + numeric `level`. |
+| C2 | **Class lifecycle fields** — still open | `isDefault: boolean`, `isActive: boolean` | §4: `isCustom: boolean`, `status: Draft \| Active \| Archived` | Atlas is authoritative; `isActive` cannot express Draft, and Atlas §10 requires archive-not-delete. Deliberately **out of ADR-002 scope** — it is a lifecycle change, not a taxonomy one. Atlas §4 now carries an implementation note pointing here. |
 | C3 | **`memberCount` missing** | Not present on `RelationshipClass` | §4: `memberCount` computed from Person records | Deferred until H2.5 lands `Person`. |
 | C4 | **Policy lifecycle truncated** | `PolicyStatus = Draft \| Published \| Archived` | §4 and §11: `Draft → Preview → Approved → Published → Archived`, with approver ID + timestamp recorded at Approve | Code is missing two states and the approval audit fields. |
-| C5 | **Default class seed list incomplete** | 11 classes in `DEFAULT_RELATIONSHIP_CLASSES` | §10 lists 16 standard classes | Missing: Strategic Partners, Government, Media, Community. Also code names the class `Staff` where Atlas §10 says `Employees`. |
+| C5 | **Default class seed list incomplete** — still open | 11 classes in `DEFAULT_RELATIONSHIP_CLASSES` | §10 previously listed 16 standard classes | Out of ADR-002 scope. R1 aligned Atlas §10 to the 11 classes the code actually seeds, so the two no longer contradict each other; whether to seed more (Strategic Partners, Government, Media, Community) and whether `Staff` should be named `Employees` remain open product questions. |
 | C6 | **Money unit** | Face value (`500000` = NGN 500,000) | §4: smallest currency unit (kobo/cents) | Documented deviation. Must be settled before Decision Engine arithmetic. |
 | C7 | **No Policy Assignment layer** | Policies exist but nothing links a class to a policy | §11 canonical flow: Class → Policy Assignment → Policy → Program → Moment → Fulfillment | The chain is broken at its second link. Blocks all of H3. |
 | C8 | **Setup checklist has no assignments stage** | `SETUP_STAGES` = profile → classes → policies → people → programs | §11 flow requires assignment between policies and people | H2.4 must insert a stage. |
-| C9 | **Misleading git tag** | `h3.5-vendor-intelligence` → `b639349` (the H2.3 commit) | — | Delete or re-point the tag; do not treat it as milestone evidence. |
-| C10 | **No `typecheck` npm script** | `package.json` scripts: dev, build, start, lint | — | Add `"typecheck": "tsc --noEmit"`. |
+| C9 | **Misleading git tag** — still open | `h3.5-vendor-intelligence` → `b639349` (the H2.3 commit) | — | Delete or re-point the tag; do not treat it as milestone evidence. Left in place in R1 because deleting a pushed tag is a remote-history change worth doing deliberately. |
+| C10 | ~~**No `typecheck` npm script**~~ | — | — | **✅ Resolved in R1.** `typecheck` and `validate:migration` scripts added. |
 
 ---
 
 ## 9. Files Requiring Reconstruction
+
+> **R1 landed:** `lib/migrations.ts` (new), `lib/workspace.ts`, `app/components/workspace/RelationshipClassesPage.tsx`,
+> `app/components/verify/VerifyGate.tsx`, `scripts/validate-schema-migration.mts` (new), `package.json`,
+> `tsconfig.json`, `docs/ANIYE_SYSTEM_ATLAS.md`, `docs/RECOVERY_LEDGER.md`.
+> `SetupChecklist.tsx` and `WorkspaceSidebar.tsx` needed no change for ADR-002 — neither reads the
+> class taxonomy. The policy components (`PolicyForm`, `PolicyDetail`, `PolicyLibrary`) were likewise
+> untouched: their "category" references are *gift* categories, unrelated to Relationship Class.
+> The tables below list the remaining work.
 
 ### Will be modified
 
@@ -260,9 +302,9 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 
 | Order | Task | Depends on | Why this position |
 |-------|------|-----------|-------------------|
-| 0 | **Schema versioning foundation** — add `schemaVersion` to `WorkspaceState` and a real ordered migration runner. Add `typecheck` script. | — | Gap S1/S2. ADR-002 is a *transform* migration; the current presence-check pattern cannot express it. Doing this after ADR-002 means migrating twice. |
-| 1 | **ADR-002** — Relationship Type + numeric Relationship Level | 0 | Resolves C1 and C2. Changes the shape of `RelationshipClass`, which every downstream object references. Every later milestone reads classes; doing this first avoids reworking H2.4, H2.5, and H3.1 later. |
-| 2 | **H2.4** — Policy Assignments | 1 | Restores the broken link in the Atlas §11 canonical flow (C7). Needs the final class shape from ADR-002. Also resolves C8. |
+| 0 | ✅ **Schema versioning foundation** — `schemaVersion` on `WorkspaceState`, ordered migration runner, `typecheck` script. | — | Gap S1/S2. ADR-002 is a *transform* migration; the presence-check pattern could not express it. Doing this after ADR-002 would have meant migrating twice. **Landed in R1.** |
+| 1 | ✅ **ADR-002** — Relationship Type + numeric Relationship Level | 0 | Resolves C1. Changes the shape of `RelationshipClass`, which every downstream object references, so doing it first avoids reworking H2.4, H2.5, and H3.1. **Landed in R1.** |
+| 2 | ⬅️ **H2.4** — Policy Assignments — *next* | 1 | Restores the broken link in the Atlas §11 canonical flow (C7). Needed the final class shape from ADR-002, which now exists. Also resolves C8. |
 | 3 | **H2.5** — People Sources and People | 1, 2 | `Person.relationshipClassIds` needs the ADR-002 class shape. Unblocks `memberCount` (C3). Moments cannot exist without people. |
 | 4 | **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. Specification input for ADR-003. |
 | 5 | **ADR-003** — Decision Engine | 4 | Resolves "which policy applies to this person for this moment type in this country" — requires assignments, people, and scope precedence to all exist. Settle C6 (Money unit) here. |
@@ -272,20 +314,18 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 9 | **H3.4** — Gift Intelligence | 8 | Intent → Category → Collection → Item on top of the catalog. Replaces the flat `GIFT_CATEGORIES`. |
 | 10 | **H3.5** — Vendor Intelligence | 9 | Routes chosen gifts to vendors. Re-point the `h3.5-vendor-intelligence` tag (C9) once genuinely reached. |
 
-### Recommended first reconstruction task
+### Next reconstruction task
 
-**Step 0 + Step 1 together: schema versioning foundation, then ADR-002.**
+**Step 2 — H2.4, Policy Assignments.**
 
-Rationale: ADR-002 is not additive — it *replaces* the `category` + `tier` axes on
-`RelationshipClass` with Relationship Type + a numeric Relationship Level. That is a destructive
-transform on data already persisted under `aniye_workspace`. The current migration pattern
-(`lib/workspace.ts:174-185`) can only seed missing fields; it cannot transform existing ones, and
-with no `schemaVersion` it cannot tell a pre-ADR-002 workspace from a post-ADR-002 one. Landing the
-version field and migration runner first makes ADR-002 safe and makes every subsequent milestone's
-schema change routine.
+Steps 0 and 1 landed in R1. H2.4 was gated on migration validation passing; it does (18/18), so the
+gate is clear. H2.4 restores the second link in the Atlas §11 canonical flow
+(Class → **Policy Assignment** → Policy → Program → Moment), which is currently broken and blocks
+every Horizon 3 milestone. It needed the final Relationship Class shape, which ADR-002 now fixes.
 
-Everything downstream — Policy Assignments, People, the Decision Engine, the Moment Engine — reads
-the Relationship Class shape. Reconstructing them before ADR-002 guarantees rework.
+Expected shape of the work: a `PolicyAssignment` type and a `policyAssignments` collection on
+`WorkspaceState` (schema **v2 → v3**, a routine additive migration on the R1 foundation), an
+assignments stage in `SETUP_STAGES` (C8), and a `/workspace/assignments` route.
 
 ---
 
@@ -298,3 +338,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 
 *Recovery Ledger — Aniyé Africa — 27 July 2026*
 *Audit basis: commit `b639349`, System Atlas v2.2.*
+*Updated after R1 (schema versioning + ADR-002) — System Atlas v2.3.*

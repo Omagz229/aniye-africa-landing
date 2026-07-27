@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AssessmentData } from '@/lib/assessment';
 import { EMPTY_ASSESSMENT } from '@/lib/assessment';
-import type { WorkspaceState } from '@/lib/workspace';
-import { saveWorkspace, DEFAULT_RELATIONSHIP_CLASSES } from '@/lib/workspace';
+import { createWorkspace, saveWorkspace } from '@/lib/workspace';
 
 interface Props {
   encoded?: string;
@@ -32,24 +31,18 @@ export default function VerifyGate({ encoded }: Props) {
 
   function handleContinue() {
     setLoading(true);
-    const workspace: WorkspaceState = {
-      organizationId: crypto.randomUUID(),
+    // createWorkspace stamps the current schemaVersion — see lib/migrations.ts.
+    const workspace = createWorkspace({
       companyName: data.companyName,
       website: data.website,
       industry: data.industry,
       employeeCount: data.employeeCount,
       operatingCountries: parseCountries(data.operatingCountries),
-      baseCurrency: 'NGN',
-      timezone: 'Africa/Lagos',
       contactName: data.contactName,
       contactEmail: data.email,
       contactRole: data.role,
       phone: data.phone,
-      setupStage: 'profile',
-      createdAt: new Date().toISOString(),
-      relationshipClasses: DEFAULT_RELATIONSHIP_CLASSES.map(c => ({ ...c })),
-      recognitionPolicies: [],
-    };
+    });
     saveWorkspace(workspace);
     router.push('/workspace');
   }
