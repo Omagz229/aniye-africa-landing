@@ -17,6 +17,7 @@ import {
   sortRelationshipClasses,
   updateWorkspace,
 } from '@/lib/workspace';
+import type { ImportSummary } from '@/lib/people';
 import {
   memberCountsByClass,
   peopleWithInvalidClassReferences,
@@ -24,13 +25,20 @@ import {
 } from '@/lib/people';
 import PersonForm from './PersonForm';
 import PeopleImport from './PeopleImport';
+import SetupProgress from './SetupProgress';
 
-type Mode = 'list' | 'add' | 'edit' | 'import';
+type Mode = 'list' | 'choose' | 'add' | 'edit' | 'import';
+
+const SOURCE_LABELS: Record<PeopleSourceType, string> = {
+  Manual: 'Added by hand',
+  CSV: 'From a file',
+  HRIS: 'From your HR system',
+};
 
 const SOURCE_STYLES: Record<PeopleSourceType, string> = {
   Manual: 'bg-stone/10 text-stone',
-  CSV:    'bg-cream text-ink',
-  HRIS:   'bg-ink text-cream',
+  CSV: 'bg-cream text-ink',
+  HRIS: 'bg-ink text-cream',
 };
 
 export default function PeopleDirectory() {
@@ -39,17 +47,19 @@ export default function PeopleDirectory() {
   const [stepLocked, setStepLocked] = useState(false);
   const [mode, setMode] = useState<Mode>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{ headline: string; detail?: string } | null>(null);
+  const [pendingArchive, setPendingArchive] = useState<Person | null>(null);
 
-  // Filters
+  // Filters are an advanced tool — hidden until there are enough people for
+  // them to earn their place (Doctrine §1.2).
+  const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<RelationshipType | 'all'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [countryFilter, setCountryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<PersonStatus | 'all'>('Active');
 
-  // Confirmation
-  const [confirmWarning, setConfirmWarning] = useState<string | null>(null);
+  const [confirmWarning, setConfirmWarning] = useState<string[] | null>(null);
 
   useEffect(() => {
     const ws = getWorkspace();
@@ -73,35 +83,25 @@ export default function PeopleDirectory() {
 
   const countries = useMemo(() => {
     const set = new Set<string>();
-    for (const person of workspace?.people ?? []) {
-      if (person.country) set.add(person.country);
-    }
+    for (const person of workspace?.people ?? []) if (person.country) set.add(person.country);
     return [...set].sort();
   }, [workspace]);
 
   const filtered = useMemo(() => {
     const people = workspace?.people ?? [];
     const query = search.trim().toLowerCase();
-
     return people.filter(person => {
       if (statusFilter !== 'all' && person.status !== statusFilter) return false;
       if (countryFilter !== 'all' && person.country !== countryFilter) return false;
       if (classFilter !== 'all' && !person.relationshipClassIds.includes(classFilter)) return false;
-
       if (typeFilter !== 'all') {
-        const matchesType = person.relationshipClassIds.some(
-          id => classesById.get(id)?.type === typeFilter,
-        );
-        if (!matchesType) return false;
+        if (!person.relationshipClassIds.some(id => classesById.get(id)?.type === typeFilter)) return false;
       }
-
       if (query !== '') {
-        const haystack = [
-          personFullName(person), person.email ?? '', person.phone ?? '', person.role ?? '',
-        ].join(' ').toLowerCase();
+        const haystack = [personFullName(person), person.email ?? '', person.phone ?? '', person.role ?? '']
+          .join(' ').toLowerCase();
         if (!haystack.includes(query)) return false;
       }
-
       return true;
     });
   }, [workspace, search, typeFilter, classFilter, countryFilter, statusFilter, classesById]);
@@ -129,29 +129,37 @@ export default function PeopleDirectory() {
     });
   }
 
+  function coverageLine(ws: WorkspaceState): string {
+    const active = ws.people.filter(p => p.status === 'Active').length;
+    const unassigned = peopleWithoutClass(ws.people).length;
+    if (active === 0) return 'No one is in your directory yet.';
+    const ready = active - unassigned;
+    return unassigned === 0
+      ? `All ${active} ${active === 1 ? 'person is' : 'people are'} ready to be recognised.`
+      : `${ready} ${ready === 1 ? 'person is' : 'people are'} ready. ${unassigned} still ${unassigned === 1 ? 'needs a relationship group' : 'need a relationship group'}.`;
+  }
+
   function handleConfirm() {
     if (!workspace) return;
-
     const active = workspace.people.filter(p => p.status === 'Active');
     const unassigned = peopleWithoutClass(workspace.people);
     const invalidRefs = peopleWithInvalidClassReferences(workspace.people, workspace.relationshipClasses);
 
     const warnings: string[] = [];
     if (active.length === 0) {
-      warnings.push('There are no active people in this workspace. You can continue and add them later, but no recognition can be scheduled until someone is here.');
+      warnings.push('There\'s nobody in your directory yet. You can continue and add people later — but nothing can be recognised until someone is here.');
     }
     if (unassigned.length > 0) {
-      warnings.push(`${unassigned.length} active ${unassigned.length === 1 ? 'person has' : 'people have'} no Relationship Class, so no policy applies to them.`);
+      warnings.push(`${unassigned.length} ${unassigned.length === 1 ? 'person has' : 'people have'} no relationship group, so no policy reaches them yet.`);
     }
     if (invalidRefs.length > 0) {
-      warnings.push(`${invalidRefs.length} ${invalidRefs.length === 1 ? 'person references' : 'people reference'} a Relationship Class that is inactive or no longer exists. The references are preserved but will not resolve.`);
+      warnings.push(`${invalidRefs.length} ${invalidRefs.length === 1 ? 'person is' : 'people are'} linked to a group that's no longer in use. We keep the link for your records, but it won't apply a policy.`);
     }
 
     if (warnings.length > 0 && confirmWarning === null) {
-      setConfirmWarning(warnings.join(' '));
+      setConfirmWarning(warnings);
       return;
     }
-
     const updated = updateWorkspace({ setupStage: 'programs' });
     if (updated) router.push('/workspace');
   }
@@ -161,8 +169,8 @@ export default function PeopleDirectory() {
   if (stepLocked) {
     return (
       <BlockedState
-        heading="Complete the earlier steps first"
-        body="Confirm your Organization Profile, Relationship Classes, and Recognition Policies before adding people."
+        heading="A couple of steps to go first"
+        body="People slot into the relationship groups and policies you've set up. Finish those and this step will be waiting."
         href="/workspace"
         cta="Back to setup"
       />
@@ -177,11 +185,18 @@ export default function PeopleDirectory() {
       <PersonForm
         workspace={workspace}
         person={person}
-        onSaved={(ws) => {
+        onSaved={(ws, saved, wasNew) => {
           setWorkspace(ws);
           setMode('list');
           setEditingId(null);
-          setNotice(person ? 'Person updated.' : 'Person added.');
+          setOutcome({
+            headline: wasNew
+              ? `${saved.firstName} ${saved.lastName} is in your directory.`
+              : `${saved.firstName} ${saved.lastName} updated.`,
+            detail: saved.relationshipClassIds.length === 0
+              ? 'They don\'t have a relationship group yet, so no policy reaches them. Open their record to add one.'
+              : coverageLine(ws),
+          });
         }}
         onCancel={() => { setMode('list'); setEditingId(null); }}
       />
@@ -192,16 +207,74 @@ export default function PeopleDirectory() {
     return (
       <PeopleImport
         workspace={workspace}
-        onImported={(ws, summary) => { setWorkspace(ws); setMode('list'); setNotice(summary); }}
+        onImported={(ws, summary: ImportSummary) => {
+          setWorkspace(ws);
+          setOutcome({
+            headline:
+              summary.created > 0
+                ? `${summary.created} ${summary.created === 1 ? 'person' : 'people'} added${summary.updated > 0 ? `, ${summary.updated} updated` : ''}.`
+                : summary.updated > 0
+                  ? `${summary.updated} ${summary.updated === 1 ? 'record' : 'records'} updated.`
+                  : 'No changes were made.',
+            detail: coverageLine(ws),
+          });
+        }}
         onCancel={() => setMode('list')}
       />
+    );
+  }
+
+  if (mode === 'choose') {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <div>
+          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">People</p>
+          <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-2">
+            How would you like to add people?
+          </h2>
+          <p className="font-body text-stone">Either way, nothing is saved until you confirm.</p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <ChoiceCard
+            title="Import a list"
+            blurb="Best when you're setting up, or you already have a spreadsheet from HR. Add dozens or hundreds at once."
+            cta="Upload a file"
+            onClick={() => setMode('import')}
+            recommended={workspace.people.length === 0}
+          />
+          <ChoiceCard
+            title="Add one person"
+            blurb="Best for a new hire, a new client, or anyone you're adding on their own."
+            cta="Fill in their details"
+            onClick={() => setMode('add')}
+            recommended={workspace.people.length > 0}
+          />
+        </div>
+
+        <button type="button" onClick={() => setMode('list')}
+          className="font-body text-sm text-stone hover:text-ink transition-colors">
+          Back to People
+        </button>
+      </div>
     );
   }
 
   // ─── List ──────────────────────────────────────────────────────────────────
 
   const activeCount = workspace.people.filter(p => p.status === 'Active').length;
+  const archivedCount = workspace.people.length - activeCount;
   const unassignedCount = peopleWithoutClass(workspace.people).length;
+  const isEmpty = workspace.people.length === 0;
+
+  // One recommended next action, chosen from state (Doctrine §1.1, §1.3).
+  const readyToConfirm = workspace.setupStage === 'people' && activeCount > 0;
+  const primary = isEmpty
+    ? { label: 'Add your first person', onClick: () => setMode('choose') }
+    : readyToConfirm
+      ? { label: 'Confirm people', onClick: handleConfirm }
+      : { label: 'Add people', onClick: () => setMode('choose') };
+
   const hasFilters =
     search.trim() !== '' || typeFilter !== 'all' || classFilter !== 'all' ||
     countryFilter !== 'all' || statusFilter !== 'Active';
@@ -212,146 +285,162 @@ export default function PeopleDirectory() {
   return (
     <div className="space-y-8">
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">People</p>
-          <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-1">
-            Who you recognize
-          </h2>
-          <p className="font-body text-stone">
-            The employees, clients, and partners your policies apply to.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => setMode('import')}
-            className="rounded-full border border-stone/25 font-body text-sm font-semibold text-ink px-5 py-2.5 hover:bg-white transition-colors"
-          >
-            Import CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('add')}
-            className="rounded-full bg-gold text-ink font-semibold text-sm px-5 py-2.5 hover:brightness-105 hover:shadow-md transition-all"
-          >
-            + Add person
-          </button>
-        </div>
+      <div>
+        <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">People</p>
+        <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-1">
+          Who you recognise
+        </h2>
+        <p className="font-body text-stone">
+          {isEmpty
+            ? 'The employees, clients and partners your recognition policies apply to.'
+            : coverageLine(workspace)}
+        </p>
       </div>
 
-      {notice && (
-        <div className="flex items-center justify-between gap-4 bg-gold/15 rounded-xl px-4 py-3">
-          <p className="font-body text-sm text-ink">{notice}</p>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            aria-label="Dismiss"
-            className="text-stone/50 hover:text-ink transition-colors text-lg leading-none flex-shrink-0"
-          >
+      {/* Success feedback — what happened, and what to do next */}
+      {outcome && (
+        <div className="bg-white rounded-2xl border border-stone/20 p-5 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="font-body text-sm font-semibold text-ink mb-0.5">{outcome.headline}</p>
+            {outcome.detail && <p className="font-body text-sm text-stone">{outcome.detail}</p>}
+          </div>
+          <button type="button" onClick={() => setOutcome(null)} aria-label="Dismiss"
+            className="text-stone/40 hover:text-ink transition-colors text-lg leading-none flex-shrink-0">
             &times;
           </button>
         </div>
       )}
 
-      {workspace.people.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-stone/30 py-16 px-6 text-center">
-          <p className="font-body text-ink font-semibold mb-1">No people yet</p>
-          <p className="font-body text-sm text-stone mb-6 max-w-md mx-auto">
-            Add people one at a time, or import a CSV. Each person can belong to one or more
-            Relationship Classes, which is how policies reach them.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMode('import')}
-              className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
-            >
-              Import a CSV &#8594;
+      {/* Primary action, always first and always alone in its weight class */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+        <button type="button" onClick={primary.onClick}
+          className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
+          {primary.label} &#8594;
+        </button>
+        {isEmpty ? (
+          <button type="button" onClick={() => setMode('import')}
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors">
+            Or import a list
+          </button>
+        ) : readyToConfirm ? (
+          <button type="button" onClick={() => setMode('choose')}
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors">
+            Add more people
+          </button>
+        ) : (
+          <button type="button" onClick={() => setMode('import')}
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors">
+            Or import a list
+          </button>
+        )}
+      </div>
+
+      {/* Confirmation warnings — shown once, then the user may proceed */}
+      {confirmWarning && (
+        <div className="bg-white rounded-2xl border border-stone/20 p-5 space-y-2">
+          <p className="font-body text-sm font-semibold text-ink">Worth knowing before you continue</p>
+          <ul className="space-y-1.5">
+            {confirmWarning.map((warning, i) => (
+              <li key={i} className="font-body text-sm text-stone flex items-start gap-2.5">
+                <span aria-hidden className="text-stone/40">&bull;</span>
+                <span>{warning}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-4 pt-1">
+            <button type="button" onClick={handleConfirm}
+              className="rounded-full bg-gold text-ink font-semibold text-sm px-5 py-2.5 hover:brightness-105 transition-all">
+              Continue anyway &#8594;
             </button>
-            <button
-              type="button"
-              onClick={() => setMode('add')}
-              className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors"
-            >
-              Add someone manually
+            <button type="button" onClick={() => setConfirmWarning(null)}
+              className="font-body text-sm text-stone hover:text-ink transition-colors">
+              Let me fix that first
             </button>
           </div>
         </div>
+      )}
+
+      {isEmpty ? (
+        <div className="bg-cream rounded-2xl border border-stone/20 p-6">
+          <p className="font-body text-sm font-semibold text-ink mb-1">
+            Adding people is the last piece of setup
+          </p>
+          <p className="font-body text-sm text-stone">
+            Each person joins one or more of the relationship groups you defined. That&apos;s what
+            connects them to a recognition policy — so Aniyé knows what to do, for whom, and when.
+          </p>
+        </div>
       ) : (
         <>
-          {/* Stats */}
-          <div className="flex flex-wrap gap-6">
-            <div>
-              <p className="font-display font-bold text-2xl text-ink">{activeCount}</p>
-              <p className="font-body text-xs text-stone">Active</p>
-            </div>
-            {workspace.people.length - activeCount > 0 && (
-              <div>
-                <p className="font-display font-bold text-2xl text-ink">{workspace.people.length - activeCount}</p>
-                <p className="font-body text-xs text-stone">Archived</p>
-              </div>
-            )}
-            {unassignedCount > 0 && (
-              <div>
-                <p className="font-display font-bold text-2xl text-ink">{unassignedCount}</p>
-                <p className="font-body text-xs text-stone">Unassigned</p>
-              </div>
-            )}
-          </div>
+          {/* Filters — disclosed, not permanent furniture */}
+          {workspace.people.length > 6 && (
+            <div className="space-y-3">
+              <button type="button" onClick={() => setShowFilters(v => !v)} aria-expanded={showFilters}
+                className="font-body text-sm text-stone hover:text-ink transition-colors">
+                {showFilters ? 'Hide' : 'Find someone'} {hasFilters && !showFilters && '· filters on'}
+              </button>
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2">
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, email, role"
-              aria-label="Search people"
-              className="flex-1 min-w-[12rem] rounded-lg border border-stone/20 bg-white px-3 py-2 font-body text-xs text-ink placeholder:text-stone/40 focus:outline-none focus:ring-2 focus:ring-gold transition-shadow"
-            />
-            <select value={typeFilter} aria-label="Filter by Relationship Type" className={selectClass}
-              onChange={(e) => setTypeFilter(e.target.value as RelationshipType | 'all')}>
-              <option value="all">All types</option>
-              {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select value={classFilter} aria-label="Filter by Relationship Class" className={selectClass}
-              onChange={(e) => setClassFilter(e.target.value)}>
-              <option value="all">All classes</option>
-              {sortedClasses.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name || 'Untitled'} · L{c.level}{!c.isActive ? ' (inactive)' : ''}
-                </option>
-              ))}
-            </select>
-            <select value={countryFilter} aria-label="Filter by country" className={selectClass}
-              onChange={(e) => setCountryFilter(e.target.value)}>
-              <option value="all">All countries</option>
-              {countries.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={statusFilter} aria-label="Filter by status" className={selectClass}
-              onChange={(e) => setStatusFilter(e.target.value as PersonStatus | 'all')}>
-              <option value="Active">Active</option>
-              <option value="Archived">Archived</option>
-              <option value="all">All statuses</option>
-            </select>
-            {hasFilters && (
-              <button
-                type="button"
+              {showFilters && (
+                <div className="flex flex-wrap gap-2">
+                  <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search name, email or role" aria-label="Search people"
+                    className="flex-1 min-w-[12rem] rounded-lg border border-stone/20 bg-white px-3 py-2 font-body text-xs text-ink placeholder:text-stone/40 focus:outline-none focus:ring-2 focus:ring-gold transition-shadow" />
+                  <select value={typeFilter} aria-label="Filter by relationship type" className={selectClass}
+                    onChange={(e) => setTypeFilter(e.target.value as RelationshipType | 'all')}>
+                    <option value="all">Any relationship</option>
+                    {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select value={classFilter} aria-label="Filter by relationship group" className={selectClass}
+                    onChange={(e) => setClassFilter(e.target.value)}>
+                    <option value="all">Any group</option>
+                    {sortedClasses.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name || 'Untitled'} · Level {c.level}{!c.isActive ? ' (not in use)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {countries.length > 0 && (
+                    <select value={countryFilter} aria-label="Filter by country" className={selectClass}
+                      onChange={(e) => setCountryFilter(e.target.value)}>
+                      <option value="all">Any country</option>
+                      {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  )}
+                  <select value={statusFilter} aria-label="Filter by status" className={selectClass}
+                    onChange={(e) => setStatusFilter(e.target.value as PersonStatus | 'all')}>
+                    <option value="Active">Current people</option>
+                    <option value="Archived">Archived</option>
+                    <option value="all">Everyone</option>
+                  </select>
+                  {hasFilters && (
+                    <button type="button"
+                      onClick={() => {
+                        setSearch(''); setTypeFilter('all'); setClassFilter('all');
+                        setCountryFilter('all'); setStatusFilter('Active');
+                      }}
+                      className="font-body text-xs text-stone hover:text-ink transition-colors px-2">
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {filtered.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-stone/20 py-12 px-6 text-center">
+              <p className="font-body text-sm text-ink mb-1">Nobody matches that</p>
+              <p className="font-body text-sm text-stone mb-4">
+                Try a different search, or clear what you&apos;ve set.
+              </p>
+              <button type="button"
                 onClick={() => {
                   setSearch(''); setTypeFilter('all'); setClassFilter('all');
                   setCountryFilter('all'); setStatusFilter('Active');
                 }}
-                className="font-body text-xs text-stone hover:text-ink transition-colors px-2"
-              >
+                className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors">
                 Clear filters
               </button>
-            )}
-          </div>
-
-          {filtered.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-stone/20 py-12 text-center">
-              <p className="font-body text-sm text-stone">No people match these filters.</p>
             </div>
           ) : (
             <>
@@ -361,34 +450,36 @@ export default function PeopleDirectory() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-stone/10">
-                        <Th>Name</Th><Th>Role</Th><Th>Contact</Th><Th>Country</Th>
-                        <Th>Classes</Th><Th>Source</Th><Th>Status</Th><Th className="text-right">Actions</Th>
+                        <Th>Name</Th><Th>Role</Th><Th>Contact</Th>
+                        <Th>Relationship groups</Th><Th>Added</Th><Th className="text-right">Actions</Th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.map(person => (
-                        <tr
-                          key={person.id}
-                          className={`border-b border-stone/5 last:border-0 ${person.status === 'Archived' ? 'opacity-55' : ''}`}
-                        >
-                          <Td className="text-ink font-medium">{personFullName(person)}</Td>
+                        <tr key={person.id}
+                          className={`border-b border-stone/5 last:border-0 ${person.status === 'Archived' ? 'opacity-55' : ''}`}>
+                          <Td className="text-ink font-medium">
+                            {personFullName(person)}
+                            {person.status === 'Archived' && (
+                              <span className="font-body text-xs text-stone/60 ml-2">Archived</span>
+                            )}
+                          </Td>
                           <Td className="text-stone">{person.role || '—'}</Td>
-                          <Td className="text-stone">{person.email || person.phone || '—'}</Td>
-                          <Td className="text-stone">{person.country || '—'}</Td>
+                          <Td className="text-stone">
+                            {person.email || person.phone || '—'}
+                            {person.country && <span className="text-stone/50"> · {person.country}</span>}
+                          </Td>
                           <Td><ClassBadges person={person} classesById={classesById} /></Td>
                           <Td>
-                            <span className={`font-body text-xs rounded-full px-2 py-0.5 ${SOURCE_STYLES[person.sourceType]}`}>
-                              {person.sourceType}
+                            <span className={`font-body text-xs rounded-full px-2 py-0.5 whitespace-nowrap ${SOURCE_STYLES[person.sourceType]}`}>
+                              {SOURCE_LABELS[person.sourceType]}
                             </span>
                           </Td>
-                          <Td className="text-stone">{person.status}</Td>
                           <Td className="text-right whitespace-nowrap">
-                            <RowActions
-                              person={person}
+                            <RowActions person={person}
                               onEdit={() => { setEditingId(person.id); setMode('edit'); }}
-                              onArchive={() => setPersonStatus(person.id, 'Archived')}
-                              onRestore={() => setPersonStatus(person.id, 'Active')}
-                            />
+                              onArchive={() => setPendingArchive(person)}
+                              onRestore={() => setPersonStatus(person.id, 'Active')} />
                           </Td>
                         </tr>
                       ))}
@@ -400,10 +491,8 @@ export default function PeopleDirectory() {
               {/* Mobile cards */}
               <div className="lg:hidden space-y-3">
                 {filtered.map(person => (
-                  <div
-                    key={person.id}
-                    className={`bg-white rounded-2xl border border-stone/20 p-4 space-y-2.5 ${person.status === 'Archived' ? 'opacity-55' : ''}`}
-                  >
+                  <div key={person.id}
+                    className={`bg-white rounded-2xl border border-stone/20 p-4 space-y-2.5 ${person.status === 'Archived' ? 'opacity-55' : ''}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-body text-sm font-semibold text-ink truncate">
@@ -412,27 +501,24 @@ export default function PeopleDirectory() {
                         {person.role && <p className="font-body text-xs text-stone">{person.role}</p>}
                       </div>
                       <span className={`font-body text-xs rounded-full px-2 py-0.5 flex-shrink-0 ${SOURCE_STYLES[person.sourceType]}`}>
-                        {person.sourceType}
+                        {SOURCE_LABELS[person.sourceType]}
                       </span>
                     </div>
-
                     {(person.email || person.phone) && (
                       <p className="font-body text-xs text-stone break-words">
                         {person.email || person.phone}
                         {person.country ? ` · ${person.country}` : ''}
                       </p>
                     )}
-
                     <ClassBadges person={person} classesById={classesById} />
-
-                    <div className="flex items-center justify-between gap-3 pt-1 border-t border-stone/10">
-                      <span className="font-body text-xs text-stone/60">{person.status}</span>
-                      <RowActions
-                        person={person}
+                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-stone/10">
+                      <span className="font-body text-xs text-stone/60">
+                        {person.status === 'Archived' ? 'Archived' : 'Current'}
+                      </span>
+                      <RowActions person={person}
                         onEdit={() => { setEditingId(person.id); setMode('edit'); }}
-                        onArchive={() => setPersonStatus(person.id, 'Archived')}
-                        onRestore={() => setPersonStatus(person.id, 'Active')}
-                      />
+                        onArchive={() => setPendingArchive(person)}
+                        onRestore={() => setPersonStatus(person.id, 'Active')} />
                     </div>
                   </div>
                 ))}
@@ -440,73 +526,88 @@ export default function PeopleDirectory() {
             </>
           )}
 
-          {/* Class coverage */}
+          {/* Coverage — derived, and framed as reassurance rather than a report */}
           <div className="bg-white rounded-2xl border border-stone/20 p-5">
-            <p className="font-body text-xs text-stone uppercase tracking-widest mb-3">Coverage by class</p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5">
+            <p className="font-body text-sm font-semibold text-ink mb-3">Who&apos;s covered</p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
               {sortedClasses.filter(c => c.isActive).map(cls => {
                 const counts = memberCounts.get(cls.id);
+                const active = counts?.active ?? 0;
                 return (
                   <div key={cls.id} className="flex items-baseline justify-between gap-3">
                     <span className="font-body text-sm text-ink truncate">
                       {cls.name || 'Untitled'}{' '}
-                      <span className="text-stone/50 text-xs">L{cls.level}</span>
+                      <span className="text-stone/50 text-xs">Level {cls.level}</span>
                     </span>
-                    <span className="font-body text-xs text-stone flex-shrink-0">
-                      {counts?.active ?? 0}
-                      {counts && counts.total !== counts.active && (
-                        <span className="text-stone/50"> of {counts.total}</span>
-                      )}
+                    <span className={`font-body text-xs flex-shrink-0 ${active === 0 ? 'text-stone/45' : 'text-stone'}`}>
+                      {active === 0 ? 'nobody yet' : `${active} ${active === 1 ? 'person' : 'people'}`}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <p className="font-body text-xs text-stone/60 mt-3">
-              Counts are derived from Person records, never stored on the class.
-            </p>
+            {archivedCount > 0 && (
+              <p className="font-body text-xs text-stone/60 mt-3">
+                {archivedCount} archived {archivedCount === 1 ? 'person is' : 'people are'} kept for
+                your records and not counted here.
+              </p>
+            )}
           </div>
         </>
       )}
 
-      {/* Confirm */}
-      <div className="space-y-3 pt-2">
-        {confirmWarning && (
-          <div className="bg-white rounded-2xl border border-stone/20 p-5">
-            <p className="font-body text-sm font-semibold text-ink mb-1">Before you continue</p>
-            <p className="font-body text-sm text-stone mb-2">{confirmWarning}</p>
-            <p className="font-body text-xs text-stone/60">Confirm again to continue.</p>
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={handleConfirm}
-          className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
-        >
-          {confirmWarning ? 'Confirm anyway →' : 'Confirm people →'}
-        </button>
-        <p className="font-body text-xs text-stone/60">
-          {activeCount} active {activeCount === 1 ? 'person' : 'people'}
-          {unassignedCount > 0 ? `, ${unassignedCount} without a class` : ''}. Confirming completes
-          workspace configuration.
-        </p>
-      </div>
+      <SetupProgress workspace={workspace} />
 
+      {/* Archive confirmation — destructive-ish actions are never one click */}
+      {pendingArchive && (
+        <ConfirmDialog
+          title={`Archive ${personFullName(pendingArchive)}?`}
+          body="They'll be kept in your records with all their details and group links, but won't be included in any recognition. You can restore them at any time."
+          confirmLabel="Archive"
+          onConfirm={() => { setPersonStatus(pendingArchive.id, 'Archived'); setPendingArchive(null); }}
+          onCancel={() => setPendingArchive(null)}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Pieces ──────────────────────────────────────────────────────────────────
 
+function ChoiceCard({
+  title, blurb, cta, onClick, recommended,
+}: {
+  title: string; blurb: string; cta: string; onClick: () => void; recommended?: boolean;
+}) {
+  return (
+    <button type="button" onClick={onClick}
+      className={`text-left rounded-2xl border p-5 transition-all hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 ${
+        recommended ? 'border-gold bg-white' : 'border-stone/20 bg-white hover:border-stone/35'
+      }`}>
+      {recommended && (
+        <span className="inline-block font-body text-xs text-ink bg-gold/20 rounded-full px-2.5 py-0.5 mb-2">
+          Recommended
+        </span>
+      )}
+      <p className="font-display font-semibold text-lg text-ink mb-1">{title}</p>
+      <p className="font-body text-sm text-stone mb-3 leading-relaxed">{blurb}</p>
+      <span className="font-body text-sm font-semibold text-ink">{cta} &#8594;</span>
+    </button>
+  );
+}
+
 function ClassBadges({
-  person,
-  classesById,
+  person, classesById,
 }: {
   person: Person;
   classesById: Map<string, { name: string; level: number; isActive: boolean }>;
 }) {
   if (person.relationshipClassIds.length === 0) {
-    return <span className="font-body text-xs text-stone/50 italic">Unassigned</span>;
+    return (
+      <span className="font-body text-xs text-stone/60">
+        No group yet
+      </span>
+    );
   }
   return (
     <div className="flex flex-wrap gap-1">
@@ -514,22 +615,19 @@ function ClassBadges({
         const cls = classesById.get(id);
         if (!cls) {
           return (
-            <span key={id} title="This class no longer exists"
-              className="font-body text-xs rounded-full px-2 py-0.5 bg-stone/10 text-stone/60 line-through">
-              {id}
+            <span key={id} title="This group has been deleted"
+              className="font-body text-xs rounded-full px-2 py-0.5 bg-stone/10 text-stone/60">
+              Deleted group
             </span>
           );
         }
         return (
-          <span
-            key={id}
-            title={cls.isActive ? undefined : 'This class is inactive'}
+          <span key={id} title={cls.isActive ? undefined : 'This group is no longer in use'}
             className={`font-body text-xs rounded-full px-2 py-0.5 ${
               cls.isActive ? 'bg-cream text-ink' : 'bg-stone/10 text-stone/60'
-            }`}
-          >
+            }`}>
             {cls.name || 'Untitled'} · L{cls.level}
-            {!cls.isActive && ' (inactive)'}
+            {!cls.isActive && ' (not in use)'}
           </span>
         );
       })}
@@ -543,7 +641,7 @@ function RowActions({
   person: Person; onEdit: () => void; onArchive: () => void; onRestore: () => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-3">
+    <div className="inline-flex items-center gap-4">
       <button type="button" onClick={onEdit}
         className="font-body text-xs font-semibold text-ink hover:text-gold transition-colors">
         Edit
@@ -559,6 +657,32 @@ function RowActions({
           Restore
         </button>
       )}
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  title, body, confirmLabel, onConfirm, onCancel,
+}: {
+  title: string; body: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 bg-ink/40"
+      role="dialog" aria-modal="true" aria-label={title}>
+      <div className="bg-white rounded-2xl border border-stone/20 p-6 max-w-md w-full shadow-lg space-y-3">
+        <p className="font-display font-semibold text-lg text-ink">{title}</p>
+        <p className="font-body text-sm text-stone leading-relaxed">{body}</p>
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button type="button" onClick={onConfirm}
+            className="rounded-full bg-gold text-ink font-semibold text-sm px-5 py-2.5 hover:brightness-105 transition-all">
+            {confirmLabel}
+          </button>
+          <button type="button" onClick={onCancel}
+            className="font-body text-sm text-stone hover:text-ink transition-colors">
+            Keep them active
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -587,10 +711,8 @@ function BlockedState({
         <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-2">{heading}</h2>
         <p className="font-body text-stone">{body}</p>
       </div>
-      <Link
-        href={href}
-        className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
-      >
+      <Link href={href}
+        className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all">
         {cta} &#8594;
       </Link>
     </div>

@@ -3,6 +3,11 @@
 > **Master architectural map for the Aniyé platform.**
 > Before adding any major feature, consult this document.
 > Every feature must answer the five questions in §19 before implementation begins.
+>
+> **Companion standard:** [`ANIYE_EXPERIENCE_DOCTRINE.md`](ANIYE_EXPERIENCE_DOCTRINE.md) governs how the
+> platform *feels*, where this document governs what it *is*. It is a permanent product and
+> interaction standard, not an ADR — every user-facing milestone is measured against its Definition
+> of Experiential Completion before being called done.
 
 ---
 
@@ -1340,6 +1345,7 @@ Before implementing any feature, answer all five questions. If any answer is unc
    H1 through H5. Features in a later horizon must not block or entangle features in an earlier one.
 
 5. **Does it improve execution, learning, trust, or customer value?**
+   *(For anything user-facing, also walk the Definition of Experiential Completion in [`ANIYE_EXPERIENCE_DOCTRINE.md`](ANIYE_EXPERIENCE_DOCTRINE.md) §2 before calling it done.)*
    - **Execution** — makes it faster or easier to recognize people
    - **Learning** — generates better data, insights, or memory over time
    - **Trust** — increases reliability, auditability, or compliance confidence

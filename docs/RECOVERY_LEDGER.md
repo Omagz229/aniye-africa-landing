@@ -3,6 +3,11 @@
 > Recovery audit performed 2026-07-27 after loss of the previous development machine.
 > This document records the surviving state of the repository, what is confirmed missing,
 > and the reconstruction sequence.
+>
+> **Standards that govern reconstruction:** [`ANIYE_SYSTEM_ATLAS.md`](ANIYE_SYSTEM_ATLAS.md) for what
+> the platform is; [`ANIYE_EXPERIENCE_DOCTRINE.md`](ANIYE_EXPERIENCE_DOCTRINE.md) for how it feels.
+> Every user-facing milestone from H2.5 onward must satisfy the Doctrine's Definition of
+> Experiential Completion before it is called done.
 
 ---
 
@@ -14,7 +19,8 @@
 | 1 | **ADR-002** — Relationship Type + numeric Relationship Level | ✅ **Reconstructed** | R1 |
 | 2 | **H2.4** — Policy Assignments | ✅ **Reconstructed** | R2 |
 | 3 | **H2.5** — People Sources and People | ✅ **Reconstructed** | R3 |
-| — | **Architecture-correction checkpoint** | ⬅️ **Next — required before Operations** | — |
+| — | **Aniyé Experience Audit** | ⬅️ **Next — required before Programs or Operations** | — |
+| — | **Architecture-correction checkpoint** | ⛔ Required before Operations | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
@@ -75,6 +81,51 @@ The workspace could describe *how* it recognizes people — classes, policies, a
 **Deliberately not addressed** (out of H2.5 scope, per instruction): C2, C4, C5, and C6. See the conflicts table.
 
 **Not started in R3, per scope:** Programs, Operations, and every Horizon 3 milestone.
+
+### R3a — Experience Doctrine integration
+
+[`ANIYE_EXPERIENCE_DOCTRINE.md`](ANIYE_EXPERIENCE_DOCTRINE.md) was introduced after R3 shipped and applied back over the People experience. **No architectural or functional scope changed** — `lib/people.ts`, `lib/csv.ts`, `lib/migrations.ts`, and `lib/workspace.ts` are untouched, and all 68 validation checks still pass. The change is entirely presentation, flow, and language.
+
+Applied to People:
+
+- **One recommended action per state** — "Add your first person" when empty, "Confirm people" when the state is ready, "Add people" otherwise. CSV import is always a visible secondary.
+- **Guided choice** on "Add people" — import a list vs. add one person, each explained by use case, with a recommendation that flips on whether the directory is empty.
+- **Add Person is now a four-step flow** — Who they are → Where they fit → Dates that matter → Review. Required fields are unmarked and prominent; optional ones carry an explicit tag; phone sits behind progressive disclosure.
+- **Class selection speaks human** — "relationship type", "recognition level", "Level 0 is the highest recognition priority". Category and Tier language does not appear anywhere in the interface.
+- **CSV import is a five-step sequence** — Upload → Check the columns → Review → Confirm → Done, with rows grouped by *what the operator must do about them* rather than by internal state name.
+- **Autosave with resume** — an unfinished new person is drafted to `aniye_person_draft` and offered back on return. Nothing reaches `workspace.people` until the final step. Edits are never autosaved.
+- **Archiving now requires confirmation**, and setup progress is shown as named milestones.
+
+New components: `StepHeader.tsx`, `SetupProgress.tsx`. New localStorage key: `aniye_person_draft` (draft only, never workspace data, cleared on save or cancel).
+
+### ⚠️ Gate before Programs or Operations: Aniyé Experience Audit
+
+**After H2.5, perform an Aniyé Experience Audit before implementing Programs or Operations.** R3a applied the Doctrine to People only; every surface built before it predates the standard and has not been measured against it.
+
+**Audit scope:**
+
+| Surface | Built in |
+|---------|----------|
+| Landing page | H1 |
+| Assessment | H1 |
+| Snapshot / report | H1 |
+| Verification gate | H2.1 |
+| Workspace setup and overview | H2.1 |
+| Relationship Classes | H2.2 / R1 |
+| Recognition Policies | H2.3 |
+| Policy Assignments | R2 |
+| People | R3 / R3a |
+
+**Output: a prioritised friction register**, each entry naming the surface, the Doctrine principle or completion check it fails, and the proposed fix.
+
+| Priority | Meaning |
+|----------|---------|
+| **Critical** | Blocks task completion or causes misunderstanding |
+| **High** | Creates significant effort or decision paralysis |
+| **Medium** | Reduces clarity or enjoyment |
+| **Low** | Polish and delight |
+
+**The full audit was deliberately not performed during R3.** Known candidates already visible without auditing: the Policy Library and Policy Assignments pages still present several equally-weighted actions (§1.1), the assessment wizard predates the guided-flow pattern, and internal vocabulary — "Relationship Class", "Policy Assignment", "Level" — appears unexplained on several screens (§2.9).
 
 ### ⚠️ Gate before Operations reconstruction
 
@@ -270,6 +321,7 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 | `aniye_assessment` | `app/components/assessment/AssessmentWizard.tsx:34` | Assessment answers (H1, pre-workspace) |
 | `aniye_workspace_backup_v<n>_<ts>` | **R1:** `lib/migrations.ts` | Verbatim pre-migration payload, written before a destructive migration only |
 | `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
+| `aniye_person_draft` | **R3a:** `PersonForm.tsx` | An unfinished new person, so the flow can be resumed. Never workspace data; cleared on save or cancel; not written for edits |
 
 ### Storage model
 
@@ -401,6 +453,7 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 1 | ✅ **ADR-002** — Relationship Type + numeric Relationship Level | 0 | Resolves C1. Changes the shape of `RelationshipClass`, which every downstream object references, so doing it first avoids reworking H2.4, H2.5, and H3.1. **Landed in R1.** |
 | 2 | ✅ **H2.4** — Policy Assignments | 1 | Restored the broken link in the Atlas §11 canonical flow. Resolves C7 and C8. **Landed in R2.** |
 | 3 | ✅ **H2.5** — People Sources and People | 1, 2 | Resolved C3 by deriving member counts. **Landed in R3.** Completes the H2 Configure arc. |
+| — | ⬅️ **Aniyé Experience Audit** — *next* | 3 | Measure every surface built before the Experience Doctrine against it. Produces a prioritised friction register. Scope and priority bands in §0. |
 | — | ⛔ **Architecture-correction checkpoint** — *required before Operations* | 3 | Program definition; Workspace vs Operations boundary; Decision vs Operational Event; minimum financial and Money model (C6). Steps 4–10 below are gated behind this. |
 | 4 | **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. Specification input for ADR-003. |
 | 5 | **ADR-003** — Decision Engine | 4 | Resolves "which policy applies to this person for this moment type in this country" — requires assignments, people, and scope precedence to all exist. Settle C6 (Money unit) here. |
@@ -412,7 +465,11 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 
 ### Next action
 
-**Not a reconstruction milestone — the architecture-correction checkpoint.**
+**Two gates, in order — neither is a reconstruction milestone.**
+
+**First: the Aniyé Experience Audit** (scope and friction-register format in §0). R3a applied the Experience Doctrine to People; every earlier surface predates the standard. Auditing before Programs means the pattern established for Programs is built on a corrected baseline rather than inheriting friction from H1–H2.3.
+
+**Then: the architecture-correction checkpoint.**
 
 Steps 0–3 have landed and the H2 Configure arc is complete: an organization can now define who
 matters (classes), how they are recognized (policies), which rules reach which group (assignments),
@@ -448,3 +505,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after R1 (schema versioning + ADR-002) — System Atlas v2.3.*
 *Updated after R2 (H2.4 Policy Assignments, schema v3) — System Atlas v2.4.*
 *Updated after R3 (H2.5 People Sources and People, schema v4) — System Atlas v2.5. H2 Configure recovery complete.*
+*Updated after R3a (Experience Doctrine integration) — Experience Doctrine v1.0. No architectural change.*
