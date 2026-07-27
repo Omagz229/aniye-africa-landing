@@ -22,6 +22,7 @@ import type {
   SchemaV5PersonStatus,
 } from './migrations';
 import type { Money as CanonicalMoney } from './money';
+import type { Program } from './programs';
 
 export {
   COUNTRY_CODE_PATTERN,
@@ -134,6 +135,7 @@ export interface WorkspaceState {
   policyAssignments: PolicyAssignment[];
   peopleSources: PeopleSource[];
   people: Person[];
+  programs: Program[];
 }
 
 // ─── Money ───────────────────────────────────────────────────────────────────
@@ -143,6 +145,7 @@ export interface WorkspaceState {
 //
 // The type and every helper live in lib/money.ts. Re-exported here so existing
 // imports from '@/lib/workspace' keep working.
+export type { Program, ProgramMode, ProgramStatus, FrozenPopulation } from './programs';
 export type { Money, CurrencyCode } from './money';
 export {
   CURRENCY_EXPONENTS,
@@ -488,6 +491,7 @@ export function createWorkspace(input: NewWorkspaceInput): WorkspaceState {
     policyAssignments: [],
     peopleSources: [],
     people: [],
+    programs: [],
   };
 }
 
@@ -590,10 +594,10 @@ export const SETUP_STAGES: Array<{
   },
   {
     key: 'programs',
-    label: 'Programs',
-    description: 'Turn all of this into recognition that happens',
+    label: 'Campaigns',
+    description: 'Commit to recognizing a group of people for an occasion',
     href: '/workspace/programs',
-    available: false,
+    available: true,
   },
 ];
 

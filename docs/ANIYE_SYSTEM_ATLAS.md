@@ -413,9 +413,11 @@ See §11 for the full resolution algorithm.
 
 ### Program
 
-> ⚠️ **Accepted architecture — NOT IMPLEMENTED.** ADR-004 is accepted; no `Program` type,
-> collection or route exists. `SETUP_STAGES` marks `programs` unavailable and the sidebar cannot
-> link to it. This section describes what will be built, not what exists.
+> ✅ **Implemented in H2.6 (schema v6) — Campaign mode only.**
+> `Recurring` and `Triggered` are declared in the schema so they need no migration later, but
+> **neither is implemented**: nothing in the product can create one. **Moment generation does not
+> exist yet** — a Campaign prepares the population and configuration a future Moment engine will
+> consume, and generates nothing.
 
 **ADR-004 (Accepted):** A Program is a **controlled operational commitment** — it takes a defined population and a defined occasion and commits the organization to recognizing them over a defined period or trigger pattern, within a budget envelope.
 
@@ -434,10 +436,11 @@ The four objects separate cleanly:
 | `name`, `description` | string | — |
 | `momentTypes` | string[] | One Program may cover several occasions |
 | `relationshipClassId` | UUID | **Exactly one** Relationship Class per Program (Council condition) |
+| `frozenPopulation` | `{ personIds, frozenAt }`? | Set at activation. **References only** — no copied Person records, no policy data |
 | `mode` | enum | Recurring / Triggered / Campaign |
 | `populationRule` | JSON | Minimum: all `Active` people in that class |
 | `startDate` / `endDate` | ISO date / ISO date? | `endDate` null means open-ended |
-| `budgetEnvelope` | Money | Ceiling for the whole Program |
+| `budgetEnvelopes` | Money[] | **One envelope per currency.** See below |
 | `status` | enum | Draft / Active / Paused / Completed / Cancelled |
 | `momentGenerationRule` | JSON | Lead time, de-duplication window |
 | `createdAt`, `updatedAt`, `createdBy` | — | — |
@@ -453,6 +456,34 @@ This is not a detail. A single Program-level snapshot cannot represent the count
 | **Recurring** | A date derived from a Person field | Re-evaluated on the configured cadence |
 | **Triggered** | An event | Evaluated at trigger time |
 | **Campaign** | A fixed window | **Frozen at activation** |
+
+### Currency-specific budget envelopes
+
+A Program holds **one budget envelope per currency**, never a single total.
+
+A group spanning Nigeria and Kenya resolves to different policies in different currencies (ADR-001), so its allocation is genuinely two numbers: *NGN 100,000 for 2 people, KES 20,000 for 1 person*. A single figure would require an exchange rate, and ADR-007 requires those to be explicit dated snapshots rather than implicit conversions.
+
+**Aniyé therefore never calculates a cross-currency grand total.** Each currency is validated, budgeted and compared independently. Activation is blocked if any resolved currency has no envelope, or an envelope below what the current rules allow.
+
+**No FX conversion exists in H2.6.**
+
+### Campaign population and freezing
+
+| | Draft | Active |
+|---|-------|--------|
+| Population | **Re-evaluated live** on every view | **Frozen** at activation |
+| Later additions to the group | Included | Not included |
+| Later pauses, archives, removals | Reflected | Do not rewrite the frozen list |
+
+Eligibility is **recomputed at activation**, never taken from the preview — a draft may have been open for an hour while someone was archived or a rule unpublished.
+
+Eligible means: the group is active, `Person.status === 'Active'`, and the person is in that group. Paused and archived people are excluded, and counted separately so the administrator can see why.
+
+Whether a frozen person is still executable is a question for Moment generation, which will record an exception rather than rewriting history.
+
+### Policy resolution stays per Moment
+
+A Program still carries **no** `policyAssignmentId`, **no** `recognitionPolicyId` and **no** universal policy snapshot. The Campaign preview resolves policy per person — through the same `resolvePolicyAssignment()` the Moment engine will use — but stores none of it. Snapshotting happens per Moment, when Moments exist.
 
 `budgetConsumed` is **derived on read**, never stored — the same reasoning as `memberCount`.
 
@@ -1212,6 +1243,7 @@ Implementation: `lib/migrations.ts`, `lib/money.ts`. Validation: `validate:migra
 | v3 | H2.4 | Adds the `policyAssignments` collection and the `assignments` setup stage |
 | v4 | H2.5 | Adds the `peopleSources` and `people` collections |
 | v5 | R4 | **ADR-007** — Money converted from major-unit face values to integer minor units. **ADR-008** — Person status widened to include `Inactive` |
+| v6 | H2.6 | Adds the `programs` collection; validates `baseCurrency` against the pinned table |
 
 **Setup stage remap (v2 → v3).** The `assignments` step is new, so a v2 workspace that had already moved past `policies` had skipped a step that now exists:
 
@@ -1331,7 +1363,7 @@ These capabilities are not built yet. They are documented here to ensure archite
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money | Program, Moment, Execution Brief, Decision, Operational Event, Recognition Order, Approval, the `/operations` surface |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, **Program (Campaign mode)** | Program (Recurring, Triggered), Moment, Execution Brief, Decision, Operational Event, Recognition Order, Approval, the `/operations` surface |
 
 | Horizon | Theme | Key Deliverables |
 |---------|-------|-----------------|
@@ -1367,7 +1399,7 @@ Full records for ADR-004 onward live in [`adr/`](adr/). Accepted decisions are b
 | **ADR-001** | Recognition Policy as a first-class reusable object | Accepted | Yes — H2.3 / H2.4 |
 | **ADR-002** | Relationship Type + numeric Relationship Level | Accepted | Yes — schema v2 |
 | **ADR-003** | — | ⚠️ **Retired** | See note below |
-| **ADR-004** | Program is an operational commitment | Accepted 2026-07-27 | **No** — architecture only |
+| **ADR-004** | Program is an operational commitment | Accepted 2026-07-27 | **Partly** — Campaign mode, schema v6. Recurring and Triggered not implemented |
 | **ADR-005** | Workspace and Operations are separate surfaces | Accepted 2026-07-27 | **No** — architecture only |
 | **ADR-006** | Decisions vs Operational Events | Accepted 2026-07-27 | **No** — architecture only |
 | **ADR-007** | Money as integer minor units | Accepted 2026-07-27 | **Yes** — schema v5 |
@@ -1478,8 +1510,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.0 — Aniyé Africa — July 2026*
+*System Atlas v3.1 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.1: H2.6 — Campaign Programs implemented (schema v6). Program marked implemented for Campaign mode only; currency-specific budget envelopes documented with no FX; frozen-population semantics recorded; policy resolution confirmed as per-Moment and still absent from the Program record; Moment generation explicitly still absent*
 *v3.0: ADR-004 … ADR-009 accepted by Council. Money redefined as integer minor units and Person gains Inactive (both implemented, schema v5); Program, Workspace/Operations, Decision/Operational Event and Recognition Order recorded as accepted architecture and explicitly marked NOT IMPLEMENTED; Policy lifecycle confirmed as three states, resolving C4 with no code change; ADR registry added with the ADR-003 retirement note*
 *v2.5: H2.5 — Person and People Source implemented (schema v4); §4 gains the People Source object; §10/§4 member counts are derived rather than stored (resolves C3); §12 rewritten for the implemented normalization, source precedence, duplicate identity, class assignment, and import result states; HRIS documented as a future source abstraction only*
 *v2.4: H2.4 — Policy Assignment implemented (schema v3); §4 Policy Assignment updated to the implemented model; §11 gains the resolution algorithm and active/inactive/archived rules; §15 gains the schema version history and the v2 → v3 stage remap; ADR-001 confirmed fully implemented*

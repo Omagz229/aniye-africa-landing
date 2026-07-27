@@ -24,7 +24,8 @@ const PAGE_TITLES: Array<[string, string]> = [
   ['/workspace/classes',      'Relationship groups'],
   ['/workspace/people',       'People'],
   ['/workspace/profile',      'Your organization'],
-  ['/workspace/programs',     'Programs'],
+  ['/workspace/programs/new', 'New campaign'],
+  ['/workspace/programs',     'Campaigns'],
   ['/workspace',              'Overview'],
 ];
 
@@ -33,6 +34,9 @@ function titleFor(pathname: string): string {
   // `/workspace/policies` prefix but deserving its own name.
   if (/^\/workspace\/policies\/[^/]+$/.test(pathname) && !pathname.endsWith('/new')) {
     return 'Recognition rule';
+  }
+  if (/^\/workspace\/programs\/[^/]+$/.test(pathname) && !pathname.endsWith('/new')) {
+    return 'Campaign';
   }
   const match = PAGE_TITLES.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   return match?.[1] ?? 'Workspace';

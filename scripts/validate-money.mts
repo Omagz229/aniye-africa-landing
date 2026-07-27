@@ -352,10 +352,18 @@ check('11. A v4 workspace migrates to v5', () => {
   const result = migrateWorkspace<WorkspaceState>(makeV4Workspace());
   assert(result.status === 'ok', `Migration rejected the v4 fixture: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 4, 'Payload was not detected as v4.');
-  assertEqual(result.toVersion, 5, 'Migration did not reach v5.');
   assertEqual(result.migrated, true, 'Migration did not report that it ran.');
-  assertEqual(result.applied.length, 1, 'Expected exactly one migration from v4.');
-  assertEqual(result.workspace.schemaVersion, 5, 'Migrated workspace has the wrong schemaVersion.');
+
+  // v5 is no longer terminal — assert the ADR-007 rung ran, not that the walk
+  // stopped there.
+  assertEqual(result.applied[0], 'v4-to-v5-adr-007-money-minor-units-and-adr-008-person-inactive', 'ADR-007 was not the first rung from v4.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 4,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
+  assertEqual(result.workspace.schemaVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migrated workspace has the wrong schemaVersion.');
 
   const ws = result.workspace;
   assertEqual(ruleOf(ws, 'policy-exec', 'Birthday').budgetPerPerson.amountMinor, 50_000_000, 'NGN 500,000 did not become 50,000,000 kobo.');
@@ -471,7 +479,7 @@ check('16. The destructive migration creates exactly one backup', () => {
   );
 });
 
-check('17. A v1 workspace walks v1 → v2 → v3 → v4 → v5', () => {
+check('17. A v1 workspace walks every migration to the current version', () => {
   const v1 = {
     organizationId: 'org-v1', companyName: 'Legacy Holdings',
     website: '', industry: 'Financial Services', employeeCount: '201-500',
@@ -488,8 +496,12 @@ check('17. A v1 workspace walks v1 → v2 → v3 → v4 → v5', () => {
   const result = migrateWorkspace<WorkspaceState>(v1);
   assert(result.status === 'ok', `v1 → v5 failed: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 1, 'Payload was not detected as v1.');
-  assertEqual(result.toVersion, 5, 'Migration did not reach v5.');
-  assertEqual(result.applied.length, 4, 'Expected four migrations from v1.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 1,
+    'Wrong number of migrations ran for the number of versions crossed.',
+  );
 
   assert(result.applied[0].includes('adr-002'), 'ADR-002 did not run first.');
   assert(result.applied[1].includes('policy-assignments'), 'H2.4 did not run second.');

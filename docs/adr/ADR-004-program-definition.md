@@ -36,6 +36,12 @@ Program status: `Draft / Active / Paused / Completed / Cancelled`.
 
 Pinning a `policyAssignmentId` to a Program contradicts ADR-001. Country-scoped assignments exist so one group can be governed by different rules in different countries; a Program-level policy snapshot would silently apply one country's rule to everyone. It is also brittle — deactivating that assignment would break a running Program.
 
+## Clarification added at implementation (H2.6)
+
+The accepted decision is unchanged. One detail needed stating explicitly once budgets became real:
+
+**A Program holds one budget envelope per currency, never a single total.** This follows directly from the core decision rather than modifying it — if policy resolves per person by country, a group spanning two countries has an allocation in two currencies, and no single figure can express it without an exchange rate. ADR-007 requires exchange rates to be explicit dated snapshots, so **Aniyé never calculates a cross-currency grand total**. Each currency is budgeted, validated and compared independently.
+
 ## Consequences
 
 - New `programs` collection; additive schema bump.

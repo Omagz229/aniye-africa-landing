@@ -639,6 +639,7 @@ check('19. Existing assignments survive a repeat migration pass', () => {
     ],
     peopleSources: [],
     people: [],
+    programs: [],
     // A current-version fixture must carry canonical Money (ADR-007).
     recognitionPolicies: [
       { ...policy('policy-exec', 'Executive Recognition Policy', 'Published'),

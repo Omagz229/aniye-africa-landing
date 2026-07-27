@@ -24,10 +24,7 @@ const NAV_ITEMS = [
   { label: 'Recognition rules',       href: '/workspace/policies',    exact: false, unlockedAfter: 'classes' as const,  built: true },
   { label: 'Who each rule applies to', href: '/workspace/assignments', exact: false, unlockedAfter: 'classes' as const,  built: true },
   { label: 'People',                  href: '/workspace/people',      exact: false, unlockedAfter: 'policies' as const, built: true },
-  // Programs has no route yet. `built: false` keeps it permanently shown as the
-  // next unavailable step, so reaching setupStage 'programs' cannot link
-  // anywhere that would 404.
-  { label: 'Programs',                href: '/workspace/programs',    exact: false, unlockedAfter: 'people' as const,   built: false },
+  { label: 'Campaigns',               href: '/workspace/programs',    exact: false, unlockedAfter: 'assignments' as const, built: true },
 ];
 
 export default function WorkspaceSidebar({ workspace, open, onNavigate }: Props) {

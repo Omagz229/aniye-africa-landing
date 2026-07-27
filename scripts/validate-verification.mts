@@ -199,9 +199,8 @@ check('5. The operator is directed to the correct unfinished setup step', () => 
     ['policies',    '/workspace/policies'],
     ['assignments', '/workspace/assignments'],
     ['people',      '/workspace/people'],
-    // `programs` has no route. It must resolve to the overview, which states
-    // honestly that the capability is not available — never to a 404.
-    ['programs',    '/workspace'],
+    // `programs` became a real route in H2.6.
+    ['programs',    '/workspace/programs'],
     ['active',      '/workspace'],
   ];
 

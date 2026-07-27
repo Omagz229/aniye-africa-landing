@@ -34,8 +34,8 @@ import { CURRENCY_CODE_PATTERN, currencyExponent, roundHalfAwayFromZero } from '
  */
 export const LEGACY_UNVERSIONED_SCHEMA_VERSION = 1;
 
-/** Schema v5 — R4: canonical Money (ADR-007) + Person `Inactive` (ADR-008). */
-export const CURRENT_WORKSPACE_SCHEMA_VERSION = 5;
+/** Schema v6 — H2.6: Campaign Programs (ADR-004) + baseCurrency validation. */
+export const CURRENT_WORKSPACE_SCHEMA_VERSION = 6;
 
 export const WORKSPACE_KEY = 'aniye_workspace';
 export const WORKSPACE_BACKUP_KEY_PREFIX = 'aniye_workspace_backup';
@@ -127,6 +127,19 @@ export type SchemaV4PersonStatus = (typeof SCHEMA_V4_PERSON_STATUSES)[number];
  */
 export const SCHEMA_V5_PERSON_STATUSES = ['Active', 'Inactive', 'Archived'] as const;
 export type SchemaV5PersonStatus = (typeof SCHEMA_V5_PERSON_STATUSES)[number];
+
+// ─── Schema v6 canonical values (pinned — see module header) ─────────────────
+
+/**
+ * ADR-004 — Program modes. `Campaign` is the only mode H2.6 can create; the
+ * other two are declared now so that adding them later needs no migration of
+ * meaning, exactly as `HRIS` was declared ahead of any connector.
+ */
+export const SCHEMA_V6_PROGRAM_MODES = ['Campaign', 'Recurring', 'Triggered'] as const;
+export type SchemaV6ProgramMode = (typeof SCHEMA_V6_PROGRAM_MODES)[number];
+
+export const SCHEMA_V6_PROGRAM_STATUSES = ['Draft', 'Active', 'Completed', 'Archived'] as const;
+export type SchemaV6ProgramStatus = (typeof SCHEMA_V6_PROGRAM_STATUSES)[number];
 
 // ─── ADR-002 legacy mapping (schema v1 → v2) ─────────────────────────────────
 
@@ -502,6 +515,44 @@ export const MIGRATIONS: readonly Migration[] = [
       };
     },
   },
+  {
+    id: 'v5-to-v6-adr-004-campaign-programs',
+    from: 5,
+    to: 6,
+    description:
+      'H2.6 — add the programs collection and normalize baseCurrency against the pinned currency table.',
+    // Additive for the collection. `baseCurrency` is normalized in case only —
+    // a lowercase but known code is uppercased. An *unknown* currency is never
+    // replaced with a guess; it is left as-is and refused by validation, so the
+    // operator's original payload survives in the backup.
+    destructive: false,
+    run: (workspace, ctx) => {
+      const raw = workspace.baseCurrency;
+      let baseCurrency = raw;
+
+      if (typeof raw === 'string') {
+        const normalized = raw.trim().toUpperCase();
+        if (currencyExponent(normalized) !== null) {
+          baseCurrency = normalized;
+          if (normalized !== raw) {
+            ctx.warn(`Workspace base currency "${raw}" was normalized to "${normalized}".`);
+          }
+        } else {
+          ctx.warn(
+            `Workspace base currency "${raw}" is not a supported ISO 4217 code. It was left unchanged; ` +
+              'the workspace cannot be used until it is corrected.',
+          );
+        }
+      }
+
+      return {
+        ...workspace,
+        baseCurrency,
+        programs: Array.isArray(workspace.programs) ? workspace.programs : [],
+        schemaVersion: 6,
+      };
+    },
+  },
 ];
 
 // ─── ADR-007 Money transform (schema v4 → v5) ────────────────────────────────
@@ -637,6 +688,23 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
   if (!Array.isArray(raw.people)) {
     return { ok: false, reason: 'people is not an array.' };
   }
+  if (!Array.isArray(raw.programs)) {
+    return { ok: false, reason: 'programs is not an array.' };
+  }
+
+  // R4 risk 1, closed. Budget envelopes make an unvalidated base currency a
+  // real hazard: a workspace whose default currency has no known exponent
+  // cannot price anything. Refused rather than assumed to be two-decimal.
+  if (
+    typeof raw.baseCurrency !== 'string' ||
+    !CURRENCY_CODE_PATTERN.test(raw.baseCurrency) ||
+    currencyExponent(raw.baseCurrency) === null
+  ) {
+    return {
+      ok: false,
+      reason: `Workspace base currency "${String(raw.baseCurrency)}" is not a supported ISO 4217 code.`,
+    };
+  }
 
   for (const [i, cls] of raw.relationshipClasses.entries()) {
     if (!isPlainObject(cls)) {
@@ -742,6 +810,70 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
           reason: `${label} has a budget that is not a safe integer of minor units: ${String(budget.amountMinor)}.`,
         };
       }
+    }
+  }
+
+  for (const [i, program] of raw.programs.entries()) {
+    if (!isPlainObject(program)) {
+      return { ok: false, reason: `Program at index ${i} is not an object.` };
+    }
+    if (!isNonEmptyString(program.id)) {
+      return { ok: false, reason: `Program at index ${i} has no id.` };
+    }
+    if (
+      typeof program.mode !== 'string' ||
+      !(SCHEMA_V6_PROGRAM_MODES as readonly string[]).includes(program.mode)
+    ) {
+      return { ok: false, reason: `Program "${program.id}" has an invalid mode: ${String(program.mode)}.` };
+    }
+    if (
+      typeof program.status !== 'string' ||
+      !(SCHEMA_V6_PROGRAM_STATUSES as readonly string[]).includes(program.status)
+    ) {
+      return { ok: false, reason: `Program "${program.id}" has an invalid status: ${String(program.status)}.` };
+    }
+    if (!isNonEmptyString(program.relationshipClassId)) {
+      return { ok: false, reason: `Program "${program.id}" has no relationshipClassId.` };
+    }
+    // ADR-004 — a Program never pins a policy. These fields must not exist.
+    if ('policyAssignmentId' in program || 'recognitionPolicyId' in program || 'policySnapshot' in program) {
+      return {
+        ok: false,
+        reason: `Program "${program.id}" carries a pinned policy reference. Policy resolves per Moment (ADR-004).`,
+      };
+    }
+    if (!Array.isArray(program.budgetEnvelopes)) {
+      return { ok: false, reason: `Program "${program.id}" has no budgetEnvelopes array.` };
+    }
+
+    const seenCurrencies = new Set<string>();
+    for (const envelope of program.budgetEnvelopes) {
+      if (!isPlainObject(envelope)) {
+        return { ok: false, reason: `Program "${program.id}" has a malformed budget envelope.` };
+      }
+      if (typeof envelope.amountMinor !== 'number' || !Number.isSafeInteger(envelope.amountMinor) || envelope.amountMinor < 0) {
+        return {
+          ok: false,
+          reason: `Program "${program.id}" has a budget that is not a non-negative safe integer: ${String(envelope.amountMinor)}.`,
+        };
+      }
+      if (
+        typeof envelope.currency !== 'string' ||
+        !CURRENCY_CODE_PATTERN.test(envelope.currency) ||
+        currencyExponent(envelope.currency) === null
+      ) {
+        return {
+          ok: false,
+          reason: `Program "${program.id}" has a budget in an unsupported currency: ${String(envelope.currency)}.`,
+        };
+      }
+      if (seenCurrencies.has(envelope.currency)) {
+        return {
+          ok: false,
+          reason: `Program "${program.id}" has more than one ${envelope.currency} budget envelope.`,
+        };
+      }
+      seenCurrencies.add(envelope.currency);
     }
   }
 

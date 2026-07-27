@@ -98,6 +98,30 @@ export default function SetupChecklist() {
         })}
       </div>
 
+      {/* Setup complete */}
+      {allComplete && (
+        <div className="bg-ink rounded-2xl p-6 sm:p-8">
+          <p className="font-body text-xs text-gold uppercase tracking-widest mb-2">Setup complete</p>
+          <h3 className="font-display font-semibold text-xl text-cream mb-2">
+            Your recognition foundation is ready.
+          </h3>
+          <p className="font-body text-sm text-cream/70 leading-relaxed">
+            Aniyé knows who matters to {workspace.companyName || 'your organization'}, how each group
+            should be recognized, and who your first campaign covers.
+          </p>
+          <p className="font-body text-sm text-cream/70 leading-relaxed mt-3">
+            Moment execution — preparing and delivering each individual recognition — is the next
+            stage, and is not yet enabled in this recovery build.
+          </p>
+          <Link
+            href="/workspace/programs"
+            className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md mt-5"
+          >
+            View your campaigns &#8594;
+          </Link>
+        </div>
+      )}
+
       {/* Contextual next action */}
       {!allComplete && (
         <div className="bg-ink rounded-2xl p-6 sm:p-8">
@@ -192,13 +216,18 @@ export default function SetupChecklist() {
           {workspace.setupStage === 'programs' && (
             <>
               <h3 className="font-display font-semibold text-xl text-cream mb-2">
-                Your workspace is configured
+                Create your first campaign
               </h3>
-              <p className="font-body text-sm text-cream/70">
-                Groups, rules, assignments and people are all in place. Turning that into
-                recognition that actually happens is the next capability, and it isn&apos;t
-                available yet.
+              <p className="font-body text-sm text-cream/70 mb-5">
+                A campaign commits you to recognizing one group of people for one occasion, within a
+                budget. It&apos;s the last step of setting up.
               </p>
+              <Link
+                href="/workspace/programs"
+                className="inline-flex items-center gap-2 rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 transition-all hover:brightness-105 hover:shadow-md"
+              >
+                Create a campaign &#8594;
+              </Link>
             </>
           )}
         </div>

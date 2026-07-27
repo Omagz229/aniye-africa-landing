@@ -24,7 +24,8 @@
 | — | **H2 → H3 Architecture Checkpoint** | ✅ **Complete** | Checkpoint |
 | — | **Council acceptance of ADR-004 … ADR-009** | ✅ **Accepted 2026-07-27** | R4 |
 | — | **R4 — schema v5 (Money + Person lifecycle)** | ✅ **Complete** | R4 |
-| — | **Minimum Programs — Campaign mode** | ⬅️ **Next — unblocked** | — |
+| — | **R5 — H2.6 Campaign Programs (schema v6)** | ✅ **Complete — H2 Configure done** | R5 |
+| — | **Moment generation** | ⬅️ **Next — the closed loop begins** | — |
 | 4 | Relationship Operations Atlas | ⬜ Not started | — |
 | 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
 | 6 | H3.1 — Moment Engine | ⬜ Not started | — |
@@ -233,9 +234,39 @@ All six decisions are **Proposed — Council Review Required**. None is accepted
 
 **Validation: 102 checks across five suites, all passing** — verification 9, migration 18, assignments 20, people 30, money 25.
 
-### Programs is now unblocked, architecturally and technically
+### ✅ R5 — H2.6 Campaign Programs. **H2 Configure is complete.**
 
-The hard prerequisite was ADR-007: a Program carries a budget envelope, and an envelope is arithmetic that floating-point face values could not survive. That is done. The next implementation milestone is **Minimum Programs — Campaign mode only**, per checkpoint Part 3.
+**Schema v6.** Adds the `programs` collection (additive, no backup) and closes R4 risk 1 by validating `baseCurrency` against the pinned currency table — a known code is normalized to uppercase, an unknown one is refused rather than replaced with a guess.
+
+**Campaign Programs only.** `Recurring` and `Triggered` are declared in the schema so they need no later migration, but nothing can create one. **No Moments are generated** — a Campaign prepares the population and configuration that a future Moment engine will consume.
+
+**What a Campaign is:** one Relationship Group, one occasion, a defined period, and **one budget envelope per currency**. It carries no `policyAssignmentId`, no `recognitionPolicyId` and no universal policy snapshot — policy still resolves per person, per country, and will be snapshotted per Moment.
+
+**Currency handling.** Allocation is grouped by currency and **never summed across currencies**: a group spanning Nigeria and Kenya has an allocation in two currencies, and expressing that as one number would need an exchange rate. No FX exists.
+
+**Freezing.** Activation recomputes eligibility from live data rather than trusting the preview, then freezes **Person ids only** — no copied Person records, no policy data. Later additions, pauses, archives and removals do not rewrite a frozen population.
+
+**Setup completes here.** With one Active Program, the administrator can finish setup; `setupStage` advances to `active` and the workspace states plainly: *"Your recognition foundation is ready"*, followed by the truthful next state — Moment execution is not yet enabled in this recovery build. No dead end, no unavailable button.
+
+**Validation: 137 checks across six suites, all passing** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35.
+
+### The remaining gate before the minimum closed operational loop
+
+**H2 Configure is finished.** An organization can now describe who matters, how each group is recognized, which rule reaches whom, who its people are, and what it has committed to.
+
+The next milestone is **Moment generation** — checkpoint Part 3, milestone 3. It is the first step that produces operational records rather than configuration, and it needs three things that do not exist yet:
+
+1. A `Moment` type and collection (schema v7).
+2. **Per-Moment policy snapshotting** — the piece ADR-004 deliberately deferred from the Program.
+3. `Decision` and `OperationalEvent` records (ADR-006), which are the first objects that arguably belong in a backend rather than a browser document.
+
+After Moments come the Execution Brief and the `/operations` surface (ADR-005), at which point the client-only architecture will be genuinely strained.
+
+**Still required before an external pilot, unchanged by R5:**
+
+- **EX-H1** — assessment autosave; ~15 fields are still lost on refresh.
+- **EX-H3** — `PolicyForm` guided rebuild.
+- **Live mobile visual verification on real devices.** Never performed. R5 added three routes that have had no visual check at any width.
 
 ### Still required before an external pilot
 
@@ -633,3 +664,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after Experience Correction E1 — all 5 gating findings closed; Programs unblocked on experience. Architecture checkpoint remains mandatory.*
 *Updated after the H2 → H3 Architecture Checkpoint — 6 ADRs drafted, all Proposed. Council approval is now the only gate. Documentation only; no schema version changed.*
 *Updated after R4 — all 6 ADRs accepted; schema v5 implemented (Money + Person lifecycle); C4 and C6 resolved; Programs unblocked. System Atlas v3.0.*
+*Updated after R5 — H2.6 Campaign Programs implemented (schema v6); H2 Configure complete; Moment generation is the next milestone. System Atlas v3.1.*

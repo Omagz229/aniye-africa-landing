@@ -12,7 +12,8 @@
     "validate:assignments": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-policy-assignments.mts",
     "validate:people": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-people.mts",
     "validate:verification": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-verification.mts",
-    "validate:money": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-money.mts"
+    "validate:money": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-money.mts",
+    "validate:programs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-programs.mts"
   },
   "dependencies": {
     "next": "16.2.9",
