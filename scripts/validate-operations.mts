@@ -31,6 +31,8 @@ import type { OperationsState } from '../lib/operations/types';
 import { createLocalOperationsRepository } from '../lib/operations/local-store';
 import type { GenerationContext } from '../lib/operations/generation';
 import { assessPerson, buildCancellation, buildMomentBatch, previewPreparation } from '../lib/operations/generation';
+import type { ConfirmationDeps } from '../lib/operations/confirmation';
+import { fingerprintPreview, loadLiveContext, revalidateForConfirmation } from '../lib/operations/confirmation';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -777,6 +779,273 @@ check('35. An activated Campaign flows end to end into Moments', () => {
   assertEqual(state.value.moments.length, 2, 'Wrong moment count.');
   assertEqual(state.value.moments.filter(m => m.status === 'ReadyForExecution').length, 2, 'Not every moment is ready.');
   assertEqual(validateOperationsState(state.value, WS).ok, true, 'The resulting state is invalid.');
+});
+
+// ─── Part 8: confirmation-time revalidation (H3.1-D1) ────────────────────────
+//
+// The defect: confirmation rebuilt the batch from the context captured at page
+// load, so configuration edited in between was invisible. Every check below
+// mutates live state *after* the preview and asserts that nothing stale is
+// written.
+
+/** A live workspace plus an operations repo, wired the way the browser wires them. */
+function liveHarness(people: Person[], programOver: Partial<Program> = {}) {
+  const workspace = {
+    ...createWorkspace({
+      companyName: 'Meridian', website: '', industry: 'Logistics', employeeCount: '11-50',
+      operatingCountries: ['Nigeria'], contactName: 'Ada', contactEmail: 'a@x.example',
+      contactRole: 'Head of People', phone: '',
+    }),
+    organizationId: WS,
+    relationshipClasses: [...CLASSES],
+    recognitionPolicies: [...POLICIES],
+    policyAssignments: [...ASSIGNMENTS],
+    people: [...people],
+    programs: [{ ...activeCampaign(people.map(p => p.id)), ...programOver }],
+  };
+
+  const storage = createMemoryStorage();
+  const repo = createLocalOperationsRepository(storage);
+  repo.initialise(WS, NOW);
+
+  const deps: ConfirmationDeps = {
+    readWorkspace: () => workspace as never,
+    repository: repo,
+    now: () => NOW,
+  };
+  return { workspace, repo, storage, deps };
+}
+
+function previewNow(deps: ConfirmationDeps) {
+  const live = loadLiveContext('program-1', deps);
+  assert(live.ok, 'Fixture could not build a live context.');
+  const preview = previewPreparation(live.context);
+  return { preview, fingerprint: fingerprintPreview(preview) };
+}
+
+function confirmNow(deps: ConfirmationDeps, fingerprint: string) {
+  return revalidateForConfirmation('program-1', fingerprint, deps, ids, 'operator-1');
+}
+
+/** Nothing at all was written to the operations store. */
+function assertNothingWritten(repo: ReturnType<typeof createLocalOperationsRepository>) {
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'Operations state could not be read.');
+  assertEqual(state.value!.moments.length, 0, 'Moments were written.');
+  assertEqual(state.value!.decisions.length, 0, 'Decisions were written.');
+  assertEqual(state.value!.events.length, 0, 'Events were written.');
+}
+
+check('36. A person turned Inactive after preview blocks the write and refreshes', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  workspace.people[0] = { ...workspace.people[0], status: 'Inactive' };
+
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'changed', 'A stale confirmation was allowed.');
+  assertNothingWritten(repo);
+  if (result.status === 'changed') {
+    assertEqual(result.preview.ready.length, 0, 'The refreshed preview still shows them ready.');
+    assertEqual(result.preview.needsReview.length, 1, 'The refreshed preview does not flag them.');
+  }
+});
+
+check('37. A person Archived after preview blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  workspace.people[0] = { ...workspace.people[0], status: 'Archived' };
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'changed', 'A stale confirmation was allowed.');
+  assertNothingWritten(repo);
+});
+
+check('38. A group disabled after preview blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  workspace.relationshipClasses = [cls('class-exec', 'Executive Leadership', false)];
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'changed', 'A disabled group did not block confirmation.');
+  assertNothingWritten(repo);
+});
+
+check('39. An assignment removed after preview blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  workspace.policyAssignments = [];
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'changed', 'A removed assignment did not block confirmation.');
+  assertNothingWritten(repo);
+});
+
+check('40. A policy archived after preview blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  workspace.recognitionPolicies = [policy('policy-global', 'Global Recognition', 'Archived', ngn(50_000))];
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'changed', 'An archived policy did not block confirmation.');
+  assertNothingWritten(repo);
+});
+
+check('41. A changed budget on the same policy blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  // Same policy, same version, one minor unit different. Material.
+  workspace.recognitionPolicies = [policy('policy-global', 'Global Recognition', 'Published', { amountMinor: 5_000_001, currency: 'NGN' })];
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'changed', 'A budget change slipped through.');
+  assertNothingWritten(repo);
+});
+
+check('42. A campaign made inactive after preview blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  workspace.programs[0] = { ...workspace.programs[0], status: 'Completed' };
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'failed', 'An inactive campaign was prepared.');
+  if (result.status === 'failed') {
+    assertEqual(result.code, 'program-inactive', 'Wrong failure code.');
+    assert(result.recovery.length > 0, 'The refusal names no recovery.');
+  }
+  assertNothingWritten(repo);
+});
+
+check('43. A campaign removed after preview blocks the write', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+  workspace.programs = [];
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'failed', 'A missing campaign was prepared.');
+  if (result.status === 'failed') assertEqual(result.code, 'program-missing', 'Wrong failure code.');
+  assertNothingWritten(repo);
+});
+
+check('44. A Moment appearing after preview is caught before the write', () => {
+  const { repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  // Another surface prepares the same identity in between.
+  const first = confirmNow(deps, fingerprint);
+  assert(first.status === 'ready', 'The first confirmation was not ready.');
+  if (first.status === 'ready') {
+    assert(repo.createMoments(WS, first.batch, NOW).ok, 'The first commit failed.');
+  }
+
+  // The operator's stale second confirmation must not duplicate.
+  const second = confirmNow(deps, fingerprint);
+  assertEqual(second.status, 'changed', 'A duplicate confirmation was allowed through.');
+
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'State could not be read.');
+  assertEqual(state.value!.moments.length, 1, 'A duplicate Moment was written.');
+});
+
+check('45. A workspace read failure at confirmation writes nothing and names the problem', () => {
+  const { repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  const broken: ConfirmationDeps = { ...deps, readWorkspace: () => null };
+  const result = revalidateForConfirmation('program-1', fingerprint, broken, ids, 'operator-1');
+
+  assertEqual(result.status, 'failed', 'An unreadable workspace was not refused.');
+  if (result.status === 'failed') {
+    assertEqual(result.code, 'workspace-unreadable', 'Wrong failure code.');
+    assert(result.message.length > 0 && result.recovery.length > 0, 'The failure explains nothing.');
+  }
+  assertNothingWritten(repo);
+});
+
+check('46. An operations read failure at confirmation writes nothing and names the problem', () => {
+  const { deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  // Corrupt the stored payload the way a damaged browser store would.
+  const badStorage = createMemoryStorage({ [OPERATIONS_KEY]: '{ not json' });
+  const badRepo = createLocalOperationsRepository(badStorage);
+  const broken: ConfirmationDeps = { ...deps, repository: badRepo };
+
+  const result = revalidateForConfirmation('program-1', fingerprint, broken, ids, 'operator-1');
+  assertEqual(result.status, 'failed', 'An unreadable operations store was not refused.');
+  if (result.status === 'failed') {
+    assertEqual(result.code, 'operations-unreadable', 'Wrong failure code.');
+    assert(result.recovery.length > 0, 'The refusal names no recovery.');
+  }
+});
+
+check('47. A refreshed preview can be confirmed on the second attempt', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  workspace.people[1] = { ...workspace.people[1], status: 'Inactive' };
+
+  const blockedAttempt = confirmNow(deps, fingerprint);
+  assertEqual(blockedAttempt.status, 'changed', 'The stale confirmation was not blocked.');
+  assertNothingWritten(repo);
+
+  // The operator reviews the refreshed figures and confirms again.
+  assert(blockedAttempt.status === 'changed', 'Unreachable.');
+  const second = confirmNow(deps, blockedAttempt.fingerprint);
+  assert(second.status === 'ready', 'The reviewed confirmation was refused.');
+  if (second.status === 'ready') {
+    const written = repo.createMoments(WS, second.batch, NOW);
+    assert(written.ok, `Commit failed: ${written.ok ? '' : written.reason}`);
+    const state = repo.load(WS);
+    assert(state.ok && state.value, 'State could not be read.');
+    assertEqual(state.value!.moments.length, 2, 'Wrong number of Moments written.');
+    // The person paused after preview must be recorded as NeedsReview, not Ready.
+    const paused = state.value!.moments.find(m => m.personId === 'p2');
+    assert(paused, 'The paused person got no Moment — nobody may be silently dropped.');
+    assertEqual(paused!.status, 'NeedsReview', 'A stale ReadyForExecution Moment was written.');
+  }
+});
+
+check('48. Unchanged live state commits the complete atomic batch', () => {
+  const { repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  const result = confirmNow(deps, fingerprint);
+  assert(result.status === 'ready', 'An unchanged confirmation was refused.');
+  if (result.status === 'ready') {
+    assertEqual(result.batch.moments.length, 2, 'Wrong Moment count.');
+    const written = repo.createMoments(WS, result.batch, NOW);
+    assert(written.ok, 'Commit failed.');
+    const state = repo.load(WS);
+    assert(state.ok && state.value, 'State could not be read.');
+    assertEqual(state.value!.moments.length, 2, 'Moments missing.');
+    assert(state.value!.decisions.length >= 4, 'Decisions missing.');
+    assertEqual(state.value!.events.length, 4, 'Events missing.');
+    for (const m of state.value!.moments) {
+      assertEqual(m.status, 'ReadyForExecution', 'A ready person was not written as ready.');
+    }
+  }
+});
+
+check('49. The fingerprint ignores timestamps and record ids', () => {
+  const { deps } = liveHarness([person({ id: 'p1', country: 'NG' })]);
+  const a = previewNow(deps);
+
+  // Same configuration, different instant.
+  const later: ConfirmationDeps = { ...deps, now: () => '2027-01-01T00:00:00.000Z' };
+  const b = previewNow(later);
+
+  assertEqual(a.fingerprint, b.fingerprint, 'A later timestamp was reported as a material change.');
+  // And confirming across that gap is allowed.
+  assertEqual(confirmNow(later, a.fingerprint).status, 'ready', 'A pure time difference blocked confirmation.');
+});
+
+check('50. No partial records survive a refused confirmation', () => {
+  const { workspace, repo, deps } = liveHarness([person({ id: 'p1', country: 'NG' }), person({ id: 'p2', country: 'NG' })]);
+  const { fingerprint } = previewNow(deps);
+
+  workspace.programs[0] = { ...workspace.programs[0], status: 'Archived' };
+  const result = confirmNow(deps, fingerprint);
+  assertEqual(result.status, 'failed', 'An archived campaign was prepared.');
+
+  const state = repo.load(WS);
+  assert(state.ok && state.value, 'State could not be read.');
+  assertEqual(state.value!.moments.length, 0, 'Partial Moments survived.');
+  assertEqual(state.value!.decisions.length, 0, 'Partial Decisions survived.');
+  assertEqual(state.value!.events.length, 0, 'Partial Events survived.');
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

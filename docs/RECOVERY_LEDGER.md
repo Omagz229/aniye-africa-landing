@@ -371,6 +371,86 @@ H3.5 build directories an operator types into — checkpoint milestone 6 exclude
 APIs" and milestone 7 excludes "rate APIs, tracking integration" — so no H3 milestone grants anyone
 access. **The gate binds at the pilot (H4.1). It does not block H3.2, H3.3, H3.4 or H3.5.**
 
+### ✅ H3.1-D1 — confirmation-time revalidation. **Acceptance correction, no schema change.**
+
+**Found by the H3.1 recovery-integrity audit**, 2026-07-28. Not a reconstruction: H3.1 itself remains
+at `485b5643a5683a0017ff9d7a50e078e2cd5f2fe1`, tagged `h3.1-moment-generation`, and neither the
+commit nor the tag was touched.
+
+**The defect.** `PrepareMoments.handleConfirm` rebuilt the batch from the `GenerationContext`
+captured at page load, refreshing **only the timestamp**:
+
+```ts
+const fresh: GenerationContext = { ...context, now: new Date().toISOString() };
+```
+
+People, Relationship Groups, assignments, Recognition Policies, the Program's status and the
+existing Moment source keys were all as-of-load. A person archived, a group switched off or a policy
+unpublished between preview and confirmation was invisible, so a Moment could be written as
+`ReadyForExecution` carrying a snapshot that was already stale. The in-code comment read as if it
+re-read data; it did not. The repository's duplicate backstop always prevented **duplicates** — there
+was no equivalent guard for **eligibility**, and no validation check covered it.
+
+**Severity.** Low on browser-only storage, where Workspace and Operations share one device and the
+trigger needs one person in two tabs. **Medium-to-high once a backend lands (H5.1)**, when customer
+and operator genuinely act at the same time. Corrected now rather than carried.
+
+**The correction.** A small, React-free service — `lib/operations/confirmation.ts` — with three
+entry points: `loadLiveContext`, `fingerprintPreview` and `revalidateForConfirmation`. Readers are
+injected, so every branch including the read failures is exercisable in validation rather than only
+in a browser. No broad new abstraction: the generation engine, the repository and the atomic commit
+are unchanged and still do the work.
+
+At confirmation the Workspace is re-read through the canonical path, the Program located again and
+checked for `Active`, and its frozen population, People, groups, assignments, policies and existing
+source keys all re-read. The batch is built from that live context. **Nothing captured at page load
+is reused.**
+
+**Material-change detection.** A deterministic fingerprint over: who is pending, each person's
+outcome and sorted issue codes, and the resolved assignment id, policy id, policy version, country
+scope, occasion and exact Money — plus the already-prepared set and the per-currency totals.
+**Timestamps and generated record ids are excluded**; including them would report a spurious change
+on every confirmation and train operators to click through the warning, which is worse than no
+warning. A budget moving by one minor unit **is** material.
+
+**On a mismatch, nothing is written.** The displayed preview is replaced with the current result, the
+change is explained in plain language, and the operator must review and confirm again.
+
+**On a read failure, a missing Program or an inactive Program, nothing is written.** The actual
+problem is shown with a recovery, never as an empty queue and never as success.
+
+**Nothing was weakened:** frozen-population semantics, per-person and per-country resolution,
+structured `NeedsReview` handling, exact Money snapshots, separate-currency handling, duplicate
+prevention, atomic commits, and the WorkspaceState v6 / OperationsState v1 separation all stand
+unchanged. `MOMENT_STATUSES` is untouched.
+
+**Regression coverage — 15 new checks, operations suite 35 → 50.** Person Active → Inactive (36) and
+→ Archived (37) after preview; group disabled (38); assignment removed (39); policy archived (40);
+budget changed on the same policy version (41); campaign made inactive (42) and removed (43); a
+Moment appearing between preview and confirmation (44); workspace read failure (45); operations read
+failure (46); refreshed preview confirmable on the second attempt with the newly-paused person
+correctly written `NeedsReview` rather than a stale `ReadyForExecution` (47); unchanged state commits
+the complete atomic batch (48); the fingerprint ignores time (49); no partial records survive a
+refused confirmation (50).
+
+**Validation: 187 checks across seven suites, all passing** — verification 9, migration 18,
+assignments 20, people 30, money 25, programs 35, operations 50. Typecheck clean, build clean,
+21 routes, lint unchanged from baseline.
+
+**⚠️ Live visual verification: still NOT performed.** The Claude-in-Chrome extension was unavailable
+on three separate attempts across this pass and the audit before it. HTTP status checks and static
+responsive inspection **do not count**. Per the acceptance instruction, **H3.1 is therefore not
+marked fully accepted** — the code defect is closed, the visual gate is not.
+
+**Remaining risks.**
+
+- Visual verification outstanding for all seven H2.6 and H3.1 routes at 390 / 768 / 1440 px.
+- Revalidation narrows the stale-write window to the microseconds between the live read and the
+  commit; it does not eliminate it. Closing it fully needs transactional writes, which needs the
+  backend (H5.1). Acceptable for a single-device prototype and recorded here so it is not forgotten.
+- The fingerprint deliberately ignores issue *message* wording. A reworded message with identical
+  codes will not trigger a re-confirmation. Intentional — wording is presentation, not meaning.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -909,3 +989,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.1 — ADR-010 accepted; OperationsState v1 separate from WorkspaceState v6; Moment generation, Decisions and Operational Events implemented; backend and authentication now the hard gate before pilot. System Atlas v3.2.*
 *Updated after R6 (governance reconciliation) — ADR-011 accepted; `MASTER_ROADMAP.md` created and now authoritative for the roadmap; `RELATIONSHIP_OPERATIONS_ATLAS.md` reconstructed, closing recovery milestone 4; H3 redefined as H3.1 … H3.8 with Intelligence deferred to H4; retired ADR-003 dependencies struck. System Atlas v3.3. **Documentation only — no code, schema, migration, validation script or package.json changed.** Reconstruction is complete; from H3.2 the work is new build.*
 *Updated after R6 Council corrections — ADR-011 renamed to lowercase kebab; H4 renamed **Learn** and renumbered; **all external connectors relocated to H5.4 — Integrations**; every open conflict, schema gap, People compromise and unresolved operational rule classified by what it blocks; milestone count published as **19 of 37** with the 31/15 discrepancy surfaced, not resolved; **the claim that the ADR-010 gate binds from H3.4 withdrawn** as unsupported by any governing document. System Atlas v3.4, Master Roadmap v1.1, Relationship Operations Atlas v1.1. **Documentation only. Nothing blocks H3.2.***
+*Updated after the H3.1 acceptance correction (H3.1-D1) — confirmation now re-reads live Workspace, Program status, population, People, groups, assignments, policies and source keys before writing; a material change or any read failure writes nothing and requires review. 15 regression checks added (operations 35 → 50); 187 checks total. No schema change — WorkspaceState v6, OperationsState v1. System Atlas v3.5. **Live visual verification still pending; H3.1 not yet fully accepted.***

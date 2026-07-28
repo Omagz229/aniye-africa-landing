@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation';
 import type { WorkspaceState } from '@/lib/workspace';
 import { getWorkspace } from '@/lib/workspace';
 import { formatMoney } from '@/lib/money';
-import type { GenerationContext, PreparationPreview } from '@/lib/operations/generation';
-import { buildMomentBatch, previewPreparation } from '@/lib/operations/generation';
+import type { PreparationPreview } from '@/lib/operations/generation';
+import { previewPreparation } from '@/lib/operations/generation';
 import { browserOperationsRepository } from '@/lib/operations/local-store';
+import type { ConfirmationDeps, RevalidationFailure } from '@/lib/operations/confirmation';
+import { fingerprintPreview, loadLiveContext, revalidateForConfirmation } from '@/lib/operations/confirmation';
 
 interface Summary {
   created: number;
@@ -20,10 +22,17 @@ interface Summary {
 export default function PrepareMoments({ programId }: { programId: string }) {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
-  const [context, setContext] = useState<GenerationContext | null>(null);
   const [preview, setPreview] = useState<PreparationPreview | null>(null);
+  /**
+   * The fingerprint of the preview currently on screen — what the operator is
+   * about to confirm. Compared against live state at confirmation; a mismatch
+   * refreshes the screen and writes nothing.
+   */
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<RevalidationFailure | null>(null);
+  const [changedNotice, setChangedNotice] = useState<{ message: string; recovery: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [showReview, setShowReview] = useState(true);
@@ -31,35 +40,37 @@ export default function PrepareMoments({ programId }: { programId: string }) {
 
   useEffect(() => { rebuild(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [programId]);
 
+  /** The injected readers the revalidation service uses. Browser-side wiring only. */
+  function deps(): ConfirmationDeps | null {
+    const repo = browserOperationsRepository();
+    if (!repo) return null;
+    return { readWorkspace: getWorkspace, repository: repo, now: () => new Date().toISOString() };
+  }
+
   function rebuild() {
     const ws = getWorkspace();
     if (!ws) { router.push('/assessment'); return; }
     setWorkspace(ws);
 
-    const program = ws.programs.find(p => p.id === programId);
-    if (!program) { setNotFound(true); return; }
+    const d = deps();
+    if (!d) return;
+    d.repository.initialise(ws.organizationId, new Date().toISOString());
 
-    const repo = browserOperationsRepository();
-    if (!repo) return;
-    repo.initialise(ws.organizationId, new Date().toISOString());
+    const live = loadLiveContext(programId, d);
+    if (!live.ok) {
+      // A missing campaign keeps its dedicated screen; everything else becomes
+      // a named blocker rather than an empty or falsely successful state.
+      if (live.failure.code === 'program-missing') { setNotFound(true); return; }
+      setBlocked(live.failure);
+      setPreview(null);
+      return;
+    }
 
-    const listed = repo.listMoments(ws.organizationId);
-    if (!listed.ok) { setError(listed.reason); return; }
-
-    const existingSourceKeys = new Map(listed.value.map(m => [m.sourceKey, m.id]));
-    const built: GenerationContext = {
-      workspaceId: ws.organizationId,
-      program,
-      people: ws.people,
-      classes: ws.relationshipClasses,
-      assignments: ws.policyAssignments,
-      policies: ws.recognitionPolicies,
-      existingSourceKeys,
-      now: new Date().toISOString(),
-    };
-    setContext(built);
+    setBlocked(null);
     // Previewing writes nothing — ADR-006.
-    setPreview(previewPreparation(built));
+    const next = previewPreparation(live.context);
+    setPreview(next);
+    setFingerprint(fingerprintPreview(next));
   }
 
   const program = useMemo(
@@ -67,29 +78,53 @@ export default function PrepareMoments({ programId }: { programId: string }) {
     [workspace, programId],
   );
 
+  /**
+   * H3.1-D1 — confirmation re-reads live state before writing anything.
+   *
+   * Nothing captured at page load is reused: the Workspace, the Program and its
+   * status, the frozen population, People, groups, assignments, policies and
+   * existing source keys are all read again here.
+   */
   function handleConfirm() {
-    if (!context || !workspace || !preview) return;
+    if (!workspace || !preview || fingerprint === null) return;
     setError(null);
+    setChangedNotice(null);
 
-    // Rebuild against the current instant rather than the loaded preview.
-    const fresh: GenerationContext = { ...context, now: new Date().toISOString() };
-    const batch = buildMomentBatch(fresh, {
+    const d = deps();
+    if (!d) return;
+
+    const result = revalidateForConfirmation(programId, fingerprint, d, {
       moment: () => `moment-${crypto.randomUUID()}`,
       decision: () => `decision-${crypto.randomUUID()}`,
       event: () => `event-${crypto.randomUUID()}`,
     }, 'operator-local');
 
-    if (batch.moments.length === 0) {
-      setError('There is nothing left to prepare for this campaign.');
+    // Read failure, missing or inactive campaign — nothing written, problem named.
+    if (result.status === 'failed') {
       setConfirming(false);
+      if (result.code === 'program-missing') { setNotFound(true); return; }
+      setBlocked(result);
+      setPreview(null);
       return;
     }
 
-    const repo = browserOperationsRepository();
-    if (!repo) return;
+    // Live state moved. Nothing is written; the screen is replaced with the
+    // current figures and the operator must look again.
+    if (result.status === 'changed') {
+      setConfirming(false);
+      setPreview(result.preview);
+      setFingerprint(result.fingerprint);
+      setChangedNotice({ message: result.message, recovery: result.recovery });
+      const ws = getWorkspace();
+      if (ws) setWorkspace(ws);
+      return;
+    }
 
-    // Atomic: every record lands, or none does.
-    const written = repo.createMoments(workspace.organizationId, batch, fresh.now);
+    const { batch, context } = result;
+
+    // Atomic: every record lands, or none does. The repository's duplicate
+    // backstop still applies on top of the revalidation above.
+    const written = d.repository.createMoments(workspace.organizationId, batch, context.now);
     if (!written.ok) {
       setError(written.reason);
       setConfirming(false);
@@ -101,7 +136,7 @@ export default function PrepareMoments({ programId }: { programId: string }) {
       created: batch.moments.length,
       ready: batch.moments.filter(m => m.status === 'ReadyForExecution').length,
       needsReview: batch.moments.filter(m => m.status === 'NeedsReview').length,
-      alreadyPrepared: preview.alreadyPrepared.length,
+      alreadyPrepared: result.preview.alreadyPrepared.length,
     });
     setConfirming(false);
     rebuild();
@@ -114,6 +149,37 @@ export default function PrepareMoments({ programId }: { programId: string }) {
         <Link href="/operations" className="inline-flex rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 transition-all">
           Back to Command &#8594;
         </Link>
+      </div>
+    );
+  }
+
+  // ─── Blocked state ─────────────────────────────────────────────────────────
+  // A read failure or an inactive campaign is shown as the actual problem, never
+  // as an empty queue and never as success (Doctrine §2.6).
+  if (blocked) {
+    return (
+      <div className="space-y-5 max-w-2xl">
+        <Link href="/operations" className="font-body text-sm text-stone hover:text-ink transition-colors inline-block">
+          &#8592; Back to Command
+        </Link>
+        <div className="bg-white rounded-2xl border border-stone/20 p-5 space-y-2">
+          <p className="font-body text-xs text-stone uppercase tracking-widest">Cannot prepare</p>
+          <p className="font-body text-ink font-semibold">{blocked.message}</p>
+          <p className="font-body text-sm text-stone leading-snug">{blocked.recovery}</p>
+          <p className="font-body text-xs text-stone/60 pt-1">Nothing has been created or changed.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => { setBlocked(null); rebuild(); }}
+            className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 transition-all">
+            Try again
+          </button>
+          {blocked.href && (
+            <Link href={blocked.href}
+              className="rounded-full border border-stone/20 px-6 py-3 font-body text-sm text-stone hover:text-ink transition-colors">
+              Go to {blocked.href === '/operations/moments' ? 'moments' : 'Command'}
+            </Link>
+          )}
+        </div>
       </div>
     );
   }
@@ -163,6 +229,15 @@ export default function PrepareMoments({ programId }: { programId: string }) {
           {program.occasionType} · target {program.campaignStartDate}
         </p>
       </div>
+
+      {/* Live state moved while the operator was reviewing. Calm, not alarming —
+          nothing went wrong, and nothing was written. */}
+      {changedNotice && (
+        <div className="bg-gold/10 rounded-2xl px-5 py-4">
+          <p className="font-body text-sm font-semibold text-ink">{changedNotice.message}</p>
+          <p className="font-body text-sm text-stone mt-1 leading-snug">{changedNotice.recovery}</p>
+        </div>
+      )}
 
       {/* Summary first — details behind disclosure */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

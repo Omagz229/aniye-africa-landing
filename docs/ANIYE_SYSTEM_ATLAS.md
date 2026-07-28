@@ -1411,6 +1411,28 @@ A Campaign froze *who is covered*. It did not freeze *whether they can be execut
 
 Previewing writes nothing. On confirmation, one operation commits Moments, qualification Decisions, policy-resolution Decisions and Operational Events **together** — the proposed state is validated in full first, so a batch that would produce an invalid state commits nothing at all.
 
+### The preview shows; the confirmation re-reads
+
+**Nothing is written from state captured earlier.** At confirmation the Workspace is read again, the
+Program is located again and checked for `Active`, and its frozen population, People, Relationship
+Groups, policy assignments, Recognition Policies and existing Moment source keys are all re-read.
+The batch is built from that live state, never from the collections the page was holding.
+
+**If live state moved while the operator was reviewing, nothing is written.** The screen is replaced
+with the current figures, the change is explained in plain language, and the operator must look
+again and confirm a second time. Comparison ignores timestamps and generated record ids — otherwise
+every confirmation would report a spurious change and train operators to click through the warning.
+
+**If the Workspace cannot be read, the Program is missing or no longer Active, or the operations
+store cannot be read**, nothing is written and the actual problem is shown with a recovery. None of
+these is ever presented as an empty queue or as success.
+
+> Closes defect **H3.1-D1**, found by the H3.1 recovery-integrity audit: confirmation previously
+> refreshed only the timestamp, so a person archived — or a group, assignment or policy changed —
+> between preview and confirmation could still produce a `ReadyForExecution` Moment carrying a stale
+> snapshot. The repository's duplicate backstop always prevented duplicates; there was no equivalent
+> guard for eligibility. Covered by 15 regression checks.
+
 ---
 
 ## 16. Enterprise Readiness (Architectural Foundations)
@@ -1618,8 +1640,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.4 — Aniyé Africa — July 2026*
+*System Atlas v3.5 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.5: H3.1 acceptance correction — defect **H3.1-D1** closed. §15e gains "The preview shows; the confirmation re-reads": confirmation re-reads the Workspace, Program status, frozen population, People, groups, assignments, policies and existing source keys, builds the batch from live state, writes nothing when live state moved or when a read fails, and requires a second confirmation. 15 regression checks added (operations 35 → 50). No schema change; WorkspaceState stays v6 and OperationsState stays v1. **Live visual verification still not performed**
 *v3.4: Council corrections to the reconciliation (documentation only). §17 H4 renamed **Learn**; **all external connectors moved to H5.4 — Integrations**, removing the intermediate H4.4/H4.5 placement. §12's Supported People Sources table corrected — it still placed Google Sheets, BambooHR, HiBob and Personio at H3 and the remaining five at H4; all nine are now H5.4. ADR-011 renamed to `adr/ADR-011-recipient-address.md` to match the repository's lowercase-kebab convention*
 *v3.3: Governance reconciliation (documentation only — no code, schema, migration or validation change). ADR-011 accepted (recipient address; Workspace schema v7 accepted, **not built**); §4 Person gains the accepted-not-implemented `deliveryAddress`; §4 Moment corrected to the implemented H3.1 model and the superseded pre-H3.1 shape marked as such; §18 registry gains ADR-010 and ADR-011 and corrects ADR-005/006/007 from "No" to "Partly"; §17 restated as Workspace v6 + OperationsState v1 and pointed at the new [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md), which is now authoritative for H3.1 … H3.8; H3/H4 horizon rows corrected — people-source connectors and Gift/Catalog/Vendor Intelligence sit in H4, not H3*
 *v3.2: H3.1 — ADR-010 accepted; operational records moved to a separate OperationsState (§15d); Moment generation, Decision and OperationalEvent implemented (§15c, §15e); the /operations shell exists but has no roles or authentication. Browser persistence is an internal prototype only — no production backend, no external partner access, Execution Brief and everything after it unimplemented*
