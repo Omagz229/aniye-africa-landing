@@ -23,14 +23,18 @@ Before editing anything:
 
    | Source | Path |
    |--------|------|
+   | **Master Roadmap — authoritative for milestones** | `docs/MASTER_ROADMAP.md` |
    | System Atlas | `docs/ANIYE_SYSTEM_ATLAS.md` |
+   | Relationship Operations Atlas | `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` |
    | Experience Doctrine | `docs/ANIYE_EXPERIENCE_DOCTRINE.md` |
-   | ADRs 004–010 + registry | `docs/adr/` |
+   | ADRs 004–011 + registry | `docs/adr/` |
    | ADRs 001–002 | `docs/ANIYE_SYSTEM_ATLAS.md` §18 |
    | Recovery Ledger | `docs/RECOVERY_LEDGER.md` |
    | Architecture checkpoint | `docs/H2_H3_ARCHITECTURE_CHECKPOINT.md` |
 
-   **Roadmap location:** there is no standalone roadmap file. Use `ANIYE_SYSTEM_ATLAS.md` §17, `H2_H3_ARCHITECTURE_CHECKPOINT.md` Part 3, and `RECOVERY_LEDGER.md` §0/§10. **`docs/RELATIONSHIP_OPERATIONS_ATLAS.md` does not exist** — it is an unreconstructed recovery milestone. Do not invent it.
+   **Roadmap location:** `docs/MASTER_ROADMAP.md` is authoritative (Council, 2026-07-28). Milestones are **H3.1 … H3.8**; its checkpoint-mapping table translates `H2_H3_ARCHITECTURE_CHECKPOINT.md` Part 3's numbers. `RECOVERY_LEDGER.md` §0/§10 is historical — its superseded H3 rows are marked and **must not be scheduled from**. Catalog, Gift and Vendor *Intelligence* are **H4.1–H4.3**, deferred until the pilot; they are not H3 work.
+
+   **Before building:** `RELATIONSHIP_OPERATIONS_ATLAS.md` §10 is the breach checklist, and its **§9 lists ten rules that deliberately do not exist** — operator roles, SLAs, commercial role, QA taxonomy, partner onboarding and more. If the milestone needs one, **stop and raise an ADR**. Do not invent it.
 
    Every accepted ADR carries **binding Council conditions**. They frequently narrow the original draft. Read them, not just the decision.
 

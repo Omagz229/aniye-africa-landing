@@ -262,6 +262,19 @@ Any individual tracked in Aniyé — employee, client, partner, board member.
 | `createdAt` | ISO timestamp | — |
 | `updatedAt` | ISO timestamp | — |
 | `archivedAt` | ISO timestamp? | Set when archived |
+| `deliveryAddress` | object? | ⚠️ **ADR-011 (Accepted) — not implemented.** Arrives additively in schema **v7**. See below |
+
+⚠️ **Delivery address — accepted, not built (ADR-011).**
+
+`Person` owns an **optional, customer-controlled default `deliveryAddress`**. Minimum structured
+shape: **`line1`, `city`, `countryCode` are required**; `line2`, `stateOrRegion`, `postalCode`,
+`landmark` and `deliveryInstructions` are optional. Postal code is deliberately not required —
+it is unreliable or absent across much of Aniyé's operating footprint.
+
+The Execution Brief carries a **`deliveryAddressSnapshot`**, for the same reason a Moment carries
+a policy snapshot: the brief must still explain where a gift was sent after the customer edits the
+record. **An operator override applies to one brief only and never writes back to `Person`** —
+updating the default address is an explicit customer action in Workspace (ADR-005).
 
 A Person may belong to zero, one, or many Relationship Classes. Zero is valid and expected during setup — the person exists, but no policy reaches them until a class is assigned.
 
@@ -493,17 +506,39 @@ A Program still carries **no** `policyAssignmentId`, **no** `recognitionPolicyId
 
 A single recognized instance — one person, one occasion, one execution.
 
+> ✅ **Implemented in H3.1** — generation only. A Moment is **not** part of `WorkspaceState`; it
+> lives in the separate `OperationsState` (§15d, ADR-010). The operational semantics — eligibility
+> re-evaluation, atomic confirmation, idempotency — are in **§15e**, which is the fuller reference.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | — |
-| `programId` | UUID? | Parent program (null for ad hoc) |
+| `workspaceId` | UUID | The workspace this Moment belongs to. A payload for another is refused, never adopted |
+| `programId` | UUID | Parent Program. **Not nullable** — every Moment comes from a Program |
 | `personId` | UUID | Recipient |
-| `momentType` | string | Standardized type label |
-| `scheduledDate` | ISO date | When it should execute |
-| `status` | enum | Pending / Approved / Dispatched / Fulfilled / Missed / Cancelled |
-| `giftItemId` | UUID? | Selected item |
-| `policyId` | UUID? | Governing policy |
-| `budget` | Money | Approved spend for this moment |
+| `relationshipClassId` | UUID | The group the Program targeted |
+| `occasionType` | string | Standardized occasion label |
+| `targetDate` | ISO date | When it should execute |
+| `status` | enum | `NeedsReview` / `ReadyForExecution` / `Cancelled` |
+| `sourceKey` | string | Deterministic logical identity — `campaign::workspace::program::person::occasion`. What makes repeat preparation idempotent |
+| `recipientSnapshot` | object | Name, email, phone, country, role. **A subset, not the whole Person** |
+| `relationshipGroupSnapshot` | object | Group id, display name, Relationship Type, numeric Level |
+| `policyResolutionSnapshot` | object? | Assignment id, policy id, name, **version**, country scope, occasion, approved budget as canonical `Money`, resolved timestamp. Required when `ReadyForExecution` |
+| `issues` | array | Named blockers, each with the Workspace page that fixes it |
+| `createdAt` / `updatedAt` | ISO timestamp | — |
+| `cancelledAt` | ISO timestamp? | — |
+
+**Statuses stop at generation.** `Dispatched`, `Fulfilled` and `Missed` do not exist and must not be
+added speculatively — each needs the object that produces it. Item selection lives on the
+Recognition Order (H3.7), not here; delivery state lives on Fulfillment (H3.6).
+
+**Address readiness is not a Moment status** (ADR-011). A Moment may be `ReadyForExecution` without
+an address; completeness is a property of the Execution Brief.
+
+> **Superseded shape.** Through H2.6 this section described a Moment with `momentType`,
+> `scheduledDate`, `giftItemId`, `policyId`, `budget` and a six-value status running to `Fulfilled`.
+> No such record was ever built. It is superseded by the H3.1 implementation above and by ADR-004,
+> which moved the policy snapshot from the Program onto the Moment.
 
 ---
 
@@ -957,16 +992,22 @@ Implementation status as of H2.5: **Manual and CSV are built.** Everything below
 |--------|------|---------|--------|
 | Manual entry | Built-in | H1 | ✅ Implemented (H2.5) |
 | CSV upload | Built-in | H2 | ✅ Implemented (H2.5) |
-| Excel upload | Built-in | H2 | Not implemented |
-| Google Sheets | Integration | H3 |
-| BambooHR | Integration | H3 |
-| HiBob | Integration | H3 |
-| Personio | Integration | H3 |
-| Rippling | Integration | H4 |
-| Deel | Integration | H4 |
-| Workday | Integration | H4 |
-| SAP SuccessFactors | Integration | H4 |
-| Oracle HCM | Integration | H4 |
+| Excel upload | Built-in | H2 | Not implemented — ledger compromise **P5** |
+| Google Sheets | Integration | **H5.4** | Not implemented |
+| BambooHR | Integration | **H5.4** | Not implemented |
+| HiBob | Integration | **H5.4** | Not implemented |
+| Personio | Integration | **H5.4** | Not implemented |
+| Rippling | Integration | **H5.4** | Not implemented |
+| Deel | Integration | **H5.4** | Not implemented |
+| Workday | Integration | **H5.4** | Not implemented |
+| SAP SuccessFactors | Integration | **H5.4** | Not implemented |
+| Oracle HCM | Integration | **H5.4** | Not implemented |
+
+> **Horizon corrected 2026-07-28 (Council).** This table previously placed Google Sheets, BambooHR,
+> HiBob and Personio at **H3** and the rest at **H4**. **Every external connector is now H5.4 —
+> Integrations.** H3 is the closed operational loop and H4 is Learn; neither contains connector work.
+> See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md). Ledger compromise **P3** — configurable source
+> priority — is classified against H5.4 for the same reason.
 
 ### Canonical Import Interface
 
@@ -1420,19 +1461,23 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 > **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
 > capability*, and they are not the same thing. Sections describing something not yet built carry an
-> explicit ⚠️ marker. As of schema v5:
+> explicit ⚠️ marker. As of **Workspace schema v6 and `OperationsState` v1**:
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), **Moment (generation), Decision, Operational Event, the `/operations` shell** | Program (Recurring, Triggered), Execution Brief, Catalog, Gift/Vendor/Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), **Moment (generation), Decision, Operational Event, the `/operations` shell** | Program (Recurring, Triggered), **recipient address (ADR-011, schema v7)**, Execution Brief, Catalog, Gift/Vendor/Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+
+> **The authoritative roadmap is [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).** The horizon table below
+> is the thematic summary; `MASTER_ROADMAP.md` carries the canonical H3.1 … H3.8 milestone
+> definitions, their dependencies and their status, and governs roadmap reporting.
 
 | Horizon | Theme | Key Deliverables |
 |---------|-------|-----------------|
 | **H1** | Assessment + Snapshot | Homepage, Assessment wizard, Relationship Snapshot, concierge fulfillment (manual, WhatsApp-led), Fulfillment Object architecture |
 | **H2** | Organization Profile + Individual Journey | Email verification, workspace creation, Organization Profile, Relationship Profile v1, Individual gifting flow (Intent → Memory), basic People import (CSV/Excel) |
-| **H3** | Relationship Programs | Relationship Classes, Policies, Programs, People import automation, first scheduled moments, Google Sheets connector, BambooHR, HiBob, Personio |
-| **H4** | Integrations + Intelligence | HR integrations (Rippling, Deel, Workday, SAP, Oracle), AI-generated Insights, automated moment scheduling, Relationship Profile v2, spend analytics |
-| **H5** | Relationship Infrastructure | Multi-workspace, multi-country operations, enterprise permissions, API keys, SAML/SSO, partner network, full Relationship OS across Africa |
+| **H3** | Operational execution — the closed loop | Moment Engine, Execution Brief, minimum Catalog, vendor and courier directories, Fulfilment tracking, Recognition Order, Confirmation and Memory. **Milestones H3.1 … H3.8 — see [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md)** |
+| **H4** | **Learn** | Pre-pilot completion (Recurring and Triggered Program modes, customer-facing Moment visibility, redelivery handling, EX-H1, EX-H3, live device testing), the controlled pilot, then Catalog / Gift / Vendor Intelligence, AI-generated Insights, automated moment scheduling, Relationship Profile v2, spend analytics — **each built on pilot evidence** |
+| **H5** | Relationship Infrastructure | Production backend, authentication, roles, tenant isolation; multi-workspace and multi-country operations; enterprise permissions, API keys, SAML/SSO; **H5.4 Integrations — Google Sheets, BambooHR, HiBob, Personio, Rippling, Deel, Workday, SAP, Oracle**; partner network, full Relationship OS across Africa |
 
 ---
 
@@ -1461,11 +1506,13 @@ Full records for ADR-004 onward live in [`adr/`](adr/). Accepted decisions are b
 | **ADR-002** | Relationship Type + numeric Relationship Level | Accepted | Yes — schema v2 |
 | **ADR-003** | — | ⚠️ **Retired** | See note below |
 | **ADR-004** | Program is an operational commitment | Accepted 2026-07-27 | **Partly** — Campaign mode, schema v6. Recurring and Triggered not implemented |
-| **ADR-005** | Workspace and Operations are separate surfaces | Accepted 2026-07-27 | **No** — architecture only |
-| **ADR-006** | Decisions vs Operational Events | Accepted 2026-07-27 | **No** — architecture only |
-| **ADR-007** | Money as integer minor units | Accepted 2026-07-27 | **Yes** — schema v5 |
+| **ADR-005** | Workspace and Operations are separate surfaces | Accepted 2026-07-27 | **Partly** — H3.1. Separate route tree, shell and navigation exist (§15b). **No roles and no authentication** |
+| **ADR-006** | Decisions vs Operational Events | Accepted 2026-07-27 | **Partly** — H3.1. Decisions and Events exist for Moment generation only (§15c) |
+| **ADR-007** | Money as integer minor units | Accepted 2026-07-27 | **Partly** — Money implemented, schema v5. `RecognitionOrder` deferred to H3.7 |
 | **ADR-008** | Person has three lifecycle states | Accepted 2026-07-27 | **Yes** — schema v5 |
 | **ADR-009** | Policy lifecycle stays three states | Accepted 2026-07-27 | **Yes** — no code change was required |
+| **ADR-010** | Operational records live outside `WorkspaceState` | Accepted 2026-07-27 | **Yes** — H3.1, `OperationsState` v1 (§15d) |
+| **ADR-011** | Recipient address is customer-owned; operator overrides are per-brief | Accepted 2026-07-28 | **No** — accepted architecture. Workspace schema **v7 is not built** |
 
 #### ⚠️ ADR-003 — retired
 
@@ -1571,8 +1618,10 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.2 — Aniyé Africa — July 2026*
+*System Atlas v3.4 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.4: Council corrections to the reconciliation (documentation only). §17 H4 renamed **Learn**; **all external connectors moved to H5.4 — Integrations**, removing the intermediate H4.4/H4.5 placement. §12's Supported People Sources table corrected — it still placed Google Sheets, BambooHR, HiBob and Personio at H3 and the remaining five at H4; all nine are now H5.4. ADR-011 renamed to `adr/ADR-011-recipient-address.md` to match the repository's lowercase-kebab convention*
+*v3.3: Governance reconciliation (documentation only — no code, schema, migration or validation change). ADR-011 accepted (recipient address; Workspace schema v7 accepted, **not built**); §4 Person gains the accepted-not-implemented `deliveryAddress`; §4 Moment corrected to the implemented H3.1 model and the superseded pre-H3.1 shape marked as such; §18 registry gains ADR-010 and ADR-011 and corrects ADR-005/006/007 from "No" to "Partly"; §17 restated as Workspace v6 + OperationsState v1 and pointed at the new [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md), which is now authoritative for H3.1 … H3.8; H3/H4 horizon rows corrected — people-source connectors and Gift/Catalog/Vendor Intelligence sit in H4, not H3*
 *v3.2: H3.1 — ADR-010 accepted; operational records moved to a separate OperationsState (§15d); Moment generation, Decision and OperationalEvent implemented (§15c, §15e); the /operations shell exists but has no roles or authentication. Browser persistence is an internal prototype only — no production backend, no external partner access, Execution Brief and everything after it unimplemented*
 *v3.1: H2.6 — Campaign Programs implemented (schema v6). Program marked implemented for Campaign mode only; currency-specific budget envelopes documented with no FX; frozen-population semantics recorded; policy resolution confirmed as per-Moment and still absent from the Program record; Moment generation explicitly still absent*
 *v3.0: ADR-004 … ADR-009 accepted by Council. Money redefined as integer minor units and Person gains Inactive (both implemented, schema v5); Program, Workspace/Operations, Decision/Operational Event and Recognition Order recorded as accepted architecture and explicitly marked NOT IMPLEMENTED; Policy lifecycle confirmed as three states, resolving C4 with no code change; ADR registry added with the ADR-003 retirement note*

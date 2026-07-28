@@ -20,18 +20,20 @@ This is a review-only workflow. Do not edit application code unless the user sep
    | Source | Path | Notes |
    |--------|------|-------|
    | System Atlas | `docs/ANIYE_SYSTEM_ATLAS.md` | The authority. §4 canonical objects, §15 persistence, §18 ADR registry. Check the version footer at the end |
+   | Relationship Operations Atlas | `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` | How Aniyé executes. **§9 lists what is deliberately unresolved**; §10 is the breach checklist |
+   | Master Roadmap | `docs/MASTER_ROADMAP.md` | **Authoritative for milestones and sequencing** |
    | Experience Doctrine | `docs/ANIYE_EXPERIENCE_DOCTRINE.md` | Governs how it feels; §2 is the completion checklist |
-   | ADRs 004–010 | `docs/adr/*.md` + `docs/adr/README.md` | Each accepted ADR carries **binding Council conditions** that often narrow the original draft. Read them |
+   | ADRs 004–011 | `docs/adr/*.md` + `docs/adr/README.md` | Each accepted ADR carries **binding Council conditions** that often narrow the original draft. Read them. The README's status table separates *accepted* from *implemented* |
    | ADRs 001–002 | `docs/ANIYE_SYSTEM_ATLAS.md` §18 | No standalone files — the Atlas is authoritative |
-   | ADR-003 | — | **Retired.** Never reconstructed, never accepted. Do not reuse or renumber the number |
-   | Recovery Ledger | `docs/RECOVERY_LEDGER.md` | Reconstruction state, open conflicts (C-codes), People compromises (P-codes) |
-   | Architecture checkpoint | `docs/H2_H3_ARCHITECTURE_CHECKPOINT.md` | Full analysis behind ADR-004…009, the closed-loop definition, and the implementation pathway |
+   | ADR-003 | — | **Retired.** Never reconstructed, never accepted. Do not reuse or renumber the number, and do not treat it as a dependency |
+   | Recovery Ledger | `docs/RECOVERY_LEDGER.md` | **Historical** — the record of what was lost and how it was recovered. Still live for open conflicts (C-codes) and People compromises (P-codes). Its superseded H3 rows are marked; do not schedule from them |
+   | Architecture checkpoint | `docs/H2_H3_ARCHITECTURE_CHECKPOINT.md` | Full analysis behind ADR-004…009, the closed-loop definition, and the original implementation pathway (mapped to H3.x in the Master Roadmap) |
    | Experience audit | `docs/ANIYE_EXPERIENCE_AUDIT.md`, `docs/ANIYE_FRICTION_REGISTER.md` | Open EX-codes and their status |
 
-   **Two documents named in the standard workflow do not exist in this repository:**
+   **Two documents that were previously absent now exist — reconstructed in R6, 2026-07-28:**
 
-   - **`docs/RELATIONSHIP_OPERATIONS_ATLAS.md`** — never reconstructed. It is recovery milestone 4 (`RECOVERY_LEDGER.md` §4, §9). Report its absence; do not treat `ANIYE_SYSTEM_ATLAS.md` as a substitute and do not reconstruct its contents from memory.
-   - **A standalone master roadmap file.** The roadmap is distributed across `ANIYE_SYSTEM_ATLAS.md` §17 (Horizon Roadmap), `H2_H3_ARCHITECTURE_CHECKPOINT.md` Part 3 (implementation pathway), and `RECOVERY_LEDGER.md` §0 and §10 (reconstruction sequence). Read all three; say which one you relied on.
+   - **`docs/RELATIONSHIP_OPERATIONS_ATLAS.md`** — ✅ **reconstructed in R6** and authoritative for how Aniyé executes. Its **§9 Unresolved** lists ten rules that deliberately do not exist (operator roles, SLAs, commercial role, QA taxonomy, partner onboarding and more). If a proposal depends on one, it is **blocked pending decision** — do not reconstruct it from memory.
+   - **`docs/MASTER_ROADMAP.md`** — ✅ **created in R6** and **authoritative for the roadmap** (Council, 2026-07-28). Milestones are **H3.1 … H3.8**; Catalog, Gift and Vendor *Intelligence* are H4.1–H4.3, deferred until the pilot. `ANIYE_SYSTEM_ATLAS.md` §17 is the thematic summary and `H2_H3_ARCHITECTURE_CHECKPOINT.md` Part 3 the original pathway (mapped in the roadmap's checkpoint table); where they disagree, the Master Roadmap wins. `RECOVERY_LEDGER.md` §0/§10 is now a **historical** record — its superseded H3 rows are marked as such and must not be scheduled from.
 
 3. Inspect the existing code, types, persistence layer, migrations and validation related to the proposal:
 

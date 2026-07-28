@@ -27,10 +27,29 @@
 | [ADR-008](ADR-008-person-lifecycle.md) | Person has three lifecycle states | **Accepted** | 2026-07-27 |
 | [ADR-009](ADR-009-policy-lifecycle.md) | Policy lifecycle stays three states | **Accepted** | 2026-07-27 |
 | [ADR-010](ADR-010-operational-persistence-boundary.md) | Operational records live outside WorkspaceState | **Accepted** | 2026-07-27 |
+| [ADR-011](ADR-011-recipient-address.md) | Recipient address is customer-owned; operator overrides are per-brief | **Accepted** | 2026-07-28 |
 
 Every accepted record carries the **Council conditions** attached at acceptance. Those conditions are
 binding and in several cases narrow the original draft — ADR-004 most notably, where a Program now
 targets exactly one Relationship Group rather than several.
+
+## Implementation status
+
+Acceptance and implementation are not the same thing. This column is the quick answer; the record
+itself is the authority.
+
+| ADR | Implemented |
+|-----|-------------|
+| ADR-001 | ✅ Yes — H2.3 / H2.4 |
+| ADR-002 | ✅ Yes — schema v2 |
+| ADR-004 | ⚠️ Partly — Campaign mode only, schema v6. Recurring and Triggered not implemented |
+| ADR-005 | ⚠️ Partly — H3.1. Separate route tree, shell and navigation exist. **No roles, no authentication** |
+| ADR-006 | ⚠️ Partly — H3.1. Decisions and Events exist for Moment generation only |
+| ADR-007 | ⚠️ Partly — Money implemented, schema v5. `RecognitionOrder` deferred to H3.7 |
+| ADR-008 | ✅ Yes — schema v5 |
+| ADR-009 | ✅ Yes — no code change was required |
+| ADR-010 | ✅ Yes — H3.1, `OperationsState` v1 |
+| ADR-011 | ❌ **Not implemented.** Workspace schema v7 is accepted, not built |
 
 ---
 

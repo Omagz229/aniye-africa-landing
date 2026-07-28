@@ -1,0 +1,471 @@
+# Aniyé Africa — Relationship Operations Atlas
+
+> **Reconstructed 2026-07-28 (R6).** The original was lost with the previous development machine and
+> was never recovered. Recovery milestone 4, outstanding since the audit.
+>
+> ⚠️ **This document was rebuilt from repository-confirmed sources only** — implemented code,
+> accepted ADRs, and the H2 → H3 Architecture Checkpoint. **Nothing here was written from memory.**
+> Rules the original may have carried but that cannot be recovered from evidence are recorded in
+> **§9 Unresolved**, not invented. If you need a rule and it is in §9, it does not exist yet — raise
+> an ADR rather than assuming.
+
+**Scope.** The [System Atlas](ANIYE_SYSTEM_ATLAS.md) governs what the platform *is*, from the
+customer's side. This document governs **how Aniyé executes**: the operator's surface, the
+operational record, and the boundary between the two. Where the two overlap, the System Atlas is
+authoritative and this document defers to it.
+
+**Companions:** [`ANIYE_EXPERIENCE_DOCTRINE.md`](ANIYE_EXPERIENCE_DOCTRINE.md) ·
+[`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) · [`adr/`](adr/) ·
+[`H2_H3_ARCHITECTURE_CHECKPOINT.md`](H2_H3_ARCHITECTURE_CHECKPOINT.md)
+
+---
+
+## 1. What Operations is
+
+**Workspace is what the customer configured. Operations is the record of what Aniyé did.**
+
+That sentence is the whole boundary, and it is load-bearing enough that ADR-005 and ADR-010 both
+exist to defend it — the first as a product and routing boundary, the second as a persistence one.
+
+| | Workspace | Operations |
+|---|-----------|------------|
+| Audience | Organization administrators | Aniyé internal operators |
+| Scope | One organization | Across all organizations |
+| Route tree | `/workspace/*` | `/operations/*` |
+| Shell | `WorkspaceShell` | `OperationsShell` — shares nothing |
+| Persistence | `WorkspaceState`, key `aniye_workspace`, **v6** | `OperationsState`, key `aniye_operations_v1`, **v1** |
+| Nature of records | Configuration, edited freely | Operational history, accumulating |
+| Growth | Bounded by organization size | Unbounded |
+| Vocabulary | "recognition program", "upcoming recognition" | "campaign", "job", "brief" |
+
+**Owns:** Moments, Execution Briefs, item selection, vendor offers, courier selection, QA,
+fulfilment, exceptions, commercial detail, Decisions and Operational Events.
+
+**Does not own — and must never write:** Organization Profile, relationship groups, recognition
+rules, assignments, people, programs. Operations **reads** configuration and **proposes**
+corrections. *(Atlas §15b, ADR-005.)*
+
+### The disclosure boundary
+
+**Never projected into Workspace, under any circumstance:**
+
+- vendor cost · courier cost · margin
+- vendor identity · courier identity
+- QA exceptions · internal operator notes
+
+The customer sees **what happened and what it cost them**. Operations sees **how it happened and
+what it cost us**. *(ADR-005; Atlas §15b.)*
+
+This is not a UI preference. It is one conditional away from disclosure at all times, which is
+precisely why ADR-005 rejected placing Operations navigation inside `WorkspaceSidebar` — the
+pattern the lost implementation used.
+
+---
+
+## 2. The operating model
+
+### The canonical chain
+
+```
+Relationship Class ─→ Policy Assignment ─→ Recognition Policy
+                                              │
+Person ──────────────────────────────────────┤
+                                              ▼
+                      Program ──────────→ Moment ──→ Execution Brief ──→ Recognition Order
+                                              │              │
+                                              └─→ Decision   └─→ Item · Vendor Offer · Courier
+                                              └─→ OperationalEvent          │
+                                                                            ▼
+                                                                     Fulfillment ──→ Memory
+```
+
+**Left of the Moment is Workspace. From the Moment rightward is Operations.** The Moment is the
+handover: generated from customer configuration, owned by Aniyé thereafter.
+
+### Where policy resolves
+
+**A Program never pins a policy** (ADR-004). A Program targets **exactly one Relationship Group**,
+carries no `policyAssignmentId`, no `recognitionPolicyId`, and no universal policy snapshot.
+
+Policy resolves **per Moment, by the recipient's country**, through `resolvePolicyAssignment()`
+(`lib/assignments.ts`) — and the resolved assignment *and* policy are snapshotted onto that Moment.
+
+The reason is multinational correctness: country-scoped assignments exist so one group can be
+governed by different rules in different countries. A Program-level snapshot would silently apply
+one country's rule to everyone, and deactivating that assignment would break a running Program.
+
+### Money
+
+Integer minor units with a pinned exponent table (ADR-007, `lib/money.ts`).
+
+- **Currencies are never summed.** A group spanning Nigeria and Kenya has an allocation in two
+  currencies; expressing it as one number would require an exchange rate.
+- **There is no implicit FX.** Cross-currency comparison requires an explicit dated snapshot.
+- **Aniyé never calculates a cross-currency grand total.** Each currency is budgeted, validated and
+  compared independently.
+- **Gross margin is derived, never stored** — the same reasoning as `memberCount`.
+
+⚠️ **Margin is an operational figure, not accounting revenue**, and must not be presented as the
+latter until Aniyé's commercial role is legally resolved. *(ADR-007 Council condition; see §9 U3.)*
+
+---
+
+## 3. Operational objects
+
+### Implemented — H3.1
+
+Defined in `lib/operations/types.ts`. Access is through `OperationsRepository`
+(`lib/operations/store.ts`).
+
+#### Moment
+
+One person, one occasion, one execution. Generated from an **Active Campaign's frozen population**.
+
+**Statuses: `NeedsReview` · `ReadyForExecution` · `Cancelled`.** They stop at generation. Dispatched,
+delivered and closed do not exist and **must not be added speculatively** — each needs the object
+that produces it.
+
+Carries `recipientSnapshot`, `relationshipGroupSnapshot`, an optional `policyResolutionSnapshot`
+(**required** when `ReadyForExecution`), and named `issues`. Full field list: Atlas §4 and §15e.
+
+**Snapshots are subsets, deliberately.** Copying the whole Person would create a second source of
+truth for data the customer keeps editing. The snapshot answers *why this Moment received this
+budget* — and must keep answering it after the policy is edited, republished or archived, which is
+why it captures the policy **version** rather than a reference.
+
+#### Decision
+
+A judgement between alternatives, with a **required reason**. Never mutated; superseded instead.
+
+- Statuses: **`Confirmed` · `Superseded`** only. `Proposed` and `Cancelled` are explicitly rejected —
+  an unconfirmed proposal is UI draft state, and `Cancelled` is indistinguishable from `Superseded`.
+- Providers: `RuleEngine` (deterministic resolution) · `HumanOperator` (judgement).
+- Types implemented: `MomentQualification` · `PolicyResolution` · `MomentCancellation`.
+
+#### OperationalEvent
+
+Something that happened. **Append-only** — never edited, never deleted. Corrected only by appending
+a referencing event.
+
+- Types implemented: `MomentCreated` · `MomentMarkedReady` · `MomentNeedsReview` · `MomentCancelled`.
+- Actors: `System` · `Operator` · `Customer` · `Vendor` · `Courier`.
+- Sources: `Platform` · `WhatsApp` · `Email` · `Phone` · `Manual`.
+- Carries both `occurredAt` (when it happened in the world) and `recordedAt` (when Aniyé learned of
+  it). The two diverge as soon as external parties report.
+
+### Accepted, not implemented
+
+| Object | Milestone | Authority |
+|--------|-----------|-----------|
+| **Execution Brief** — recipient, `deliveryAddressSnapshot`, budget, constraints | H3.2 | Checkpoint milestone 4 · ADR-011 |
+| **Catalog Item** — flat list, budget-filtered | H3.3 | Checkpoint milestone 5 |
+| **Vendor Offer** — hand-entered | H3.4 | Checkpoint milestone 6 |
+| **Courier selection** — per country | H3.5 | Checkpoint milestone 7 |
+| **Fulfillment** — dispatch → delivered → proof | H3.6 | Atlas §4, §13 · Checkpoint milestone 8 |
+| **RecognitionOrder** — one per Moment; margin derived | H3.7 | ADR-007 |
+| **Memory** — append-only relationship timeline entry | H3.8 | Atlas §4 |
+
+### ⚠️ Draft, not specification
+
+**`Gift / Item`, `Fulfilment` and `Memory` — and likewise `Insight` — are specified in Atlas §4 but
+absent from code.** Their Atlas field lists predate H3 and have not been reconciled against the
+implemented model the way §4 Moment was in R6.
+
+**Repository evidence cannot support canonical field definitions for any of them.** Atlas §4 Moment
+turned out to be wrong on every field once H3.1 was built; there is no reason to assume these four
+fared better. **Treat them as drafts, not specifications**, until the milestone that builds each one
+reviews and re-issues its field list:
+
+| Object | Reviewed and fixed by |
+|---|---|
+| `Gift / Item` | H3.3 |
+| `Fulfilment` | H3.6 |
+| `Memory` | H3.8 |
+| `Insight` | H4.5 |
+
+**Do not implement against these field lists as written.** Do not cite them as settled architecture.
+
+---
+
+## 4. The recording rule
+
+> **Draft in the interface → the user confirms → one transaction writes the state change, the
+> Decision, and the Operational Event together.**
+
+This is ADR-006's central rule and the most frequently breached one.
+
+- **Browsing is not persisted.** Abandoned selections are not persisted.
+- **Previewing writes nothing.** `previewPreparation()` is pure.
+- Comparing four vendor offers produces **one** `VendorSelection` Decision, at confirmation.
+- The proposed state is **validated in full before anything is stored** — a batch that would produce
+  an invalid state commits nothing at all (`validateOperationsState`).
+
+**Explicitly rejected:** the lost pattern of recording a selection the moment an item was clicked.
+It turns the audit trail into a record of mouse movement, burying the judgements that matter.
+
+### Decision or Event?
+
+> *Could it have gone another way, and does the reason matter later?*
+> **Yes → Decision. No → Event.**
+
+- Deterministic rule results **are** Decisions — a policy resolution had alternatives.
+- Ordinary CRUD is audit, not an Operational Event. The test is whether it changes the state of a
+  Moment's execution.
+- **Failed actions are first-class Events, never absences.** A delivery that failed is recorded, not
+  omitted.
+
+### Idempotency
+
+Every Moment carries a deterministic `sourceKey` —
+`campaign::workspace::program::person::occasion`. Refreshing, returning, double-clicking or
+re-preparing the same campaign reports records as **already prepared** rather than duplicating them.
+
+⚠️ The `campaign` prefix marks which scheme produced the key. **Recurring programs will need a
+generation-cycle component** — the same person legitimately receives a Moment every year. Both
+schemes can coexist without ambiguity; the extension is not yet designed. *(See §9 U6.)*
+
+---
+
+## 5. Operator workflow
+
+### Implemented — moment preparation
+
+1. **Select an Active Campaign.** `/operations/programs/[id]/prepare`.
+2. **Preview.** Eligibility is re-evaluated against *current* configuration. **Nothing is written.**
+3. **Review the split** — who is ready, who needs attention, and why.
+4. **Confirm.** One atomic operation commits Moments, qualification Decisions, policy-resolution
+   Decisions and Events together.
+5. **Work the queue.** `/operations/moments`, and `/operations/moments/[id]` for detail.
+
+### Eligibility is re-evaluated, and nobody is silently dropped
+
+A Campaign froze **who is covered**. It did not freeze **whether they can be executed**. Between
+activation and preparation someone may have been paused, a group turned off, a rule unpublished.
+
+**A Moment is created for every frozen person.** One that cannot proceed is marked `NeedsReview`
+with a named issue — *not skipped*, because skipping would lose them.
+
+| Issue code | Meaning |
+|---|---|
+| `person-missing` · `person-inactive` · `person-archived` | The recipient cannot receive |
+| `group-missing` · `group-inactive` | The relationship group is gone or switched off |
+| `country-missing` | No country, so no country-scoped policy can resolve |
+| `no-executable-assignment` | No assignment reaches this person with a Published policy |
+| `no-occasion-rule` | The resolved policy has no enabled rule for this occasion |
+
+**Each issue carries the Workspace page that fixes it.** Operations links out; it never edits. The
+administrator makes the change, and the operator re-prepares.
+
+This is Doctrine §1.8 — no dead ends — applied to an internal surface. A blocked state that does not
+name its unblocker is an unfinished screen, and that is as true for an operator as for a customer.
+
+### Correction, never mutation
+
+- A Decision that no longer holds is **superseded** by a new one. The original keeps its original
+  text — *an audit trail that can be edited is not evidence*.
+- An Event is corrected by **appending a referencing event**, never by rewriting one.
+- Per ADR-011, correcting a confirmed Execution Brief **preserves the original**, creates a revision,
+  supersedes the applicable Decision, and appends `ExecutionBriefAddressOverridden`.
+
+---
+
+## 6. The closed operational loop
+
+The smallest sequence taking a configured organization to a delivered, costed, closed recognition.
+Full table: checkpoint Part 2. Milestone identifiers: [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).
+
+| Step | Produces | Decision | Event | Milestone |
+|---|---|---|---|---|
+| Program activated | Program | — | `ProgramActivated` | H2.6 ✅ |
+| Moment generated | Moment | `MomentQualification` | `MomentCreated` | H3.1 ✅ |
+| Policy and budget resolved | `policyResolutionSnapshot` | `PolicyResolution` | — | H3.1 ✅ |
+| Brief prepared | ExecutionBrief | `BudgetException` if over | `BriefGenerated` | H3.2 |
+| Item selected | — | `ItemSelection` / `ItemSubstitution` | `ItemPrepared` | H3.3 |
+| Vendor offer selected | VendorOffer | `VendorSelection` | `VendorContacted` | H3.4 |
+| Courier selected | — | `CourierSelection` | — | H3.5 |
+| Fulfilment tracked | Fulfillment | `Redelivery` / `Escalation` | `Dispatched`, `DeliveryFailed` | H3.6 |
+| Delivery confirmed | Fulfillment | `QAException` if disputed | `Delivered`, `ProofReceived` | H3.6 |
+| Cost recorded | RecognitionOrder | — | — | H3.7 |
+| Moment closed | Moment, Memory | — | `MomentClosed` | H3.8 |
+
+**Decision and Event names beyond H3.1 are the checkpoint's proposals, not implemented enums.** The
+milestone that builds each one fixes its final name.
+
+### What the customer sees at each step
+
+| Step | Customer sees |
+|---|---|
+| Program active | Program summary |
+| Moment generated | Upcoming count |
+| Policy resolved | Budget per moment |
+| Brief prepared | **Nothing** |
+| Item selected | Category only — never the item's vendor |
+| Vendor offer selected | **Nothing** |
+| Courier selected | **Nothing** |
+| Fulfilment tracked | Status only |
+| Delivery confirmed | Confirmation + curated proof |
+| Cost recorded | **Their charge only** — never cost or margin |
+| Moment closed | Timeline entry |
+
+### Steps 7–9 need a human, not intelligence
+
+> **The most important line in the checkpoint:** item, vendor and courier selection need *an
+> operator, a list, and a text field*. Aniyé has no operational evidence yet about which vendors
+> deliver well or which gifts land. **Intelligence built before that evidence exists is invention.**
+> A manual flow generates the data that later makes intelligence possible; the reverse is not true.
+
+Catalog, Gift and Vendor **Intelligence** are **H4.2 – H4.4**, gated on the pilot (H4.1). They are
+not H3.
+
+---
+
+## 7. Operator experience standards
+
+The Experience Doctrine applies to Operations in full. Operators are users. *(Doctrine §1.7 —
+actor-specific simplicity — means each actor gets their own surface, not that internal surfaces get
+a lower standard.)*
+
+| Principle | In Operations |
+|---|---|
+| **One clear next action** | The queue shows the next brief needing attention, **not a table of everything** |
+| **No dead ends** | Every blocked Moment names its unblocker and links to it |
+| **Human language** | `Moment` → **"job"** for operators (**"upcoming recognition"** for customers) · `ExecutionBrief` → **"brief"** · `RecognitionOrder` → **"order"** in Operations, **"costs"** in Workspace |
+| **Confirmation before consequence** | Confirmation states real impact — *"This will create 47 moments and commit ₦2,350,000 of your ₦3,000,000 envelope"* |
+| **Avoiding analysis paralysis** | Operators see **budget-filtered** items, not the whole catalog |
+| **Continuity across channels** | A vendor offer requested over WhatsApp is completable on the web. **The Decision is the record; the channel is a `source` field** |
+| **Mobile-first partner flows** | Vendor and courier surfaces are phone-first **from the first line of code** (Doctrine §1.11) — not a later adaptation. E1 proved how expensive retrofitting is |
+| **Progressive disclosure** | Future sections are shown as **explicitly unavailable**, never as clickable dead ends |
+
+⚠️ **No Operations route has ever had a live visual check at any width.** Every responsive claim to
+date is static analysis plus an HTTP smoke test. A real-device pass is outstanding.
+
+---
+
+## 8. Security, access and the pilot gate
+
+### ⛔ There is no authentication and no role model
+
+**Anyone who can reach the app can reach `/operations`.** This is not a gap to be worked around in
+feature code — it is the current state, and any proposal assuming a role or permission check is
+blocked (ADR-010, Atlas §15b).
+
+### The local adapter is an internal prototype
+
+| Property | Today | Required for pilot |
+|---|---|---|
+| Persistence | One browser, one device | Server-side, durable, backed up |
+| Authentication | **None** | Required |
+| Authorization | **None** | Role-based, per ADR-005 |
+| Tenancy | One workspace per browser | Enforced isolation |
+| Concurrency | Last write wins | Transactional |
+| Audit integrity | **Anyone with devtools can rewrite history** | Append-only, tamper-evident |
+| File storage | **None** | Secure, access-controlled |
+
+**A payload belonging to a different workspace is refused, never adopted** — it is another
+organization's history — and preserved rather than overwritten.
+
+### Mandatory before any external exposure
+
+1. A **production backend** with server-side persistence.
+2. **Authentication** for both customer administrators and internal operators.
+3. **Multi-tenancy** with enforced isolation.
+4. **Secure file storage**, before proof of delivery exists.
+
+> **No vendor, courier, recipient or additional internal user may be given access while Operations
+> runs on browser storage.** Each implies a second party reading or writing operational records, and
+> this adapter can authenticate nobody, isolate nobody, and prevent nobody from rewriting the audit
+> trail. *A prototype one internal operator uses on one machine is defensible; the same prototype
+> shared with a courier is not.*
+
+### Where the gate actually binds
+
+ADR-010 attaches it to two triggers, and **neither is an H3 milestone**:
+
+1. **Any external pilot** — *"All of the following are required before any external pilot."*
+2. **Any grant of access to a second party** — vendor, courier, recipient, or additional internal user.
+
+**No H3 milestone requires either.** H3.4 and H3.5 build **directories the operator fills in by
+hand**: checkpoint milestone 6 excludes "automated requests, APIs" and milestone 7 excludes "rate
+APIs, tracking integration". A vendor in the directory is a row an operator typed, not an account
+someone signs into. **The gate binds at the controlled pilot (H4.1)**, and independently at whatever
+moment an external party is first given access.
+
+> ⚠️ **Correction.** An earlier draft of this document stated the gate "binds from H3.4". **That was
+> inference, not document evidence, and it is withdrawn.** No governing document places it there.
+> **It does not block H3.2, H3.3, H3.4 or H3.5.**
+
+The gate is nonetheless absolute at its real triggers: it is not a recommendation, and no schedule
+pressure justifies handing a courier a browser-storage prototype.
+
+---
+
+## 9. Unresolved
+
+**Rules the original Relationship Operations Atlas may have carried but which cannot be recovered
+from repository evidence.** Each is recorded as absent rather than invented. **If you need one of
+these, it does not exist — raise an ADR.** None of them is resolved here, and none may be
+back-filled by inference.
+
+**Dependency classification** — every item carries exactly one:
+
+| Marker | Meaning |
+|---|---|
+| 🔴 | **Blocks H3.2** — the Execution Brief cannot be built correctly without it |
+| 🟠 | **Blocks a later named milestone** — named explicitly, and only that one |
+| ⚪ | **Does not currently block implementation** |
+
+| # | Unresolved | Blocks | Why it is not written here |
+|---|---|---|---|
+| **U1** | **Operator roles and permissions** — who may prepare, confirm, override, cancel, or view commercial detail | 🟠 **H5.1** | ADR-005 says Operations has "separate roles"; **no role model exists in code or in any accepted ADR**. ADR-010 confirms authorization is absent. Not an H3 blocker: H3 runs as an internal prototype where every operator is trusted by construction. Inventing a role table would encode an unmade decision |
+| **U2** | **Operational SLAs** — lead times, escalation thresholds, how late a brief may sit | ⚪ | No evidence anywhere. Checkpoint milestone 4 defers the brief's non-address constraints entirely, and its completion test names only address completeness. A brief renders without an SLA |
+| **U3** | **Aniyé's commercial role** — merchant of record or agent | 🟠 **H3.7** | Checkpoint open question 3, **explicitly unanswered**. It changes what `actualCustomerCharge` legally means. ADR-007 reserves `commercialRole: Unspecified \| MerchantOfRecord \| Agent` so the answer needs no migration of meaning |
+| **U4** | **Exception and QA taxonomy** — what counts as a QA exception, who adjudicates, what the customer is told | 🟠 **H3.6** | `QAException` appears only as a proposed Decision name in checkpoint Part 2. No taxonomy survives. It is first needed at delivery confirmation |
+| **U5** | **Vendor and courier onboarding** — qualification, contracting, performance thresholds, offboarding | 🟠 **H4.1** | H3.4/H3.5 build *directories* an operator types into, which needs no onboarding process. Onboarding becomes real when partners are engaged for the pilot |
+| **U6** | **Recurring and Triggered generation semantics** — cadence, de-duplication window, cycle component of the `sourceKey` | 🟠 **H4.0** | ADR-004 accepts all three modes; **only Campaign is implemented**, and Campaign closes the loop on its own. The checkpoint proposes 14 days' lead time de-duplicated per person per occasion per year as a *default*, not a decision |
+| **U7** | **Correction proposals crossing the boundary** — the object an operator raises and an administrator accepts | ⚪ | ADR-005 requires Operations to *propose* rather than write. **ADR-011 settles the address case by avoiding the crossing entirely** — the operator overrides one brief and never writes back — so H3.2 needs no general mechanism. It becomes necessary the first time a correction must actually reach configuration |
+| **U8** | **Read-only customer-workspace access by internal users** | ⚪ | ADR-005 permits it and requires it to emit an Operational Event visible in the customer's own audit trail. **Neither the view nor a customer-facing audit trail exists**, and no milestone currently requires either |
+| **U9** | **Pricing and customer charge derivation** — how `estimatedCustomerCharge` is computed | 🟠 **H3.7** | ADR-007 lists the fields and defers the arithmetic. Depends on U3 |
+| **U10** | **Multi-organization operator workflow** — how one operator works across tenants | 🟠 **H4.1** | Depends on U1 and the absent backend. Checkpoint open question 1 — *does the pilot involve more than one organization?* — is unanswered, and it decides how much of H5.1 must precede the pilot |
+
+### 🔴 Nothing in this register blocks H3.2
+
+**No unresolved operational rule prevents the Execution Brief from being built correctly.** U7 is
+the closest, and ADR-011 deliberately routed around it. The only outstanding prerequisite for H3.2
+is **built work, not an unmade decision**: Workspace schema **v7** — `Person.deliveryAddress` — is
+accepted under ADR-011 and not yet implemented. That migration is the first task inside H3.2.
+
+**Ordinary deferrals** — decided, scheduled, and *not* unresolved: Recurring and Triggered
+implementation (H4.0), Catalog / Gift / Vendor Intelligence (H4.2–H4.4), courier rate APIs,
+automated offer requests, FX, and external connectors (H5.4).
+
+---
+
+## 10. Rules that must not be breached
+
+A checklist. Each line is enforced by an accepted ADR, and each has a specific failure it prevents.
+
+1. **Operations never writes customer configuration.** Read and propose only. *(ADR-005)*
+2. **Commercial detail never crosses into Workspace** — vendor cost, courier cost, margin, vendor and courier identity, QA exceptions, internal notes. *(ADR-005)*
+3. **Operational records never enter `WorkspaceState`.** Separate document, separate version chain. *(ADR-010)*
+4. **No generic `save(state)`.** Named repository operations only — a generic setter is how append-only guarantees get lost. *(ADR-010)*
+5. **Nothing is recorded until the user confirms.** Browsing and abandoned selections are not Decisions. *(ADR-006)*
+6. **Confirmation is atomic** — state change, Decision and Event in one transaction, over a fully validated proposed state. *(ADR-006)*
+7. **Decisions are never mutated; Events are never edited.** Supersede and append. *(ADR-006)*
+8. **Every Decision carries a reason.** *(ADR-006)*
+9. **A Program never pins a policy.** Policy resolves per Moment by the recipient's country. *(ADR-004)*
+10. **Currencies are never summed and there is no implicit FX.** *(ADR-007)*
+11. **Margin is derived, never stored — and is not accounting revenue.** *(ADR-007)*
+12. **Nobody is silently dropped.** An ineligible person gets a `NeedsReview` Moment with a named issue and a route to the fix. *(Atlas §15e)*
+13. **Moment statuses stop at generation.** No speculative fulfilment stages. *(Atlas §15e)*
+14. **Address readiness is not a Moment status.** It is a property of the brief. *(ADR-011)*
+15. **An operator address override never writes back to `Person`.** *(ADR-011)*
+16. **No external party gets access while Operations runs on browser storage.** *(ADR-010)*
+17. **Assume no authentication and no roles.** Any proposal that assumes otherwise is blocked. *(ADR-010)*
+
+---
+
+*Relationship Operations Atlas v1.1 — Aniyé Africa — 28 July 2026*
+*v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
+*v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
+*Basis: Workspace schema v6, `OperationsState` v1, System Atlas v3.4, ADR-001 … ADR-011.*
+*Implemented state at reconstruction: H3.1 — Moment generation, Decisions and Operational Events. Everything from the Execution Brief onward is accepted architecture only.*

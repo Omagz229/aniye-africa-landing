@@ -9,28 +9,32 @@ These files govern structural work. They exist in this repository — check them
 | Source | Path |
 |--------|------|
 | System Atlas — what the platform is | `docs/ANIYE_SYSTEM_ATLAS.md` |
+| Relationship Operations Atlas — how Aniyé executes | `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` |
 | Experience Doctrine — how it feels | `docs/ANIYE_EXPERIENCE_DOCTRINE.md` |
-| ADRs 004–010 and registry | `docs/adr/` |
+| **Master Roadmap — authoritative for milestones** | `docs/MASTER_ROADMAP.md` |
+| ADRs 004–011 and registry | `docs/adr/` |
 | ADRs 001–002 | `docs/ANIYE_SYSTEM_ATLAS.md` §18 (no standalone files) |
-| Recovery Ledger — reconstruction state, open conflicts | `docs/RECOVERY_LEDGER.md` |
+| Recovery Ledger — recovery record, open conflicts | `docs/RECOVERY_LEDGER.md` |
 | H2→H3 architecture checkpoint | `docs/H2_H3_ARCHITECTURE_CHECKPOINT.md` |
 | Experience audit and friction register | `docs/ANIYE_EXPERIENCE_AUDIT.md`, `docs/ANIYE_FRICTION_REGISTER.md` |
 
 **Approved ADRs and the latest applicable Atlas definitions govern structural implementation.** Each accepted ADR carries binding Council conditions that often narrow the original draft — read those, not just the decision.
 
-**Two documents referenced elsewhere do not exist here:**
+**`docs/MASTER_ROADMAP.md` is authoritative for the roadmap** (Council, 2026-07-28). Atlas §17 is the thematic summary and checkpoint Part 3 is the original pathway; where they disagree with the Master Roadmap, it wins. **Milestones are H3.1 … H3.8.** Catalog, Gift and Vendor *Intelligence* are H4.1–H4.3, deferred until the pilot — never describe them as the next H3 work.
 
-- `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` — never reconstructed (recovery milestone 4). Do not substitute the System Atlas for it, and do not write its contents from memory.
-- A standalone master roadmap. The roadmap is distributed across Atlas §17, checkpoint Part 3, and Recovery Ledger §0/§10.
+**Recovery is complete.** Every milestone the Recovery Ledger was opened to recover has landed, including the Relationship Operations Atlas (R6). The Ledger remains the record of what was lost and how, plus live conflicts (C-codes) and People compromises (P-codes). **From H3.2 onward the work is new build, not reconstruction.**
 
-**ADR-003 is retired.** Never reconstructed, never accepted. Do not reuse or renumber it.
+**Unresolved rules are listed, not inferred.** `RELATIONSHIP_OPERATIONS_ATLAS.md` §9 lists ten rules that do not exist — operator roles, SLAs, commercial role, QA taxonomy, partner onboarding and more. If you need one, raise an ADR; do not reconstruct it from memory.
+
+**ADR-003 is retired.** Never reconstructed, never accepted. Do not reuse or renumber it, and do not treat it as a dependency of anything.
 
 ## Rules
 
 - **Surface missing or conflicting decisions; never guess.** If two documents disagree, report the disagreement rather than picking one.
 - **Do not encode unresolved checkpoint questions as settled architecture.** An open question stays open until a Council decision closes it.
 - **Run an architecture review before structural domain work** — new canonical objects, lifecycle changes, persistence changes, Workspace/Operations boundary changes, money. Use `/aniye-architecture-review`.
-- **One roadmap milestone per implementation scope.** Use `/aniye-implement-milestone`. If a request spans several, ask which one.
+- **One roadmap milestone per implementation scope.** Milestone identifiers come from `docs/MASTER_ROADMAP.md`. Use `/aniye-implement-milestone`. If a request spans several, ask which one.
+- **The next milestone is H3.2 — Execution Brief**, and it is gated: **ADR-011 is accepted but Workspace schema v7 is not built.** H3.2 starts with the additive `Person.deliveryAddress` migration, not with the brief UI.
 - **Inspect existing code before editing.** Most of what a milestone needs already exists — the migration runner, `resolvePolicyAssignment()`, the Money helpers, the operations repository, `ConfirmDialog`. Reimplementing them is a defect.
 - **Structural persistence changes require** an ordered migration, a schema-version update, and a Recovery Ledger entry. The workspace chain is in `lib/migrations.ts` (currently v6) and moves one version at a time; `OperationsState` versions independently in `lib/operations/types.ts` (v1). Historical migrations are frozen — pin their value sets rather than referencing live enums.
 - **Never silently overwrite unrelated working-tree changes.** Run `git status` first and preserve what you did not author.

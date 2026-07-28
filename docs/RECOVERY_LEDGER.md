@@ -25,16 +25,38 @@
 | — | **Council acceptance of ADR-004 … ADR-009** | ✅ **Accepted 2026-07-27** | R4 |
 | — | **R4 — schema v5 (Money + Person lifecycle)** | ✅ **Complete** | R4 |
 | — | **R5 — H2.6 Campaign Programs (schema v6)** | ✅ **Complete — H2 Configure done** | R5 |
-| — | **H3.1 — Operational foundation + Moment generation** | ✅ **Complete** | H3.1 |
-| — | **H3.2 — Execution Brief** | ⬅️ **Next** | — |
+| — | **H3.1 — Operational foundation + Moment Engine** | ✅ **Complete** | H3.1 |
+| 4 | **Relationship Operations Atlas** | ✅ **Reconstructed** | R6 |
+| — | **R6 — governance reconciliation (ADR-011, Master Roadmap)** | ✅ **Complete** | R6 |
+| — | **H3.2 — Execution Brief** | ⬅️ **Next** — gated on ADR-011 / schema v7 | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
-| 4 | Relationship Operations Atlas | ⬜ Not started | — |
-| 5 | ADR-003 — Decision Engine | ⬜ Not started | — |
-| 6 | H3.1 — Moment Engine | ⬜ Not started | — |
-| 7 | H3.2 — Execution Brief | ⬜ Not started | — |
-| 8 | H3.3 — Catalog Intelligence | ⬜ Not started | — |
-| 9 | H3.4 — Gift Intelligence | ⬜ Not started | — |
-| 10 | H3.5 — Vendor Intelligence | ⬜ Not started | — |
+
+> **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
+> From H3.2 onward the work is new build, not recovery, and it is tracked in
+> [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) — **the authoritative roadmap** as of 2026-07-28.
+
+### ⚠️ Superseded reconstruction rows 5–10
+
+The original ledger listed six further steps. **All are superseded** by the Council decisions of
+2026-07-28, and are retained here only so historical references resolve. **Do not schedule work
+from this table.**
+
+| Original | Original definition | Superseded by |
+|---|---|---|
+| ~~5~~ | ~~ADR-003 — Decision Engine~~ | ⚠️ **Struck.** ADR-003 is **retired permanently** and is not a dependency of anything. Policy resolution is `resolvePolicyAssignment()`; recording judgements is ADR-006's `Decision`. See [`adr/README.md`](adr/README.md) |
+| ~~6~~ | ~~H3.1 — Moment Engine~~ | ✅ **Delivered as H3.1**, without a Decision Engine. See §0 above |
+| ~~7~~ | ~~H3.2 — Execution Brief~~ | **H3.2**, unchanged in intent. Now gated on ADR-011 rather than on ADR-003 |
+| ~~8~~ | ~~H3.3 — Catalog Intelligence~~ | **H3.3 is a minimum flat catalog with manual item selection.** Catalog *Intelligence* is **H4.2**, deferred until the pilot produces evidence |
+| ~~9~~ | ~~H3.4 — Gift Intelligence~~ | **H3.4 is a vendor directory with hand-entered offers.** Gift *Intelligence* is **H4.3** |
+| ~~10~~ | ~~H3.5 — Vendor Intelligence~~ | **H3.5 is a courier directory with manual selection.** Vendor *Intelligence* is **H4.4** |
+
+**Why the intelligence milestones moved.** Checkpoint Part 2 classifies all three as **[D]** —
+deferrable until operational evidence exists — and states the reasoning that binds them:
+*"Intelligence built before that evidence exists is invention."* Aniyé has no operational evidence
+yet about which vendors deliver well or which gifts land. The manual flow generates the data that
+makes intelligence possible; the reverse is not true.
+
+The canonical sequence is now **H3.1 … H3.8** in [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).
 
 ### R1 — Schema versioning + ADR-002
 
@@ -266,6 +288,89 @@ All six decisions are **Proposed — Council Review Required**. None is accepted
 
 **Validation: 172 checks across seven suites, all passing** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, operations 35.
 
+### ✅ R6 — Governance reconciliation. **Documentation only.**
+
+**Trigger.** An architecture review of the H3 reconstruction scope, requested 2026-07-28, found the
+roadmap unimplementable as written. Three sources defined H3 and none agreed: this ledger placed
+H3.1 as both *Complete* and *Not started* in the same table, gated the sequence on the **retired
+ADR-003**, and listed H3.3–H3.5 as Catalog, Gift and Vendor **Intelligence** — which checkpoint
+Part 2 classifies as deferrable until after the pilot. The Council settled it.
+
+**No application code, schema, migration, validation script or `package.json` changed.**
+Typecheck, build and all seven validation suites were run before and after, and are unchanged.
+
+**Council decision 1 — canonical H3 roadmap.** H3.x is retained as the roadmap vocabulary and
+redefined as **H3.1 … H3.8**: Moment Engine (done) → Execution Brief → minimum Catalog → vendor
+directory → courier directory → Fulfilment → Recognition Order → Confirmation and Memory. Catalog,
+Gift and Vendor **Intelligence** move to **H4.2 – H4.4**, deferred until the pilot produces
+operational evidence, and must not be represented as the next H3 milestones. Checkpoint Part 3's
+numbers 1–13 are mapped to the H3.x identifiers so both sources stay readable.
+
+**Council decision 2 — ADR-011, recipient address.** The review found that `Person` carries **no
+address**, while H3.2's completion test depends on one. Worse, the gap sat on the ADR-005 boundary:
+an address is customer configuration, but the operator discovers it is wrong. [ADR-011](adr/ADR-011-recipient-address.md)
+resolves it — `Person` owns an optional customer-controlled `deliveryAddress` (schema **v7**,
+additive, **not built**); the Execution Brief carries a `deliveryAddressSnapshot`; a Moment may stay
+`ReadyForExecution` without an address but a **brief cannot be confirmed** without one;
+**`MOMENT_STATUSES` is not expanded**; an operator override applies to one brief with reason,
+provenance and timestamp and **never writes back to `Person`**.
+
+**Documents changed:**
+
+| File | Change |
+|------|--------|
+| `docs/adr/ADR-011-recipient-address.md` | **New.** Accepted |
+| `docs/MASTER_ROADMAP.md` | **New.** The authoritative H0–H5 roadmap |
+| `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` | **New.** Recovery milestone 4, outstanding since the audit |
+| `docs/adr/README.md` | ADR-011 registered; implementation-status table added |
+| `docs/ANIYE_SYSTEM_ATLAS.md` | → **v3.3.** §4 Moment corrected to the implemented H3.1 model; §4 Person gains the accepted-not-implemented `deliveryAddress`; §18 gains ADR-010 and ADR-011 and corrects ADR-005/006/007 from "No" to "Partly"; §17 restated as v6 + Operations v1 |
+| `docs/RECOVERY_LEDGER.md` | This entry; §0, §4, §5, §7, §9, §10 corrected |
+
+**Milestone 4 — Relationship Operations Atlas — reconstructed.** Built **only** from repository code,
+accepted ADRs and the checkpoint. Nothing was written from memory. Rules that could not be recovered
+are marked **Unresolved** in its own §9 rather than invented — including the operator role model,
+SLAs, exception taxonomy, vendor and courier onboarding, and pricing.
+
+**Stale statements corrected:** the schema version in §7 (v4 → **v6**); the §5 route table (12 → 21
+routes, adding Programs and Operations); the "schema v7" claim about Moments (superseded by ADR-010
+— Moments are `OperationsState` v1 and the workspace stays at v6); the ADR-003 dependency in §0,
+§4, §9 and §10; and the proposed paths `lib/decision-engine.ts`, `lib/moments.ts` and
+`app/workspace/moments/…`, which would have put Operations records in the Workspace tree.
+
+**Historical records were preserved, not deleted.** Superseded blocks carry an explicit marker and
+the correction above them.
+
+### R6 — Council corrections (same reconciliation, second pass)
+
+The Council accepted R6 subject to ten corrections. All are documentation-only and are applied:
+
+| # | Correction | Applied |
+|---|---|---|
+| 1 | Rename ADR-011 to lowercase kebab | `adr/ADR-011-recipient-address.md`; all four references updated |
+| 2 | Keep `ExecutionBriefAddressOverridden`; do not restore `AddressUpdated` | Retained. The ambiguous name is not reintroduced anywhere |
+| 3 | H0 is an **approved retrospective label** for real completed work | Restated in `MASTER_ROADMAP.md` §H0. The underlying work is **not** described as invented |
+| 4 | H4 remains **Learn**; all external connectors belong to **H5.4 — Integrations** | H4 renamed and renumbered; connectors moved out of H4.4/H4.5, which no longer hold them anywhere. Relocation note records both the original H3 placement and the intermediate H4 one |
+| 5 | Confirm H2.6 Complete, H3.1 Complete, H3.2 Next; and the milestone count | All three states confirmed. **The count is 19 of 37, not 15 of 31** — see below |
+| 6 | Preserve "draft, not specification" for `Gift / Item`, `Fulfilment`, `Memory` | Strengthened in `RELATIONSHIP_OPERATIONS_ATLAS.md` §3, each named with the milestone that must re-issue its field list |
+| 7 | Retain the `CLAUDE.md` and skill-file corrections | Retained unchanged |
+| 8 | Keep unsupported operational rules unresolved | All ten remain unresolved. **None was invented a resolution** |
+| 9 | Classify every unresolved item and conflict by what it blocks | Applied in three registers: §8 above, `MASTER_ROADMAP.md` §Unresolved, and `RELATIONSHIP_OPERATIONS_ATLAS.md` §9 |
+| 10 | State where the ADR-010 pilot gate binds, per repository evidence | ⚠️ **Evidence does not support "binds from H3.4"** — see below |
+
+**Correction 5 — the milestone count does not match.** The Council's instruction was conditional
+(*"if the roadmap still contains 31 milestones"*). It does not: at one-row-one-milestone granularity
+the roadmap contains **37 milestones, 19 complete**. The three named milestone *states* are
+confirmed exactly as instructed — H2.6 Complete, H3.1 Complete, H3.2 Next. The difference is
+**counting granularity, not status**, and is surfaced in `MASTER_ROADMAP.md` §Milestone count rather
+than resolved by adjusting the roadmap to fit a number.
+
+**Correction 10 — an earlier R6 claim is withdrawn.** R6 stated the ADR-010 gate "binds from H3.4 in
+practical terms". **No governing document establishes that**, and the claim was inference. ADR-010
+attaches the gate to *any external pilot* and to *any grant of access to a second party*. H3.4 and
+H3.5 build directories an operator types into — checkpoint milestone 6 excludes "automated requests,
+APIs" and milestone 7 excludes "rate APIs, tracking integration" — so no H3 milestone grants anyone
+access. **The gate binds at the pilot (H4.1). It does not block H3.2, H3.3, H3.4 or H3.5.**
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -285,7 +390,19 @@ This moves the backend **earlier than the H2→H3 checkpoint anticipated** — i
 - **EX-H3** — `PolicyForm` guided rebuild.
 - **Live responsive visual review on real devices.** Never performed. H3.1 adds four more routes that have had no visual check at any width.
 
-### The remaining gate before the minimum closed operational loop
+### ~~The remaining gate before the minimum closed operational loop~~ — ⚠️ superseded, written at R5
+
+> ⚠️ **Superseded by H3.1 and ADR-010.** Retained verbatim below as the R5-era record. **Two of its
+> three claims are now wrong:**
+>
+> - **"A `Moment` type and collection (schema v7)"** — ✅ **superseded by ADR-010.** `WorkspaceState`
+>   **stays at v6** and gains no operational collection. Moments live in a separate `OperationsState`
+>   at **v1**, versioned independently. Schema **v7 is a different change entirely** — the additive
+>   `Person.deliveryAddress` field of ADR-011, and it is **not built**.
+> - **"The next milestone is Moment generation"** — ✅ **delivered as H3.1.** The next milestone is
+>   **H3.2, Execution Brief**.
+>
+> The third claim — per-Moment policy snapshotting — was delivered as specified.
 
 **H2 Configure is finished.** An organization can now describe who matters, how each group is recognized, which rule reaches whom, who its people are, and what it has committed to.
 
@@ -310,7 +427,15 @@ After Moments come the Execution Brief and the `/operations` surface (ADR-005), 
 - **EX-H3** — `PolicyForm` guided rebuild.
 - A backend with real tenant isolation, if the pilot involves more than one organization.
 
-### ⚠️ Gate before Operations reconstruction
+### ~~⚠️ Gate before Operations reconstruction~~ — ✅ satisfied, retained for the record
+
+> ✅ **This gate is closed.** The architecture-correction checkpoint completed, all four questions
+> were answered, and the resulting ADRs were accepted: **ADR-004** (Program definition),
+> **ADR-005** (Workspace/Operations boundary), **ADR-006** (Decision vs Operational Event) and
+> **ADR-007** (Money — conflict C6). Operations reconstruction proceeded as H3.1.
+>
+> ⚠️ The final paragraph below is factually stale: Money is **no longer** stored as face value —
+> ADR-007 landed as schema v5 — and the "Decision Engine" it refers to is **ADR-003, retired**.
 
 **Operations reconstruction must not begin until the architecture-correction checkpoint is completed.** That checkpoint covers:
 
@@ -408,21 +533,21 @@ All confirmed absent from the repository — verified by file inspection, not as
 | 1 | ~~**ADR-002** — Relationship Type + numeric Relationship Level~~ | ~~Atlas §18 stops at ADR-001. `lib/workspace.ts` still uses the two-axis `RelationshipCategory` + string `RelationshipTier` model.~~ **✅ Reconstructed in R1.** |
 | 2 | ~~**H2.4** — Policy Assignments~~ | ~~`PolicyAssignment` is specified in Atlas §4 and §11 but has **no TypeScript type, no route, no component**.~~ **✅ Reconstructed in R2.** |
 | 3 | ~~**H2.5** — People Sources and People~~ | ~~`Person` specified in Atlas §4, `PeopleSource` in Atlas §12. No types, no `/workspace/people` route.~~ **✅ Reconstructed in R3.** |
-| 4 | **Relationship Operations Atlas** | No such file in `docs/`. Only `ANIYE_SYSTEM_ATLAS.md` exists. |
-| 5 | **ADR-003** — Decision Engine | Not present in Atlas §18. No decision-engine module anywhere in `lib/`. |
-| 6 | **H3.1** — Moment Engine | No `Moment` type in code (Atlas §4 defines it). No moment generation or scheduling logic. |
-| 7 | **H3.2** — Execution Brief | No such concept in code or in the Atlas. |
-| 8 | **H3.3** — Catalog Intelligence | Atlas §9 describes Intent → Category → Collection → Item. No catalog code exists. |
-| 9 | **H3.4** — Gift Intelligence | `GIFT_CATEGORIES` exists as a flat string list only (`lib/workspace.ts:47`). No intent hierarchy, no recommendation logic. |
-| 10 | **H3.5** — Vendor Intelligence | No vendor types, routes, or logic. The `h3.5-vendor-intelligence` tag is a false marker (see §1). |
+| 4 | ~~**Relationship Operations Atlas**~~ | ~~No such file in `docs/`. Only `ANIYE_SYSTEM_ATLAS.md` exists.~~ **✅ Reconstructed in R6** as [`RELATIONSHIP_OPERATIONS_ATLAS.md`](RELATIONSHIP_OPERATIONS_ATLAS.md), from repository-confirmed architecture and accepted ADRs only. Rules that could not be recovered are marked **Unresolved** rather than invented. |
+| 5 | ~~**ADR-003** — Decision Engine~~ | ⚠️ **Struck — retired permanently, not a missing milestone.** Only a number and a title ever survived. The checkpoint concluded no such object is needed: `resolvePolicyAssignment()` resolves policy, and ADR-006's `Decision` records judgements. **The number is not reused and not renumbered.** See [`adr/README.md`](adr/README.md) |
+| 6 | ~~**H3.1** — Moment Engine~~ | ~~No `Moment` type in code.~~ **✅ Reconstructed in H3.1** — in `lib/operations/`, not `lib/workspace.ts`, per ADR-010 |
+| 7 | **H3.2** — Execution Brief | Outstanding. No such concept in code. Gated on **ADR-011 / Workspace schema v7**, which is accepted and **not built** |
+| 8 | ~~**H3.3** — Catalog Intelligence~~ | ⚠️ **Redefined.** **H3.3 is a minimum flat catalog with manual item selection.** Atlas §9's Intent → Category → Collection → Item hierarchy is **Catalog Intelligence, H4.2** — deferred until the pilot produces evidence |
+| 9 | ~~**H3.4** — Gift Intelligence~~ | ⚠️ **Redefined.** **H3.4 is a vendor directory with hand-entered offers.** Gift Intelligence is **H4.3**. `GIFT_CATEGORIES` remains a flat string list and that is correct for H3.3 |
+| 10 | ~~**H3.5** — Vendor Intelligence~~ | ⚠️ **Redefined.** **H3.5 is a courier directory with manual selection.** Vendor Intelligence is **H4.4**. The `h3.5-vendor-intelligence` tag was a false marker and was deleted in R2 (C9) |
 
-**Nothing after H2.3 survived.** Items 1–3 were reconstructed in R1, R2, and R3 (see §0), completing the H2 Configure arc. Items 4–10 remain outstanding, and are gated behind the architecture-correction checkpoint.
+**Nothing after H2.3 survived.** Items 1–3 were reconstructed in R1, R2 and R3; item 6 in H3.1; item 4 in R6. Item 5 is **struck, not outstanding**. Items 7–10 are new build, redefined by the Council decisions of 2026-07-28 and tracked in [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) as **H3.2 … H3.8**. **Recovery is complete.**
 
 ---
 
 ## 5. Existing Routes
 
-From `npm run build` output — 12 routes total:
+From `npm run build` output — **21 routes total** (re-run and re-counted in R6):
 
 | Route | Rendering | Milestone | Source |
 |-------|-----------|-----------|--------|
@@ -438,19 +563,31 @@ From `npm run build` output — 12 routes total:
 | `/workspace/policies/[id]` | Dynamic | H2.3 | `app/workspace/policies/[id]/page.tsx` |
 | `/workspace/assignments` | Static | **H2.4 (R2)** | `app/workspace/assignments/page.tsx` |
 | `/workspace/people` | Static | **H2.5 (R3)** | `app/workspace/people/page.tsx` |
+| `/workspace/programs` | Static | **H2.6 (R5)** | `app/workspace/programs/page.tsx` |
+| `/workspace/programs/new` | Static | **H2.6 (R5)** | `app/workspace/programs/new/page.tsx` |
+| `/workspace/programs/[id]` | Dynamic | **H2.6 (R5)** | `app/workspace/programs/[id]/page.tsx` |
+| `/operations` | Static | **H3.1** | `app/operations/page.tsx` |
+| `/operations/moments` | Static | **H3.1** | `app/operations/moments/page.tsx` |
+| `/operations/moments/[id]` | Dynamic | **H3.1** | `app/operations/moments/[id]/page.tsx` |
+| `/operations/programs/[id]/prepare` | Dynamic | **H3.1** | `app/operations/programs/[id]/prepare/page.tsx` |
 | `/sitemap.xml` | Static | H1 | `app/sitemap.ts` |
 | `/_not-found` | Static | — | framework |
 
+`/operations/*` is a **separate route tree with its own shell and navigation** (ADR-005). It shares
+nothing with `WorkspaceSidebar`. It has **no authentication and no role model** — anyone who can
+reach the app can reach it (ADR-010).
+
 ### Routes referenced but not implemented
 
-Declared in `lib/workspace.ts` `SETUP_STAGES` with `available: false`:
+Shown in `app/components/operations/OperationsShell.tsx` as explicitly unavailable rather than
+omitted, so there are no clickable dead ends:
 
-- `/workspace/programs` — required by H3, and **intentionally unimplemented**. The sidebar entry
-  carries an explicit `built: false` flag so it stays visible as the next unavailable stage and
-  cannot be linked to even once `setupStage` reaches `programs`.
+- **Execution Briefs** — H3.2 · **Catalog** — H3.3 · **Vendors** — H3.4 · **Couriers** — H3.5 ·
+  **Fulfilment** — H3.6.
 
 ~~No route exists for **Policy Assignments** (H2.4).~~ Added in R2.
 ~~`/workspace/people` — required by H2.5.~~ Added in R3.
+~~`/workspace/programs` — intentionally unimplemented, `built: false`.~~ Added in R5. The sidebar entry is now labelled *Campaigns* with `built: true` (`WorkspaceSidebar.tsx:27`).
 
 ---
 
@@ -500,22 +637,31 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 
 | Key | Written by | Shape |
 |-----|-----------|-------|
-| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, now carrying `schemaVersion` (currently **v4**) |
+| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, carrying `schemaVersion` — **currently v6** (`lib/migrations.ts`, `CURRENT_WORKSPACE_SCHEMA_VERSION`) |
 | `aniye_last_submission` | `app/components/assessment/AssessmentWizard.tsx:35` | Assessment answers, written **once at submit** (H1, pre-workspace). *Corrected during the Experience Audit — this ledger and Atlas §2 both previously recorded the key as `aniye_assessment`, which the code has never used (EX-L7).* |
 | `aniye_workspace_backup_v<n>_<ts>` | **R1:** `lib/migrations.ts` | Verbatim pre-migration payload, written before a destructive migration only |
 | `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
 | `aniye_person_draft` | **R3a:** `PersonForm.tsx` | An unfinished new person, so the flow can be resumed. Never workspace data; cleared on save or cancel; not written for edits |
+| `aniye_program_draft_v1` | **R5:** `CampaignWizard.tsx` | An unfinished Campaign, resumable. Draft only — nothing reaches `workspace.programs` until the final step |
+| `aniye_operations_v1` | **H3.1:** `lib/operations/local-store.ts` | Serialized `OperationsState` — **schema v1, versioned independently** of the workspace chain (ADR-010) |
+| `aniye_operations_quarantine` | **H3.1:** `lib/operations/local-store.ts` | Unreadable **or foreign-`workspaceId`** operational payload, set aside rather than overwritten. Written at most once |
 
 **E1 added no storage keys.** `/verify` now writes `aniye_workspace` only when no workspace exists.
 
 ### Storage model
 
-- **One blob, one key.** Policies and classes are nested arrays inside `WorkspaceState`,
-  not separate collections. There is no index, no per-object key.
-- Workspace is seeded in `app/components/verify/VerifyGate.tsx:34-52` at the moment
-  the user passes the verify gate.
-- Read/write surface is four functions: `getWorkspace`, `saveWorkspace`,
+- **Two documents, two chains.** `WorkspaceState` (**v6**) is customer configuration.
+  `OperationsState` (**v1**) is Aniyé's record of what it did. They version independently and
+  neither migrates the other — ADR-010.
+- **One blob per document.** Policies, classes, people and programs are nested arrays inside
+  `WorkspaceState`, not separate collections. There is no index, no per-object key.
+- Workspace is seeded in `app/components/verify/VerifyGate.tsx` at the moment the user passes the
+  verify gate — read-before-write since E1, so an existing workspace is continued, never replaced.
+- Workspace read/write surface is four functions: `getWorkspace`, `saveWorkspace`,
   `updateWorkspace`, plus stage helpers.
+- **Operations has no equivalent.** Access is through the `OperationsRepository` interface with
+  named operations only — there is deliberately **no generic `save(state)`**, because a generic
+  setter is how append-only guarantees get lost (`lib/operations/store.ts`).
 
 ### Schema/version gaps
 
@@ -523,10 +669,11 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 |---|-----|-------------------------|
 | S1 | ~~**No `schemaVersion` field** on `WorkspaceState`.~~ | **✅ Resolved in R1.** `schemaVersion` is stamped on every write; `createWorkspace()` is the single construction point. |
 | S2 | ~~**Migrations are ad-hoc presence checks** — "if field missing, seed it."~~ | **✅ Resolved in R1.** `lib/migrations.ts` provides an ordered, idempotent, validated migration chain with backup and safe failure. |
-| S3 | **Money stored as face value**, not smallest currency unit. Deviation is documented in-code at `lib/workspace.ts:37-39` but contradicts Atlas §4 Money. | Must be reconciled before any budget arithmetic in the Decision Engine (ADR-003). |
-| S4 | **No `workspaceId` on `RelationshipClass`**, though `RecognitionPolicy` has one and Atlas §4 requires it on both. | Inconsistent ownership model; breaks once multi-workspace arrives. |
+| S3 | ~~**Money stored as face value**, not smallest currency unit.~~ | **✅ Resolved in R4.** ADR-007 implemented as schema v5 — integer minor units, pinned exponent table, destructive migration with backup. Conflict C6 closed. *(The original entry said this must be reconciled "before any budget arithmetic in the Decision Engine (ADR-003)". **ADR-003 is retired and was never a dependency**; the reconciliation happened under ADR-007.)* |
+| S4 | **No `workspaceId` on `RelationshipClass`**, though `RecognitionPolicy` has one and Atlas §4 requires it on both. — still open | Inconsistent ownership model; breaks once multi-workspace arrives. ADR-005 notes every canonical object gains an authoritative `workspaceId` once the backend lands. |
 | S5 | `WorkspaceState` carries `organizationId` only — Organization, Workspace, and Organization Profile are collapsed into one flat record. Atlas §4 defines three distinct objects. | Acceptable for H2/H3 local-storage phase, but must be recorded as intentional debt. |
-| S6 | No collection for ~~`policyAssignments`, `people`, `peopleSources`,~~ `programs`, or `moments`. | **Resolved for the H2 collections.** `policyAssignments` landed as v3 (R2); `people` and `peopleSources` as v4 (R3), the latter a purely additive bump requiring no backup. `programs` and `moments` are gated behind the architecture-correction checkpoint, since where they live is one of the open questions. |
+| S6 | ~~No collection for `policyAssignments`, `people`, `peopleSources`, `programs`, or `moments`.~~ | **✅ Resolved.** `policyAssignments` landed as v3 (R2); `people` and `peopleSources` as v4 (R3); `programs` as v6 (R5). **`moments` did not land in `WorkspaceState` at all** — ADR-010 answered the open question by putting Moments, Decisions and Events in a separate `OperationsState` v1. The workspace document has no operational collection and will not gain one. |
+| S7 | **No delivery address on `Person`.** Surfaced by the H3 architecture review, 2026-07-28. | **Decided, not built.** ADR-011 gives `Person` an optional customer-controlled `deliveryAddress` in **Workspace schema v7, additive**. It is the prerequisite for H3.2's completion test. **v7 does not exist yet.** |
 
 ---
 
@@ -534,6 +681,33 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 
 These are live contradictions between the surviving code and the surviving Atlas.
 They must be resolved deliberately during reconstruction, not silently overwritten.
+
+### Dependency classification (R6)
+
+Every **still-open** conflict, schema gap and People compromise below carries one of three markers.
+Resolved entries need none.
+
+| Marker | Meaning |
+|---|---|
+| 🔴 | **Blocks H3.2** — the Execution Brief cannot be built correctly without it |
+| 🟠 | **Blocks a later named milestone** — named explicitly, and only that one |
+| ⚪ | **Does not currently block implementation** |
+
+**Nothing open in this section is 🔴.** The full open register:
+
+| Item | Blocks | Milestone |
+|---|:---:|---|
+| **C2** — class lifecycle fields | ⚪ | — |
+| **C5** — default class seed list | ⚪ | — |
+| **S4** — no `workspaceId` on `RelationshipClass` | 🟠 | **H5.1** — multi-tenancy |
+| **S5** — Organization / Workspace / Profile collapsed | 🟠 | **H5.2** — multi-workspace |
+| **S7** — no delivery address on `Person` | 🟠 | **H3.2** — decided under ADR-011; the v7 migration is the first task *inside* H3.2, so it is a task, not an external blocker |
+| **P1, P2** — field-level provenance, admin-locked fields | 🟠 | **H5.4** — first HR connector |
+| **P3** — source priority not configurable | 🟠 | **H5.4** |
+| **P4** — name + startDate conflict detection | 🟠 | **H5.4** — connectors supplying records with no email |
+| **P5** — no `.xlsx` import | ⚪ | — |
+| **P6** — `tags`, `department`, `manager` absent | 🟠 | **H5.4** |
+| **P8** — repeated class id deduplicated at count time | ⚪ | Cosmetic |
 
 | # | Conflict | Code | Atlas | Resolution |
 |---|----------|------|-------|-----------|
@@ -591,9 +765,34 @@ These are deliberate H2.5 scope decisions, not defects. Each is recorded so the 
 > `scripts/validate-policy-assignments.mts`, and both docs.
 > `VerifyGate.tsx` again needed no change, for the same reason as in R2.
 >
-> The tables below list the remaining work.
+> **R5 landed:** `lib/programs.ts` (new), `app/components/workspace/CampaignWizard.tsx` (new),
+> `NewCampaign.tsx` (new), `ProgramDetail.tsx` (new), `ProgramsPage.tsx` (new),
+> `app/workspace/programs/{page,new/page,[id]/page}.tsx` (new),
+> `scripts/validate-programs.mts` (new), `lib/migrations.ts`, `lib/workspace.ts`,
+> `SetupChecklist.tsx`, `WorkspaceHeader.tsx`, `WorkspaceSidebar.tsx`, `package.json`,
+> `scripts/validate-money.mts`, `scripts/validate-policy-assignments.mts`,
+> `scripts/validate-verification.mts`, `docs/adr/ADR-004-program-definition.md`, and both docs.
+>
+> **H3.1 landed:** `lib/operations/{types,store,local-store,generation}.ts` (new),
+> `app/components/operations/{OperationsShell,OperationsCommand,MomentsList,MomentDetail,PrepareMoments}.tsx` (new),
+> `app/operations/{layout,page,moments/page,moments/[id]/page,programs/[id]/prepare/page}.tsx` (new),
+> `scripts/validate-operations.mts` (new), `docs/adr/ADR-010-operational-persistence-boundary.md` (new),
+> `app/components/workspace/ProgramDetail.tsx`, `package.json`, `docs/adr/README.md`, and both docs.
+> **`lib/workspace.ts` and `lib/migrations.ts` needed no change** — ADR-010 kept operational
+> records out of the workspace document entirely.
+>
+> **R6 landed (documentation only):** `docs/adr/ADR-011-recipient-address.md` (new),
+> `docs/MASTER_ROADMAP.md` (new), `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` (new),
+> `docs/adr/README.md`, `docs/ANIYE_SYSTEM_ATLAS.md`, `docs/RECOVERY_LEDGER.md`.
+> **No application file, schema, migration, validation script or `package.json` changed.**
+>
+> ⚠️ **The two tables below are the original R1-era plan.** They are superseded and retained only
+> for the audit trail. **Do not plan work from them** — see [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).
 
-### Will be modified
+### ~~Will be modified~~ — ⚠️ superseded R1-era plan
+
+> ⚠️ Stale on one point of substance: it requires **ADR-003** to be added to Atlas §18. ADR-003 is
+> **retired permanently** and must not be added anywhere. Everything else in this table was done.
 
 | File | Reason |
 |------|--------|
@@ -608,21 +807,23 @@ These are deliberate H2.5 scope decisions, not defects. Each is recorded so the 
 | `app/components/workspace/PolicyLibrary.tsx` | Assignment counts per policy |
 | `package.json` | Add `typecheck` script |
 
-### Will be created
+### ~~Will be created~~ — ⚠️ superseded R1-era plan
 
-| Path | Milestone |
-|------|-----------|
-| `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` | Relationship Operations Atlas |
-| `lib/migrations.ts` (or equivalent) | Schema versioning — prerequisite for ADR-002 |
-| `app/workspace/assignments/page.tsx` + components | H2.4 |
-| `app/workspace/people/page.tsx` + components | H2.5 |
-| `app/workspace/people/sources/…` | H2.5 |
-| `lib/decision-engine.ts` | ADR-003 |
-| `lib/moments.ts` + `app/workspace/moments/…` | H3.1 |
-| `lib/execution-brief.ts` + brief route/components | H3.2 |
-| `lib/catalog.ts` | H3.3 |
-| `lib/gift-intelligence.ts` | H3.4 |
-| `lib/vendors.ts` | H3.5 |
+> ⚠️ **Four of these paths are wrong and must not be used.** Corrections in the right-hand column.
+
+| Original proposed path | Milestone | Outcome |
+|------|-----------|---------|
+| `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` | Relationship Operations Atlas | ✅ **Created in R6**, at that path |
+| `lib/migrations.ts` (or equivalent) | Schema versioning | ✅ Created in R1 |
+| `app/workspace/assignments/page.tsx` + components | H2.4 | ✅ Created in R2 |
+| `app/workspace/people/page.tsx` + components | H2.5 | ✅ Created in R3 |
+| ~~`app/workspace/people/sources/…`~~ | H2.5 | ❌ **Never built.** People Sources are surfaced inside the People directory rather than on their own route. No separate route is planned |
+| ~~`lib/decision-engine.ts`~~ | ~~ADR-003~~ | ⚠️ **Struck. Never to be created.** ADR-003 is retired; `resolvePolicyAssignment()` in `lib/assignments.ts` already resolves policy, and ADR-006's `Decision` records judgements |
+| ~~`lib/moments.ts` + `app/workspace/moments/…`~~ | H3.1 | ⚠️ **Wrong tree.** Delivered as `lib/operations/` + `app/operations/` — Moments are Operations, not Workspace (ADR-005, ADR-010). **No `app/workspace/moments` route will ever exist** |
+| `lib/execution-brief.ts` + brief route/components | **H3.2** | ⬜ Outstanding. Route belongs under `app/operations/`, **not** `app/workspace/` |
+| ~~`lib/catalog.ts` — H3.3 Catalog Intelligence~~ | **H3.3** | ⬜ Redefined: a **minimum flat catalog**, under `lib/operations/`. Catalog Intelligence is H4.2 |
+| ~~`lib/gift-intelligence.ts` — H3.4~~ | **H3.4** | ⚠️ Redefined: H3.4 is a **vendor directory with hand-entered offers**. Gift Intelligence is **H4.3** |
+| ~~`lib/vendors.ts` — H3.5 Vendor Intelligence~~ | **H3.5** | ⚠️ Redefined: H3.5 is a **courier directory**. A vendor directory is H3.4. Vendor Intelligence is **H4.4** |
 
 *(Exact filenames are proposals, subject to the reconstruction prompt for each milestone.)*
 
@@ -640,29 +841,34 @@ Ordered by dependency. Each step is gated on `npx tsc --noEmit` and `npm run bui
 | 3 | ✅ **H2.5** — People Sources and People | 1, 2 | Resolved C3 by deriving member counts. **Landed in R3.** Completes the H2 Configure arc. |
 | — | ✅ **Aniyé Experience Audit** | 3 | 28 findings: 2 Critical, 8 High, 11 Medium, 7 Low. See `ANIYE_EXPERIENCE_AUDIT.md`. |
 | — | ✅ **Experience Correction E1** | Audit | Closed all 5 Programs-gating findings plus EX-H5, EX-H7, EX-H8 and three Low. **Landed in E1.** |
-| — | ⛔ **Architecture-correction checkpoint** — *required before Operations* | 3 | Program definition; Workspace vs Operations boundary; Decision vs Operational Event; minimum financial and Money model (C6). Steps 4–10 below are gated behind this. |
-| 4 | **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. Specification input for ADR-003. |
-| 5 | **ADR-003** — Decision Engine | 4 | Resolves "which policy applies to this person for this moment type in this country" — requires assignments, people, and scope precedence to all exist. Settle C6 (Money unit) here. |
-| 6 | **H3.1** — Moment Engine | 5 | Generates Moments by running the Decision Engine over People × Policies. |
-| 7 | **H3.2** — Execution Brief | 6 | Renders a Moment into an actionable brief. |
-| 8 | **H3.3** — Catalog Intelligence | 7 | Supplies the item universe the brief selects from. |
-| 9 | **H3.4** — Gift Intelligence | 8 | Intent → Category → Collection → Item on top of the catalog. Replaces the flat `GIFT_CATEGORIES`. |
-| 10 | **H3.5** — Vendor Intelligence | 9 | Routes chosen gifts to vendors. Re-point the `h3.5-vendor-intelligence` tag (C9) once genuinely reached. |
+| — | ✅ **Architecture-correction checkpoint** — *was required before Operations* | 3 | Program definition; Workspace vs Operations boundary; Decision vs Operational Event; minimum financial and Money model (C6). **Complete.** All four answered; ADR-004 … ADR-009 accepted. |
+| — | ✅ **R4 — schema v5** (Money as minor units, Person `Inactive`) | Checkpoint | The hard prerequisite: a budget envelope is arithmetic. **Landed in R4.** |
+| — | ✅ **R5 — H2.6 Campaign Programs, schema v6** | R4 | **Landed in R5.** H2 Configure complete. |
+| 4 | ✅ **Relationship Operations Atlas** | 1, 2, 3 | Documents the operating model once Class → Assignment → Policy → Person is whole. **Landed in R6**, reconstructed from repository-confirmed architecture and accepted ADRs only. |
+| ~~5~~ | ⚠️ ~~**ADR-003** — Decision Engine~~ | — | **Struck. Retired permanently.** `resolvePolicyAssignment()` already resolves policy; ADR-006's `Decision` records judgements. Nothing is left for a separate engine to own, and **nothing depends on this row**. |
+| ~~6~~ | ✅ **H3.1** — Operational foundation + Moment Engine | 3 (**not** 5) | Delivered **without** a Decision Engine, in `lib/operations/` under ADR-010. **Landed in H3.1.** |
+| ~~7–10~~ | ⚠️ ~~H3.2 … H3.5 as originally sequenced~~ | — | **Superseded by the Council decisions of 2026-07-28.** The canonical sequence is **H3.2 … H3.8** in [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md). Catalog, Gift and Vendor **Intelligence** are **H4.2 – H4.4**, deferred until the pilot produces evidence. |
 
 ### Next action
 
-**Two gates, in order — neither is a reconstruction milestone.**
+**Reconstruction is complete.** Every milestone this ledger was opened to recover has landed:
+schema versioning and ADR-002 (R1), Policy Assignments (R2), People (R3), Money and Person
+lifecycle (R4), Campaign Programs (R5), the operational foundation and Moment Engine (H3.1), and
+the Relationship Operations Atlas (R6). **From here the work is new build, not recovery.**
 
-**The Experience Audit, Experience Correction E1, and the H2 → H3 Architecture Checkpoint are all complete.**
+**The next milestone is H3.2 — Execution Brief.** It is gated on one thing:
 
-- Experience: **zero Critical findings**, zero Programs-gating findings. Programs is unblocked on experience.
-- Architecture: six decisions analysed and drafted as ADR-004 … ADR-009, all **Proposed — Council Review Required**.
+> **ADR-011 is accepted; Workspace schema v7 is not built.** `Person.deliveryAddress` and the
+> brief's `deliveryAddressSnapshot` are the prerequisite for H3.2's completion test — *"an
+> incomplete address blocks confirmation with a named recovery"*. **H3.2 begins with the additive
+> v7 migration, not with the brief UI.**
 
-**The only remaining gate is Council approval.** Nothing may be implemented until then. The first implementation milestone after approval is schema v5 (Money + Person lifecycle), because a Program budget envelope is arithmetic and the current floating-point face-value representation will not survive it.
+Roadmap authority moves to [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md). This ledger remains the record
+of *what was lost and how it was recovered*, plus the open conflicts (C-codes) and People
+compromises (P-codes) that are still live.
 
-Steps 0–3 have landed and the H2 Configure arc is complete: an organization can now define who
-matters (classes), how they are recognized (policies), which rules reach which group (assignments),
-and who the actual people are. Every link in the Atlas §11 chain up to Program exists.
+> ⚠️ **The four questions below are answered.** Retained verbatim for the audit trail.
+> 1 → ADR-004 · 2 → ADR-005 and ADR-010 · 3 → ADR-006 · 4 → ADR-007.
 
 The next link *is* Program, and that is exactly where the surviving architecture is least settled.
 Four questions must be answered before any Operations code is written:
@@ -701,3 +907,5 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after R4 — all 6 ADRs accepted; schema v5 implemented (Money + Person lifecycle); C4 and C6 resolved; Programs unblocked. System Atlas v3.0.*
 *Updated after R5 — H2.6 Campaign Programs implemented (schema v6); H2 Configure complete; Moment generation is the next milestone. System Atlas v3.1.*
 *Updated after H3.1 — ADR-010 accepted; OperationsState v1 separate from WorkspaceState v6; Moment generation, Decisions and Operational Events implemented; backend and authentication now the hard gate before pilot. System Atlas v3.2.*
+*Updated after R6 (governance reconciliation) — ADR-011 accepted; `MASTER_ROADMAP.md` created and now authoritative for the roadmap; `RELATIONSHIP_OPERATIONS_ATLAS.md` reconstructed, closing recovery milestone 4; H3 redefined as H3.1 … H3.8 with Intelligence deferred to H4; retired ADR-003 dependencies struck. System Atlas v3.3. **Documentation only — no code, schema, migration, validation script or package.json changed.** Reconstruction is complete; from H3.2 the work is new build.*
+*Updated after R6 Council corrections — ADR-011 renamed to lowercase kebab; H4 renamed **Learn** and renumbered; **all external connectors relocated to H5.4 — Integrations**; every open conflict, schema gap, People compromise and unresolved operational rule classified by what it blocks; milestone count published as **19 of 37** with the 31/15 discrepancy surfaced, not resolved; **the claim that the ADR-010 gate binds from H3.4 withdrawn** as unsupported by any governing document. System Atlas v3.4, Master Roadmap v1.1, Relationship Operations Atlas v1.1. **Documentation only. Nothing blocks H3.2.***
