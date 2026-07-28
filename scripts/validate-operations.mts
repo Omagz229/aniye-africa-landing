@@ -184,25 +184,30 @@ check('1. OperationsState initialises separately from WorkspaceState', () => {
   assertEqual(storage.getItem(WORKSPACE_KEY), null, 'Operations wrote into the workspace key.');
 });
 
-check('2. The workspace schema remains v6', () => {
-  assertEqual(CURRENT_WORKSPACE_SCHEMA_VERSION, 6, 'H3.1 changed the workspace schema version.');
-
+check('2. The workspace document holds no operational collection', () => {
   const ws = createWorkspace({
     companyName: 'Meridian', website: '', industry: 'Logistics', employeeCount: '11-50',
     operatingCountries: ['Nigeria'], contactName: 'Ada', contactEmail: 'a@x.example',
     contactRole: 'Head of People', phone: '',
   });
-  assertEqual(ws.schemaVersion, 6, 'A new workspace is not at v6.');
-  // No operational collection leaked into the customer document.
-  for (const forbidden of ['moments', 'decisions', 'events']) {
+  assertEqual(
+    ws.schemaVersion,
+    CURRENT_WORKSPACE_SCHEMA_VERSION,
+    'A new workspace is not at the current schema version.',
+  );
+  // ADR-010 — no operational collection may ever leak into the customer document.
+  for (const forbidden of ['moments', 'decisions', 'events', 'executionBriefs']) {
     assert(!(forbidden in ws), `WorkspaceState gained an operational collection: ${forbidden}.`);
   }
 });
 
-check('3. OperationsState uses its own schemaVersion 1', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 1, 'Operations schema version is not 1.');
+check('3. OperationsState versions independently of the workspace', () => {
   const state = emptyOperationsState(WS, NOW);
-  assertEqual(state.schemaVersion, 1, 'Empty state has the wrong schema version.');
+  assertEqual(
+    state.schemaVersion,
+    CURRENT_OPERATIONS_SCHEMA_VERSION,
+    'Empty state has the wrong schema version.',
+  );
   const opsVersion: number = CURRENT_OPERATIONS_SCHEMA_VERSION;
   const wsVersion: number = CURRENT_WORKSPACE_SCHEMA_VERSION;
   assert(opsVersion !== wsVersion, 'The two schema versions are coupled; they must move independently.');

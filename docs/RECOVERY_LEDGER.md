@@ -28,7 +28,8 @@
 | — | **H3.1 — Operational foundation + Moment Engine** | ✅ **Complete** | H3.1 |
 | 4 | **Relationship Operations Atlas** | ✅ **Reconstructed** | R6 |
 | — | **R6 — governance reconciliation (ADR-011, Master Roadmap)** | ✅ **Complete** | R6 |
-| — | **H3.2 — Execution Brief** | ⬅️ **Next** — gated on ADR-011 / schema v7 | — |
+| — | **H3.2 — Execution Brief** | ✅ **Complete** — schema v7, OperationsState v2 | H3.2 |
+| — | **H3.3 — Minimum Catalog** | ⬅️ **Next** — ungated | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -377,6 +378,9 @@ access. **The gate binds at the pilot (H4.1). It does not block H3.2, H3.3, H3.4
 at `485b5643a5683a0017ff9d7a50e078e2cd5f2fe1`, tagged `h3.1-moment-generation`, and neither the
 commit nor the tag was touched.
 
+**Committed and pushed** as `312a22d16d69f08ab9a3c4c54d6455391799e3d4`, parent `2e05986`. The remote
+`recovery/h3-reconstruction` was verified at that SHA before any H3.2 work resumed.
+
 **The defect.** `PrepareMoments.handleConfirm` rebuilt the batch from the `GenerationContext`
 captured at page load, refreshing **only the timestamp**:
 
@@ -450,6 +454,74 @@ marked fully accepted** — the code defect is closed, the visual gate is not.
   backend (H5.1). Acceptable for a single-device prototype and recorded here so it is not forgotten.
 - The fingerprint deliberately ignores issue *message* wording. A reworded message with identical
   codes will not trigger a re-confirmation. Intentional — wording is presentation, not meaning.
+### ✅ H3.2 — Execution Brief
+
+**Workspace schema v7 and `OperationsState` v2. Both additive.** The first milestone after the
+governance reconciliation, and the first that is new build rather than recovery.
+
+**Schema v6 → v7 — additive, no backup.** Declares `Person.deliveryAddress` (ADR-011). The rung is
+deliberately a **no-op on data**: no record is transformed and **no person is given an address**.
+Every field is carried through by spread, including keys this build does not recognize, so a
+forward-compatible payload survives the rung. A v1 workspace still walks **v1 → v7**, one rung at a
+time — six rungs, proven.
+
+**`OperationsState` v1 → v2 — additive.** Adds `executionBriefs`. A stored v1 payload is **migrated,
+not quarantined** — discarding real operational history because a collection was added would be data
+loss wearing a safety feature's clothes. The migration runs **in memory on read**; the upgraded
+shape is persisted by the next write, so opening Operations never rewrites storage. **The storage key
+keeps its `_v1` suffix on purpose**: it names a location, not a version, and moving it would orphan
+every record already written.
+
+**The address gate, exactly as ADR-011 requires.**
+
+- A missing address **never blocks Moment generation**. `MOMENT_STATUSES` is unchanged at three
+  values — completeness is a property of the brief, not the Moment.
+- It **blocks brief confirmation**, names the missing fields, and links to the Workspace page that
+  fixes them.
+- The gate is enforced in **persistence as well as the interface**: a stored brief with an
+  incomplete address is refused, so no caller can bypass it.
+- An incomplete address on a `Person` is **valid stored state** — refusing the workspace over it
+  would lock an administrator out of the screen that corrects it.
+
+**Override and correction.** An operator overrides the address for **one brief**, with a required
+reason, actor, channel and timestamp. **`Person.deliveryAddress` is never written** (ADR-005).
+Correcting a confirmed brief preserves the original — only supersession metadata changes, proven by
+field-by-field comparison — creates a revision, supersedes the confirming Decision, and appends
+`ExecutionBriefAddressOverridden`. A Moment never holds two live briefs.
+
+**Preview writes nothing.** `previewBrief` and both builders are pure and live in a module with no
+storage access. The suite injects a write-recording storage and asserts the write count is
+unchanged across repeated previews and a full confirmation build.
+
+**Deliberately excluded**, and not started: item, vendor and courier selection (H3.3–H3.5); CSV
+address columns; address verification or geocoding; multiple addresses per person. Each is a later
+milestone or an explicit ADR-011 non-decision.
+
+**Validation: 232 checks across eight suites, all passing** — verification 9, migration 18,
+assignments 20, people 30, money 25, programs 35, briefs 45, operations 50.
+
+### ✅ H3.2-D1 — the brief queue must not render a read failure as empty
+
+**Found by the H3.1 recovery-integrity audit**, in code written during H3.2.
+
+**Root cause.** `BriefsList.load()` carried a single `ready` boolean and collapsed three genuinely
+different outcomes into it — workspace unavailable, repository read failed, and a healthy read of an
+empty store. All three produced empty arrays, and the render then showed *"No moments are ready for
+a brief yet."* An operator could not distinguish **no work** from **cannot see the work**, and the
+reassuring reading was the dangerous one: briefs that existed would have looked like briefs that did
+not. It also contradicted `ExecutionBrief.tsx` beside it, which already handled failures properly.
+
+**Correction.** `loadBriefQueue()` in the existing briefs service returns a discriminated
+`{ status: 'ok' … } | { status: 'failed', message, recovery, detail? }`. The component now renders
+**four distinct states — loading, failed, empty, populated**. The adapter's own reason is preserved
+in `detail` rather than flattened, the failure names a recovery, and the panel states plainly that
+this *is not* an empty queue. Retry re-reads through the same path and **creates or changes no
+canonical record**. No new abstraction: it mirrors the shape `confirmation.ts` already established.
+
+**Regression coverage — 8 new checks, brief suite 37 → 45.** Healthy empty (38); healthy populated
+(39); a person with no address still listed and flagged (40); malformed payload → error not empty
+(41); foreign-workspace payload → error, never guessed empty (42); unreadable workspace → error (43);
+retry performs a fresh read and recovers (44); reading writes no Brief, Decision or Event (45).
 
 ### ⛔ The hard gate before an external pilot
 
@@ -616,7 +688,7 @@ All confirmed absent from the repository — verified by file inspection, not as
 | 4 | ~~**Relationship Operations Atlas**~~ | ~~No such file in `docs/`. Only `ANIYE_SYSTEM_ATLAS.md` exists.~~ **✅ Reconstructed in R6** as [`RELATIONSHIP_OPERATIONS_ATLAS.md`](RELATIONSHIP_OPERATIONS_ATLAS.md), from repository-confirmed architecture and accepted ADRs only. Rules that could not be recovered are marked **Unresolved** rather than invented. |
 | 5 | ~~**ADR-003** — Decision Engine~~ | ⚠️ **Struck — retired permanently, not a missing milestone.** Only a number and a title ever survived. The checkpoint concluded no such object is needed: `resolvePolicyAssignment()` resolves policy, and ADR-006's `Decision` records judgements. **The number is not reused and not renumbered.** See [`adr/README.md`](adr/README.md) |
 | 6 | ~~**H3.1** — Moment Engine~~ | ~~No `Moment` type in code.~~ **✅ Reconstructed in H3.1** — in `lib/operations/`, not `lib/workspace.ts`, per ADR-010 |
-| 7 | **H3.2** — Execution Brief | Outstanding. No such concept in code. Gated on **ADR-011 / Workspace schema v7**, which is accepted and **not built** |
+| 7 | ~~**H3.2** — Execution Brief~~ | **✅ Built in H3.2.** `lib/operations/briefs.ts`, `/operations/briefs`, `/operations/moments/[id]/brief`. Workspace schema v7 + `OperationsState` v2 |
 | 8 | ~~**H3.3** — Catalog Intelligence~~ | ⚠️ **Redefined.** **H3.3 is a minimum flat catalog with manual item selection.** Atlas §9's Intent → Category → Collection → Item hierarchy is **Catalog Intelligence, H4.2** — deferred until the pilot produces evidence |
 | 9 | ~~**H3.4** — Gift Intelligence~~ | ⚠️ **Redefined.** **H3.4 is a vendor directory with hand-entered offers.** Gift Intelligence is **H4.3**. `GIFT_CATEGORIES` remains a flat string list and that is correct for H3.3 |
 | 10 | ~~**H3.5** — Vendor Intelligence~~ | ⚠️ **Redefined.** **H3.5 is a courier directory with manual selection.** Vendor Intelligence is **H4.4**. The `h3.5-vendor-intelligence` tag was a false marker and was deleted in R2 (C9) |
@@ -662,8 +734,9 @@ reach the app can reach it (ADR-010).
 Shown in `app/components/operations/OperationsShell.tsx` as explicitly unavailable rather than
 omitted, so there are no clickable dead ends:
 
-- **Execution Briefs** — H3.2 · **Catalog** — H3.3 · **Vendors** — H3.4 · **Couriers** — H3.5 ·
-  **Fulfilment** — H3.6.
+- **Catalog** — H3.3 · **Vendors** — H3.4 · **Couriers** — H3.5 · **Fulfilment** — H3.6.
+
+~~**Execution Briefs** — H3.2.~~ Built in H3.2; now a live nav entry.
 
 ~~No route exists for **Policy Assignments** (H2.4).~~ Added in R2.
 ~~`/workspace/people` — required by H2.5.~~ Added in R3.
@@ -717,21 +790,21 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 
 | Key | Written by | Shape |
 |-----|-----------|-------|
-| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, carrying `schemaVersion` — **currently v6** (`lib/migrations.ts`, `CURRENT_WORKSPACE_SCHEMA_VERSION`) |
+| `aniye_workspace` | `lib/migrations.ts` (`WORKSPACE_KEY`) | Single serialized `WorkspaceState`, carrying `schemaVersion` — **currently v7** (`lib/migrations.ts`, `CURRENT_WORKSPACE_SCHEMA_VERSION`) |
 | `aniye_last_submission` | `app/components/assessment/AssessmentWizard.tsx:35` | Assessment answers, written **once at submit** (H1, pre-workspace). *Corrected during the Experience Audit — this ledger and Atlas §2 both previously recorded the key as `aniye_assessment`, which the code has never used (EX-L7).* |
 | `aniye_workspace_backup_v<n>_<ts>` | **R1:** `lib/migrations.ts` | Verbatim pre-migration payload, written before a destructive migration only |
 | `aniye_workspace_quarantine` | **R1:** `lib/migrations.ts` | Unreadable payload set aside so it cannot be overwritten. Written at most once |
 | `aniye_person_draft` | **R3a:** `PersonForm.tsx` | An unfinished new person, so the flow can be resumed. Never workspace data; cleared on save or cancel; not written for edits |
 | `aniye_program_draft_v1` | **R5:** `CampaignWizard.tsx` | An unfinished Campaign, resumable. Draft only — nothing reaches `workspace.programs` until the final step |
-| `aniye_operations_v1` | **H3.1:** `lib/operations/local-store.ts` | Serialized `OperationsState` — **schema v1, versioned independently** of the workspace chain (ADR-010) |
+| `aniye_operations_v1` | **H3.1:** `lib/operations/local-store.ts` | Serialized `OperationsState` — **schema v2, versioned independently** of the workspace chain (ADR-010). The key keeps its `_v1` suffix deliberately: it names a storage *location*, and moving it would orphan existing operational history |
 | `aniye_operations_quarantine` | **H3.1:** `lib/operations/local-store.ts` | Unreadable **or foreign-`workspaceId`** operational payload, set aside rather than overwritten. Written at most once |
 
 **E1 added no storage keys.** `/verify` now writes `aniye_workspace` only when no workspace exists.
 
 ### Storage model
 
-- **Two documents, two chains.** `WorkspaceState` (**v6**) is customer configuration.
-  `OperationsState` (**v1**) is Aniyé's record of what it did. They version independently and
+- **Two documents, two chains.** `WorkspaceState` (**v7**) is customer configuration.
+  `OperationsState` (**v2**) is Aniyé's record of what it did. They version independently and
   neither migrates the other — ADR-010.
 - **One blob per document.** Policies, classes, people and programs are nested arrays inside
   `WorkspaceState`, not separate collections. There is no index, no per-object key.
@@ -753,7 +826,7 @@ distinct object), `Relationship Profile` (§4), `Program` (§4), `Moment` (§4),
 | S4 | **No `workspaceId` on `RelationshipClass`**, though `RecognitionPolicy` has one and Atlas §4 requires it on both. — still open | Inconsistent ownership model; breaks once multi-workspace arrives. ADR-005 notes every canonical object gains an authoritative `workspaceId` once the backend lands. |
 | S5 | `WorkspaceState` carries `organizationId` only — Organization, Workspace, and Organization Profile are collapsed into one flat record. Atlas §4 defines three distinct objects. | Acceptable for H2/H3 local-storage phase, but must be recorded as intentional debt. |
 | S6 | ~~No collection for `policyAssignments`, `people`, `peopleSources`, `programs`, or `moments`.~~ | **✅ Resolved.** `policyAssignments` landed as v3 (R2); `people` and `peopleSources` as v4 (R3); `programs` as v6 (R5). **`moments` did not land in `WorkspaceState` at all** — ADR-010 answered the open question by putting Moments, Decisions and Events in a separate `OperationsState` v1. The workspace document has no operational collection and will not gain one. |
-| S7 | **No delivery address on `Person`.** Surfaced by the H3 architecture review, 2026-07-28. | **Decided, not built.** ADR-011 gives `Person` an optional customer-controlled `deliveryAddress` in **Workspace schema v7, additive**. It is the prerequisite for H3.2's completion test. **v7 does not exist yet.** |
+| S7 | ~~**No delivery address on `Person`.**~~ | **✅ Resolved in H3.2.** ADR-011 implemented as **schema v7, additive** — `Person.deliveryAddress`, optional and customer-controlled. No record was transformed and no person was given an address by migration. |
 
 ---
 
@@ -781,7 +854,7 @@ Resolved entries need none.
 | **C5** — default class seed list | ⚪ | — |
 | **S4** — no `workspaceId` on `RelationshipClass` | 🟠 | **H5.1** — multi-tenancy |
 | **S5** — Organization / Workspace / Profile collapsed | 🟠 | **H5.2** — multi-workspace |
-| **S7** — no delivery address on `Person` | 🟠 | **H3.2** — decided under ADR-011; the v7 migration is the first task *inside* H3.2, so it is a task, not an external blocker |
+| ~~**S7**~~ — delivery address on `Person` | — | ✅ **Resolved in H3.2**, schema v7 |
 | **P1, P2** — field-level provenance, admin-locked fields | 🟠 | **H5.4** — first HR connector |
 | **P3** — source priority not configurable | 🟠 | **H5.4** |
 | **P4** — name + startDate conflict detection | 🟠 | **H5.4** — connectors supplying records with no email |
@@ -990,3 +1063,5 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after R6 (governance reconciliation) — ADR-011 accepted; `MASTER_ROADMAP.md` created and now authoritative for the roadmap; `RELATIONSHIP_OPERATIONS_ATLAS.md` reconstructed, closing recovery milestone 4; H3 redefined as H3.1 … H3.8 with Intelligence deferred to H4; retired ADR-003 dependencies struck. System Atlas v3.3. **Documentation only — no code, schema, migration, validation script or package.json changed.** Reconstruction is complete; from H3.2 the work is new build.*
 *Updated after R6 Council corrections — ADR-011 renamed to lowercase kebab; H4 renamed **Learn** and renumbered; **all external connectors relocated to H5.4 — Integrations**; every open conflict, schema gap, People compromise and unresolved operational rule classified by what it blocks; milestone count published as **19 of 37** with the 31/15 discrepancy surfaced, not resolved; **the claim that the ADR-010 gate binds from H3.4 withdrawn** as unsupported by any governing document. System Atlas v3.4, Master Roadmap v1.1, Relationship Operations Atlas v1.1. **Documentation only. Nothing blocks H3.2.***
 *Updated after the H3.1 acceptance correction (H3.1-D1) — confirmation now re-reads live Workspace, Program status, population, People, groups, assignments, policies and source keys before writing; a material change or any read failure writes nothing and requires review. 15 regression checks added (operations 35 → 50); 187 checks total. No schema change — WorkspaceState v6, OperationsState v1. System Atlas v3.5. **Live visual verification still pending; H3.1 not yet fully accepted.***
+*Updated after H3.2 (Execution Brief) — Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`); a stored v1 operations payload migrates rather than being quarantined; the address gate blocks brief confirmation but never Moment generation; `MOMENT_STATUSES` unchanged. 209 checks across eight suites. System Atlas v3.5, Master Roadmap v1.2, Relationship Operations Atlas v1.2. **First post-recovery build milestone.***
+*Updated after the H3.2 acceptance correction (H3.2-D1) — the brief queue now distinguishes loading, failed, empty and populated; a read failure is never shown as an empty queue and its reason is preserved. 8 regression checks added (briefs 37 → 45); 232 checks total across eight suites. H3.1-D1 committed and pushed at `312a22d`. **Live visual verification still pending for all H2.6, H3.1 and H3.2 routes; neither milestone is fully accepted.***

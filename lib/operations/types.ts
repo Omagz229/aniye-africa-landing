@@ -9,7 +9,7 @@
  */
 
 import type { Money } from '../money';
-import type { RelationshipType } from '../workspace';
+import type { DeliveryAddress, RelationshipType } from '../workspace';
 
 // ─── Moment ──────────────────────────────────────────────────────────────────
 
@@ -111,8 +111,16 @@ export type DecisionStatus = (typeof DECISION_STATUSES)[number];
 export const DECISION_PROVIDERS = ['HumanOperator', 'RuleEngine'] as const;
 export type DecisionProvider = (typeof DECISION_PROVIDERS)[number];
 
-/** Only the types H3.1 actually produces. More arrive with the steps that need them. */
-export const DECISION_TYPES = ['MomentQualification', 'PolicyResolution', 'MomentCancellation'] as const;
+/** Only the types H3.1 and H3.2 actually produce. More arrive with the steps that need them. */
+export const DECISION_TYPES = [
+  'MomentQualification',
+  'PolicyResolution',
+  'MomentCancellation',
+  // H3.2 — ADR-011. Confirming a brief is a judgement (the operator asserts the
+  // brief is correct and executable); overriding its address is a second one.
+  'BriefConfirmation',
+  'AddressOverride',
+] as const;
 export type DecisionType = (typeof DECISION_TYPES)[number];
 
 /**
@@ -150,6 +158,12 @@ export const EVENT_TYPES = [
   'MomentMarkedReady',
   'MomentNeedsReview',
   'MomentCancelled',
+  // H3.2 — ADR-011.
+  'BriefGenerated',
+  // Named for what actually happens: a *brief* was overridden, not a customer
+  // record updated. Supersedes the checkpoint's ambiguous `AddressUpdated`,
+  // which implied a write across the ADR-005 boundary that never occurs.
+  'ExecutionBriefAddressOverridden',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -181,11 +195,110 @@ export interface OperationalEvent {
   recordedAt: string;
 }
 
+// ─── ExecutionBrief ──────────────────────────────────────────────────────────
+
+/**
+ * H3.2 statuses only, and deliberately the same two ADR-006 gives a Decision.
+ *
+ * There is no `Draft`. A brief is only written on confirmation — an unconfirmed
+ * brief is UI preview state, exactly as ADR-006 requires of every other draft
+ * choice. Adding `Draft` would mean persisting something nobody asserted.
+ */
+export const BRIEF_STATUSES = ['Confirmed', 'Superseded'] as const;
+export type BriefStatus = (typeof BRIEF_STATUSES)[number];
+
+/** Where the address on a brief came from. Provenance is required on override. */
+export const ADDRESS_SOURCES = ['PersonDefault', 'OperatorOverride'] as const;
+export type AddressSource = (typeof ADDRESS_SOURCES)[number];
+
+/**
+ * An operator's correction to one brief's address.
+ *
+ * **Never writes back to `Person`** (ADR-005, ADR-011). The customer's record is
+ * left for the customer to correct; this records only what Aniyé actually
+ * shipped against, and why.
+ */
+export interface AddressOverrideRecord {
+  /** Required. Becomes part of the permanent record. */
+  reason: string;
+  /** Who made the call. `Operator` in H3.2 — there is no role model (ADR-010). */
+  actorType: ActorType;
+  actorId?: string;
+  /** How the correction reached Aniyé — the channel is a field, not a system. */
+  source: EventSource;
+  overriddenAt: string;
+  /** What the brief said before. Kept so the correction is legible later. */
+  previousAddress?: DeliveryAddress;
+  previousAddressSource: AddressSource;
+}
+
+/**
+ * The operator's unit of work for one Moment: who, where, how much, and what
+ * constraints apply. Deliberately invisible to the customer.
+ *
+ * Immutable once confirmed. A correction supersedes it with a new revision
+ * rather than editing it — an execution record that can be rewritten after the
+ * fact is not evidence of what was executed.
+ */
+export interface ExecutionBrief {
+  id: string;
+  workspaceId: string;
+  momentId: string;
+  status: BriefStatus;
+  /** 1 for the first confirmation, incrementing with each revision. */
+  revision: number;
+  /** Set on a revision, pointing at the brief it replaces. */
+  revisionOfBriefId?: string;
+  /** Set on the superseded brief, pointing forward. Never set twice. */
+  supersededByBriefId?: string;
+  supersededAt?: string;
+
+  /** Copied from the Moment, not referenced — the Moment's snapshots may age. */
+  recipientSnapshot: RecipientSnapshot;
+  relationshipGroupSnapshot: RelationshipGroupSnapshot;
+  /**
+   * Required. A brief without a resolved budget has no constraints to render,
+   * which is why only a `ReadyForExecution` Moment can produce one.
+   */
+  policyResolutionSnapshot: PolicyResolutionSnapshot;
+
+  /**
+   * **Copied from `Person.deliveryAddress` at confirmation** — the same reason
+   * the policy snapshot is copied (Atlas §15e). The brief must still explain
+   * where a gift was sent after the customer edits their record. A reference
+   * would let history rewrite itself.
+   */
+  deliveryAddressSnapshot: DeliveryAddress;
+  addressSource: AddressSource;
+  /** Present only when an operator overrode the address for this brief. */
+  addressOverride?: AddressOverrideRecord;
+
+  occasionType: string;
+  targetDate: string;
+  approvedBudget: Money;
+  /** Free-text constraints carried from the resolved policy. */
+  constraints: string[];
+
+  createdAt: string;
+  confirmedAt: string;
+}
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
-/** Independent of the workspace schema version — see ADR-010. */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 1;
+/**
+ * Independent of the workspace schema version — see ADR-010.
+ *
+ * **v2 (H3.2)** adds the `executionBriefs` collection. Additive.
+ */
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 2;
 
+/**
+ * The storage *location*, not a version assertion.
+ *
+ * Deliberately unchanged at v2. ADR-010 and Atlas §15d name this key, and
+ * moving it would orphan every operational record already written — the exact
+ * history this module exists to protect. The version lives inside the payload.
+ */
 export const OPERATIONS_KEY = 'aniye_operations_v1';
 
 /**
@@ -201,6 +314,8 @@ export interface OperationsState {
   moments: Moment[];
   decisions: Decision[];
   events: OperationalEvent[];
+  /** H3.2, additive at operations schema v2. */
+  executionBriefs: ExecutionBrief[];
   createdAt: string;
   updatedAt: string;
 }
@@ -212,9 +327,66 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     moments: [],
     decisions: [],
     events: [],
+    executionBriefs: [],
     createdAt: now,
     updatedAt: now,
   };
+}
+
+// ─── Operations migration ────────────────────────────────────────────────────
+
+export type OperationsMigrationResult =
+  | { status: 'current'; state: OperationsState }
+  | { status: 'migrated'; state: OperationsState; from: number }
+  | { status: 'invalid'; reason: string };
+
+/**
+ * Bring a stored operations payload up to the current version.
+ *
+ * Pure. One rung at a time, exactly as the workspace chain works — a v1 payload
+ * must reach v2 without being discarded. Quarantining real operational history
+ * because a collection was added would be a data-loss bug wearing a safety
+ * feature's clothes.
+ *
+ * **Preserves unknown keys.** The spread carries through anything this build
+ * does not recognize, so a payload written by a later build survives a round
+ * trip rather than being silently reduced to the fields named here.
+ */
+export function migrateOperationsState(raw: unknown): OperationsMigrationResult {
+  if (!isPlainObject(raw)) return { status: 'invalid', reason: 'Operations state is not an object.' };
+
+  const version = raw.schemaVersion;
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+    return { status: 'invalid', reason: `Unreadable operations schemaVersion: ${String(version)}.` };
+  }
+  if (version > CURRENT_OPERATIONS_SCHEMA_VERSION) {
+    return {
+      status: 'invalid',
+      reason: `Operations state is at v${version}, newer than this build understands (v${CURRENT_OPERATIONS_SCHEMA_VERSION}). Refusing to downgrade.`,
+    };
+  }
+
+  let working: Record<string, unknown>;
+  try {
+    working = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
+  } catch {
+    return { status: 'invalid', reason: 'Operations state could not be safely copied.' };
+  }
+
+  const from = version;
+
+  // v1 → v2: add the executionBriefs collection. Additive; nothing else moves.
+  if ((working.schemaVersion as number) === 1) {
+    working = {
+      ...working,
+      executionBriefs: Array.isArray(working.executionBriefs) ? working.executionBriefs : [],
+      schemaVersion: 2,
+    };
+  }
+
+  return from === CURRENT_OPERATIONS_SCHEMA_VERSION
+    ? { status: 'current', state: working as unknown as OperationsState }
+    : { status: 'migrated', state: working as unknown as OperationsState, from };
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -253,7 +425,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
@@ -340,6 +512,92 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     }
     if (!momentIds.has(event.momentId as string)) {
       return { ok: false, reason: `Event "${event.id}" references an unknown moment.` };
+    }
+  }
+
+  // ── Execution Briefs (H3.2) ──
+  const briefIds = new Set<string>();
+  const liveBriefByMoment = new Map<string, string>();
+
+  for (const [i, brief] of (raw.executionBriefs as unknown[]).entries()) {
+    if (!isPlainObject(brief)) return { ok: false, reason: `Brief at index ${i} is not an object.` };
+    if (!isNonEmptyString(brief.id)) return { ok: false, reason: `Brief at index ${i} has no id.` };
+    if (briefIds.has(brief.id)) return { ok: false, reason: `Duplicate brief id "${brief.id}".` };
+    briefIds.add(brief.id);
+
+    if (brief.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Brief "${brief.id}" belongs to a different workspace.` };
+    }
+    if (!momentIds.has(brief.momentId as string)) {
+      return { ok: false, reason: `Brief "${brief.id}" references an unknown moment.` };
+    }
+    if (typeof brief.status !== 'string' || !(BRIEF_STATUSES as readonly string[]).includes(brief.status)) {
+      return { ok: false, reason: `Brief "${brief.id}" has an invalid status: ${String(brief.status)}.` };
+    }
+    if (typeof brief.revision !== 'number' || !Number.isInteger(brief.revision) || brief.revision < 1) {
+      return { ok: false, reason: `Brief "${brief.id}" has an invalid revision.` };
+    }
+    if (!isPlainObject(brief.policyResolutionSnapshot)) {
+      return { ok: false, reason: `Brief "${brief.id}" has no policy resolution snapshot.` };
+    }
+
+    // ADR-011 — the confirmation gate, enforced at the persistence layer and
+    // not only in the UI. A stored brief whose address is incomplete would mean
+    // the gate had been bypassed.
+    const address = brief.deliveryAddressSnapshot;
+    if (!isPlainObject(address)) {
+      return { ok: false, reason: `Brief "${brief.id}" has no delivery address snapshot.` };
+    }
+    for (const field of ['line1', 'city', 'countryCode'] as const) {
+      const value = address[field];
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        return {
+          ok: false,
+          reason: `Brief "${brief.id}" was stored with an incomplete address — ${field} is missing.`,
+        };
+      }
+    }
+
+    if (
+      typeof brief.addressSource !== 'string' ||
+      !(ADDRESS_SOURCES as readonly string[]).includes(brief.addressSource)
+    ) {
+      return { ok: false, reason: `Brief "${brief.id}" has an invalid address source.` };
+    }
+    // An override without a reason is not a record of a judgement.
+    if (brief.addressSource === 'OperatorOverride') {
+      const override = brief.addressOverride;
+      if (!isPlainObject(override) || !isNonEmptyString(override.reason)) {
+        return { ok: false, reason: `Brief "${brief.id}" was overridden without a reason.` };
+      }
+      if (!isNonEmptyString(override.overriddenAt)) {
+        return { ok: false, reason: `Brief "${brief.id}" has an override with no timestamp.` };
+      }
+    }
+
+    // At most one live brief per Moment. Two would make "the brief" ambiguous
+    // for every downstream step.
+    if (brief.status === 'Confirmed') {
+      const momentId = brief.momentId as string;
+      if (liveBriefByMoment.has(momentId)) {
+        return {
+          ok: false,
+          reason: `Moment "${momentId}" has more than one live brief.`,
+        };
+      }
+      liveBriefByMoment.set(momentId, brief.id);
+    }
+  }
+
+  // Supersession must point somewhere real, and only forward.
+  for (const brief of raw.executionBriefs as Record<string, unknown>[]) {
+    if (brief.status === 'Superseded') {
+      if (!isNonEmptyString(brief.supersededByBriefId) || !briefIds.has(brief.supersededByBriefId)) {
+        return { ok: false, reason: `Brief "${String(brief.id)}" is superseded by an unknown brief.` };
+      }
+    }
+    if (brief.revisionOfBriefId !== undefined && !briefIds.has(brief.revisionOfBriefId as string)) {
+      return { ok: false, reason: `Brief "${String(brief.id)}" revises an unknown brief.` };
     }
   }
 

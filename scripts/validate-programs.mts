@@ -194,14 +194,23 @@ console.log(`  schema v5 → v${CURRENT_WORKSPACE_SCHEMA_VERSION}\n`);
 
 // ─── Part 1: migration ───────────────────────────────────────────────────────
 
-check('1. A v5 workspace migrates to v6', () => {
+check('1. A v5 workspace migrates through v6 to the current version', () => {
   const result = migrateWorkspace<WorkspaceState>(makeV5Workspace());
   assert(result.status === 'ok', `Migration rejected the v5 fixture: ${result.status === 'invalid' ? result.reason : ''}`);
   assertEqual(result.fromVersion, 5, 'Payload was not detected as v5.');
-  assertEqual(result.toVersion, 6, 'Migration did not reach v6.');
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
   assertEqual(result.migrated, true, 'Migration did not report that it ran.');
-  assertEqual(result.applied.length, 1, 'Expected exactly one migration from v5.');
-  assertEqual(result.workspace.schemaVersion, 6, 'Migrated workspace has the wrong schemaVersion.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 5,
+    'Wrong number of rungs walked from v5.',
+  );
+  assert(result.applied[0].includes('campaign-programs'), 'The H2.6 rung did not run first.');
+  assertEqual(
+    result.workspace.schemaVersion,
+    CURRENT_WORKSPACE_SCHEMA_VERSION,
+    'Migrated workspace has the wrong schemaVersion.',
+  );
 });
 
 check('2. programs defaults to an empty array', () => {
@@ -267,10 +276,14 @@ check('5. A v1 workspace walks every migration through v6', () => {
   };
 
   const result = migrateWorkspace<WorkspaceState>(v1);
-  assert(result.status === 'ok', `v1 → v6 failed: ${result.status === 'invalid' ? result.reason : ''}`);
-  assertEqual(result.toVersion, 6, 'Migration did not reach v6.');
-  assertEqual(result.applied.length, 5, 'Expected five migrations from v1.');
-  assert(result.applied[4].includes('campaign-programs'), 'The H2.6 rung did not run last.');
+  assert(result.status === 'ok', `v1 → current failed: ${result.status === 'invalid' ? result.reason : ''}`);
+  assertEqual(result.toVersion, CURRENT_WORKSPACE_SCHEMA_VERSION, 'Migration did not reach the current version.');
+  assertEqual(
+    result.applied.length,
+    CURRENT_WORKSPACE_SCHEMA_VERSION - 1,
+    'Wrong number of rungs walked from v1.',
+  );
+  assert(result.applied[4].includes('campaign-programs'), 'The H2.6 rung did not run fifth.');
 
   const ws = result.workspace;
   assertEqual(ws.relationshipClasses[0].type, 'Board', 'ADR-002 mapping did not survive.');

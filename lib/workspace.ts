@@ -346,6 +346,94 @@ export interface PeopleSource {
   updatedAt: string;
 }
 
+// ─── H3.2: delivery address (ADR-011) ────────────────────────────────────────
+// A minimum *structured* address, not a free-text blob. Structure is what makes
+// "incomplete" a decidable question rather than a judgement call — and the
+// Execution Brief's confirmation gate depends on that question having an answer.
+//
+// `postalCode` is deliberately optional: postal codes are unreliable or absent
+// across much of Aniyé's operating footprint, and requiring one would block
+// delivery to addresses that are perfectly deliverable. `landmark` carries real
+// weight in markets where addressing is descriptive rather than numbered.
+
+export interface DeliveryAddress {
+  /** Required. */
+  line1: string;
+  line2?: string;
+  /** Required. */
+  city: string;
+  stateOrRegion?: string;
+  postalCode?: string;
+  /** Required. ISO 3166-1 alpha-2, uppercase — same convention as `Person.country`. */
+  countryCode: string;
+  landmark?: string;
+  deliveryInstructions?: string;
+}
+
+/** The three fields that decide completeness. Nothing else. */
+export const REQUIRED_ADDRESS_FIELDS = ['line1', 'city', 'countryCode'] as const;
+
+/**
+ * ADR-011: "Complete" means `line1`, `city` and `countryCode` are all present
+ * and non-empty. This single predicate is what gates brief confirmation, so it
+ * must not drift — Operations and Workspace both call it.
+ */
+export function isAddressComplete(address: DeliveryAddress | undefined): boolean {
+  return missingAddressFields(address).length === 0;
+}
+
+/** Which required fields are absent — so a blocked state can *name* the problem. */
+export function missingAddressFields(
+  address: DeliveryAddress | undefined,
+): readonly (typeof REQUIRED_ADDRESS_FIELDS)[number][] {
+  if (!address) return REQUIRED_ADDRESS_FIELDS;
+  return REQUIRED_ADDRESS_FIELDS.filter(f => (address[f] ?? '').trim().length === 0);
+}
+
+export const ADDRESS_FIELD_LABELS: Record<(typeof REQUIRED_ADDRESS_FIELDS)[number], string> = {
+  line1: 'street address',
+  city: 'city',
+  countryCode: 'country',
+};
+
+/**
+ * Trim every field and uppercase the country code. An address whose optional
+ * fields are all blank returns them as `undefined` rather than empty strings,
+ * so a stored record never carries meaningless keys.
+ *
+ * Returns `undefined` when nothing at all was supplied — an empty form is an
+ * absent address, not a blank one.
+ */
+export function normalizeAddress(input: Partial<DeliveryAddress> | undefined): DeliveryAddress | undefined {
+  if (!input) return undefined;
+  const t = (v: string | undefined) => (v ?? '').trim();
+  const normalized: DeliveryAddress = {
+    line1: t(input.line1),
+    city: t(input.city),
+    countryCode: t(input.countryCode).toUpperCase(),
+  };
+  const optional: Array<keyof DeliveryAddress> = [
+    'line2',
+    'stateOrRegion',
+    'postalCode',
+    'landmark',
+    'deliveryInstructions',
+  ];
+  for (const key of optional) {
+    const value = t(input[key]);
+    if (value.length > 0) normalized[key] = value;
+  }
+  const anyValue = Object.values(normalized).some(v => typeof v === 'string' && v.length > 0);
+  return anyValue ? normalized : undefined;
+}
+
+/** One-line rendering for review rows and brief headers. */
+export function formatAddress(address: DeliveryAddress): string {
+  return [address.line1, address.line2, address.city, address.stateOrRegion, address.postalCode, address.countryCode]
+    .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    .join(', ');
+}
+
 export interface Person {
   id: string;
   firstName: string;
@@ -367,6 +455,13 @@ export interface Person {
   /** Stable id in the originating system, when one exists. */
   externalId?: string;
   status: PersonStatus;
+  /**
+   * ADR-011 — optional, **customer-controlled** default delivery address.
+   * Schema v7, additive. Operations may read it and snapshot it onto an
+   * Execution Brief; Operations **never writes it** (ADR-005). Updating it is
+   * an explicit customer action in Workspace.
+   */
+  deliveryAddress?: DeliveryAddress;
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;

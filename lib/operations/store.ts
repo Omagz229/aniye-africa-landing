@@ -11,6 +11,7 @@
 
 import type {
   Decision,
+  ExecutionBrief,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -24,6 +25,15 @@ export interface MomentBatch {
   moments: Moment[];
   decisions: Decision[];
   events: OperationalEvent[];
+}
+
+/** What one brief confirmation or correction writes, atomically. */
+export interface BriefWrite {
+  brief: ExecutionBrief;
+  decision: Decision;
+  event: OperationalEvent;
+  /** When revising: the brief to mark superseded, and the Decision to supersede. */
+  supersedes?: { briefId: string; decisionId?: string };
 }
 
 export interface OperationsRepository {
@@ -81,6 +91,27 @@ export interface OperationsRepository {
     supersededByDecisionId: string,
     now: string,
   ): StoreResult<Decision>;
+
+  // ── Execution Briefs (H3.2) ──
+
+  listBriefs(workspaceId: string): StoreResult<ExecutionBrief[]>;
+
+  /** The one live brief for a Moment, or null. Superseded revisions are excluded. */
+  findLiveBriefForMoment(workspaceId: string, momentId: string): StoreResult<ExecutionBrief | null>;
+
+  /** Every revision for a Moment, oldest first — the correction history. */
+  listBriefsForMoment(workspaceId: string, momentId: string): StoreResult<ExecutionBrief[]>;
+
+  /**
+   * Commit a brief confirmation **atomically** — the brief, its Decision and its
+   * Event land together or not at all, over a fully validated proposed state.
+   *
+   * When `supersedes` is present this is a correction: the named brief is marked
+   * `Superseded` and the named Decision superseded, and **the original's content
+   * is never rewritten**. A Moment that already has a live brief is refused
+   * unless the write supersedes it.
+   */
+  commitBrief(workspaceId: string, write: BriefWrite, now: string): StoreResult<ExecutionBrief>;
 
   /** Structural check of the stored state, without modifying it. */
   validate(workspaceId: string): StoreResult<true>;

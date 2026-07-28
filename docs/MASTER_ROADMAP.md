@@ -20,12 +20,13 @@
 
 | | Value |
 |---|---|
-| **Workspace schema** | **v6** — `lib/migrations.ts` |
-| **`OperationsState` schema** | **v1** — `lib/operations/types.ts`, versioned independently (ADR-010) |
-| **Last completed milestone** | **H3.1** — Operational Foundation + Moment Engine |
-| **Next milestone** | **H3.2** — Execution Brief |
-| **Milestones** | **19 of 37 complete** — see *Milestone count* |
-| **Blocking H3.2** | Nothing unresolved. ADR-011 is accepted; **Workspace schema v7 is not built**, and that migration is the first task inside H3.2 |
+| **Workspace schema** | **v7** — `lib/migrations.ts` |
+| **`OperationsState` schema** | **v2** — `lib/operations/types.ts`, versioned independently (ADR-010) |
+| **Last completed milestone** | **H3.2** — Execution Brief |
+| **Next milestone** | **H3.3** — Minimum Catalog + manual item selection |
+| **Milestones** | **20 of 37 complete** — see *Milestone count* |
+| **Blocking H3.3** | Nothing. ADR-011 landed with H3.2; no unresolved decision gates the minimum catalog |
+| **Outstanding** | ⚠️ **Live visual verification** — never performed for any H2.6, H3.1 or H3.2 route. Neither H3.1 nor H3.2 is fully accepted until it is |
 | **Blocking the pilot (H4.1)** | ⛔ Production backend, authentication, multi-tenancy, secure file storage (ADR-010). **This gate does not bind on any H3 milestone** |
 
 ---
@@ -37,7 +38,7 @@
 | **H0** | Foundation — retrospective label for pre-roadmap work | ✅ Complete |
 | **H1** | Assessment + Snapshot | ✅ Complete |
 | **H2** | Configure — Organization Profile through Programs | ✅ Complete |
-| **H3** | Operational execution — the closed loop | 🔨 In progress (H3.1 of 8 done) |
+| **H3** | Operational execution — the closed loop | 🔨 In progress (2 of 8 done) |
 | **H4** | Learn — pilot, then intelligence built on its evidence | ⬜ Not started |
 | **H5** | Relationship Infrastructure — backend, enterprise, **integrations** | ⬜ Not started |
 
@@ -110,8 +111,8 @@ to a delivered, costed, closed recognition. Everything not on this path is defer
 | # | Milestone | Checkpoint Part 3 | Depends on | Class | State |
 |---|-----------|:---:|---|:---:|-------|
 | **H3.1** | **Operational Foundation + Moment Engine** — `OperationsState`, the `/operations` shell, Moment generation with per-Moment policy snapshot, Decisions and Operational Events | 3 | H2.6 | **[R]** | ✅ **Complete** |
-| **H3.2** | **Execution Brief** — an operator-facing brief per Moment: recipient, address, budget, constraints | 4 | H3.1 · **ADR-011 / schema v7** | **[R]** | ⬅️ **Next** |
-| **H3.3** | **Minimum Catalog + manual item selection** — a flat item list filtered by budget and excluded categories; operator selects one | 5 | H3.2 | **[R]** | ⬜ |
+| **H3.2** | **Execution Brief** — an operator-facing brief per Moment: recipient, address, budget, constraints; the address gate, operator override and governed revision | 4 | H3.1 · ADR-011 / schema v7 | **[R]** | ✅ **Complete** |
+| **H3.3** | **Minimum Catalog + manual item selection** — a flat item list filtered by budget and excluded categories; operator selects one | 5 | H3.2 | **[R]** | ⬅️ **Next** |
 | **H3.4** | **Vendor directory, hand-entered offers + manual selection** | 6 | H3.3 | **[R]** | ⬜ |
 | **H3.5** | **Courier directory + manual selection** — per operating country | 7 | H3.4 | **[R]** | ⬜ |
 | **H3.6** | **Fulfilment tracking** — dispatch → delivered → proof, with failure and redelivery paths | 8 | H3.5 | **[R]** | ⬜ |
@@ -135,11 +136,11 @@ Carried forward verbatim in substance from checkpoint Part 3. Each is the test t
 | H3.7 | Margin is derived, never stored, and a corrected vendor cost recomputes it without a second write |
 | H3.8 | A closed Moment appears on the recipient's timeline with occasion, date and outcome — and **no commercial detail** |
 
-### The H3.2 gate
+### The H3.2 gate — closed
 
-**ADR-011 is accepted. Workspace schema v7 is not built.** `Person.deliveryAddress` and the brief's
-`deliveryAddressSnapshot` are the prerequisite for H3.2's completion test, and both are architecture
-only today. H3.2 begins with the additive v7 migration, not with the brief UI.
+**ADR-011 landed with H3.2.** Workspace schema **v7** added the additive `Person.deliveryAddress`;
+`OperationsState` **v2** added `executionBriefs`. Both migrations are additive and a v1 workspace
+still walks every rung. Nothing now gates H3.3.
 
 ### ⛔ The ADR-010 gate — what it actually binds
 
@@ -262,12 +263,12 @@ Counting basis: every numbered milestone in the six horizon tables above. One ro
 | **H0** — Foundation | 7 | **7** |
 | **H1** — Assessment + Snapshot | 4 | **4** |
 | **H2** — Configure | 7 | **7** |
-| **H3** — Operational execution | 8 | **1** |
+| **H3** — Operational execution | 8 | **2** |
 | **H4** — Learn | 6 | 0 |
 | **H5** — Relationship Infrastructure | 5 | 0 |
-| **Total** | **37** | **19** |
+| **Total** | **37** | **20** |
 
-**19 of 37 major milestones complete.**
+**20 of 37 major milestones complete.**
 
 > ⚠️ **This does not match the 15 of 31 the Council asked to be confirmed.** The instruction was
 > conditional — *"if the roadmap still contains 31 milestones"* — and it does not; at this
@@ -304,24 +305,24 @@ until a Council decision closes it.**
 | U5 | **Class lifecycle fields** — code has `isDefault`/`isActive`; Atlas §4 specifies `isCustom` + `Draft/Active/Archived` | ⚪ Not blocking — H2 shipped on the implemented model | Ledger conflict **C2**, open |
 | U6 | **Default class seed list** — whether to seed more than 11 classes, and whether `Staff` should be `Employees` | ⚪ Not blocking — a product question, not a structural one | Ledger conflict **C5**, open |
 
-**Nothing in this register blocks H3.2.** The operational unresolved items are classified the same
+**Nothing in this register blocks H3.3.** The operational unresolved items are classified the same
 way in [`RELATIONSHIP_OPERATIONS_ATLAS.md`](RELATIONSHIP_OPERATIONS_ATLAS.md) §9, and none of those
-blocks H3.2 either.
+blocks H3.3 either.
 
-### What does block H3.2
+### What blocks H3.3
 
-Exactly one thing, and it is **built work, not an unresolved decision**:
+**Nothing.** H3.2 shipped with ADR-011, and no unresolved decision in either register gates the
+minimum catalog. Checkpoint milestone 5 excludes the intent hierarchy, collections and
+recommendations, so Atlas §9's catalog model is not a prerequisite — that is **H4.2**.
 
-> **ADR-011 is accepted; Workspace schema v7 is not built.** `Person.deliveryAddress` and the
-> brief's `deliveryAddressSnapshot` are the prerequisite for H3.2's completion test. The decision
-> exists and is binding — only the migration is outstanding, and it is the first task *inside* H3.2.
-
-**The ADR-010 pilot gate does not block H3.2.** See *The ADR-010 gate* above.
+**The ADR-010 pilot gate does not block any H3 milestone.** See *The ADR-010 gate* above.
 
 ---
 
-*Master Roadmap v1.1 — Aniyé Africa — 28 July 2026*
+*Master Roadmap v1.3 — Aniyé Africa — 28 July 2026*
+*v1.3: H3.1-D1 and H3.2-D1 acceptance corrections recorded. 232 checks across eight suites. Visual verification still outstanding — H3.1 and H3.2 are automated-accepted, not fully accepted.*
+*v1.2: **H3.2 — Execution Brief complete.** Workspace schema v7, `OperationsState` v2. H3.3 is next and is ungated. Milestone count 20 of 37.*
 *v1.1: Council corrections. H0 restated as an approved retrospective label for real completed work. H4 renamed **Learn** and renumbered — pre-pilot [P] set becomes H4.0, pilot H4.1, intelligence H4.2–H4.5. **All external connectors moved to H5.4 — Integrations**; the intermediate H4.4/H4.5 placement is removed entirely. Milestone count published (37/19) with the 31/15 discrepancy surfaced rather than resolved. Every unresolved item classified by what it blocks. **The claim that the ADR-010 gate binds from H3.4 is withdrawn** — no governing document establishes it; the gate binds at the pilot and at any grant of external access.*
 *v1.0: Created by the governance reconciliation (R6) under Council decisions of 2026-07-28.*
 *Supersedes the H3 sequences in `RECOVERY_LEDGER.md` §0 and §10 for roadmap reporting.*
-*Basis: Workspace schema v6, `OperationsState` v1, System Atlas v3.4, ADR-001 … ADR-011.*
+*Basis: Workspace schema v7, `OperationsState` v2, System Atlas v3.5, ADR-001 … ADR-011.*

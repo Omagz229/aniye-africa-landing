@@ -13,9 +13,10 @@
  * guarantees are actually proven.
  */
 
-import type { MomentBatch, OperationsRepository, StoreResult } from './store';
+import type { BriefWrite, MomentBatch, OperationsRepository, StoreResult } from './store';
 import type {
   Decision,
+  ExecutionBrief,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -25,6 +26,7 @@ import {
   OPERATIONS_KEY,
   OPERATIONS_QUARANTINE_KEY,
   emptyOperationsState,
+  migrateOperationsState,
   validateOperationsState,
 } from './types';
 
@@ -35,7 +37,16 @@ export interface OperationsStorage {
 
 export function createLocalOperationsRepository(storage: OperationsStorage): OperationsRepository {
 
-  /** Read and validate. Never adopts a payload belonging to another workspace. */
+  /**
+   * Read, migrate, then validate. Never adopts a payload belonging to another
+   * workspace.
+   *
+   * The migration runs **in memory only**. A v1 payload is understood and used
+   * immediately, and the upgraded shape is persisted by the next write rather
+   * than by a read — so merely opening Operations never rewrites storage. That
+   * keeps reads free of side effects, which is what lets the preview path
+   * honestly claim to write nothing.
+   */
   function read(workspaceId: string): StoreResult<OperationsState | null> {
     const raw = storage.getItem(OPERATIONS_KEY);
     if (raw === null) return { ok: true, value: null };
@@ -48,7 +59,15 @@ export function createLocalOperationsRepository(storage: OperationsStorage): Ope
       return { ok: false, reason: 'Stored operations data is not valid JSON. It has been set aside.' };
     }
 
-    const validation = validateOperationsState(parsed, workspaceId);
+    // Migrate before validating: a v1 payload is real operational history, and
+    // quarantining it because H3.2 added a collection would be data loss.
+    const migrated = migrateOperationsState(parsed);
+    if (migrated.status === 'invalid') {
+      quarantine(raw);
+      return { ok: false, reason: migrated.reason };
+    }
+
+    const validation = validateOperationsState(migrated.state, workspaceId);
     if (!validation.ok) {
       // Preserved, never overwritten — the payload may belong to another
       // workspace, and destroying it would lose that organization's history.
@@ -56,7 +75,7 @@ export function createLocalOperationsRepository(storage: OperationsStorage): Ope
       return { ok: false, reason: validation.reason };
     }
 
-    return { ok: true, value: parsed as OperationsState };
+    return { ok: true, value: migrated.state };
   }
 
   function quarantine(raw: string): void {
@@ -238,6 +257,106 @@ export function createLocalOperationsRepository(storage: OperationsStorage): Ope
       return { ok: true, value: superseded };
     },
 
+    listBriefs(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.executionBriefs ?? [] };
+    },
+
+    findLiveBriefForMoment(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      const found =
+        state.value?.executionBriefs.find(b => b.momentId === momentId && b.status === 'Confirmed') ?? null;
+      return { ok: true, value: found };
+    },
+
+    listBriefsForMoment(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      const all = (state.value?.executionBriefs ?? [])
+        .filter(b => b.momentId === momentId)
+        .sort((a, b) => a.revision - b.revision);
+      return { ok: true, value: all };
+    },
+
+    commitBrief(workspaceId, write: BriefWrite, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+
+      const moment = state.value.moments.find(m => m.id === write.brief.momentId);
+      if (!moment) return { ok: false, reason: 'That moment no longer exists.' };
+
+      if (state.value.executionBriefs.some(b => b.id === write.brief.id)) {
+        return { ok: false, reason: 'That brief has already been recorded.' };
+      }
+
+      const live = state.value.executionBriefs.find(
+        b => b.momentId === write.brief.momentId && b.status === 'Confirmed',
+      );
+      // A second live brief would make "the brief" ambiguous for every
+      // downstream step. Correcting one is a supersession, not an addition.
+      if (live && write.supersedes?.briefId !== live.id) {
+        return {
+          ok: false,
+          reason: 'A brief has already been confirmed for this moment. Correct that one instead.',
+        };
+      }
+      if (write.supersedes && !live) {
+        return { ok: false, reason: 'There is no live brief to correct.' };
+      }
+
+      let briefs = state.value.executionBriefs;
+      let decisions = state.value.decisions;
+
+      if (write.supersedes) {
+        const target = write.supersedes.briefId;
+        // Only supersession metadata changes. Address, snapshots, reason and
+        // timestamps on the original are never rewritten — a rewritable
+        // execution record is not evidence of what was executed.
+        briefs = briefs.map(b =>
+          b.id === target
+            ? { ...b, status: 'Superseded' as const, supersededByBriefId: write.brief.id, supersededAt: now }
+            : b,
+        );
+
+        const decisionId = write.supersedes.decisionId;
+        if (decisionId) {
+          const prior = decisions.find(d => d.id === decisionId);
+          if (!prior) return { ok: false, reason: 'The decision being superseded no longer exists.' };
+          if (prior.status === 'Superseded') {
+            return { ok: false, reason: 'That decision has already been superseded.' };
+          }
+          decisions = decisions.map(d =>
+            d.id === decisionId
+              ? { ...d, status: 'Superseded' as const, supersededAt: now, supersededByDecisionId: write.decision.id }
+              : d,
+          );
+        }
+      }
+
+      if (decisions.some(d => d.id === write.decision.id)) {
+        return { ok: false, reason: 'That decision has already been recorded.' };
+      }
+      if (state.value.events.some(e => e.id === write.event.id)) {
+        return { ok: false, reason: 'That event has already been recorded.' };
+      }
+
+      // One transaction: the brief, the Decision and the Event together, over a
+      // proposed state validated in full (ADR-006).
+      const written = commit(
+        {
+          ...state.value,
+          executionBriefs: [...briefs, write.brief],
+          decisions: [...decisions, write.decision],
+          events: [...state.value.events, write.event],
+        },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: write.brief };
+    },
+
     validate(workspaceId) {
       const state = read(workspaceId);
       if (!state.ok) return state;
@@ -253,4 +372,4 @@ export function browserOperationsRepository(): OperationsRepository | null {
   return createLocalOperationsRepository(window.localStorage);
 }
 
-export type { OperationalEvent, Decision, Moment, MomentStatus, MomentBatch };
+export type { OperationalEvent, Decision, ExecutionBrief, Moment, MomentStatus, MomentBatch, BriefWrite };

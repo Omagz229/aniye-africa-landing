@@ -48,8 +48,8 @@ itself is the authority.
 | ADR-007 | ⚠️ Partly — Money implemented, schema v5. `RecognitionOrder` deferred to H3.7 |
 | ADR-008 | ✅ Yes — schema v5 |
 | ADR-009 | ✅ Yes — no code change was required |
-| ADR-010 | ✅ Yes — H3.1, `OperationsState` v1 |
-| ADR-011 | ❌ **Not implemented.** Workspace schema v7 is accepted, not built |
+| ADR-010 | ✅ Yes — H3.1, `OperationsState` v1 (now v2) |
+| ADR-011 | ✅ Yes — H3.2, Workspace schema v7 + `OperationsState` v2 |
 
 ---
 

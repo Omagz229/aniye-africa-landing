@@ -262,19 +262,24 @@ Any individual tracked in Aniyé — employee, client, partner, board member.
 | `createdAt` | ISO timestamp | — |
 | `updatedAt` | ISO timestamp | — |
 | `archivedAt` | ISO timestamp? | Set when archived |
-| `deliveryAddress` | object? | ⚠️ **ADR-011 (Accepted) — not implemented.** Arrives additively in schema **v7**. See below |
+| `deliveryAddress` | object? | ✅ **Implemented in H3.2** (ADR-011), schema **v7**, additive |
 
-⚠️ **Delivery address — accepted, not built (ADR-011).**
+✅ **Delivery address — implemented in H3.2 (ADR-011), schema v7.**
 
 `Person` owns an **optional, customer-controlled default `deliveryAddress`**. Minimum structured
 shape: **`line1`, `city`, `countryCode` are required**; `line2`, `stateOrRegion`, `postalCode`,
 `landmark` and `deliveryInstructions` are optional. Postal code is deliberately not required —
 it is unreliable or absent across much of Aniyé's operating footprint.
 
-The Execution Brief carries a **`deliveryAddressSnapshot`**, for the same reason a Moment carries
-a policy snapshot: the brief must still explain where a gift was sent after the customer edits the
-record. **An operator override applies to one brief only and never writes back to `Person`** —
-updating the default address is an explicit customer action in Workspace (ADR-005).
+**An absent or half-entered address is a valid stored state.** It never blocks Moment generation and
+never invalidates a workspace; it blocks only *brief confirmation*, and is named there with a link
+to the Workspace page that fixes it. Refusing the workspace over it would lock an administrator out
+of the very screen that corrects it.
+
+The Execution Brief carries a **`deliveryAddressSnapshot`** (§15f), for the same reason a Moment
+carries a policy snapshot: the brief must still explain where a gift was sent after the customer
+edits the record. **An operator override applies to one brief only and never writes back to
+`Person`** — updating the default address is an explicit customer action in Workspace (ADR-005).
 
 A Person may belong to zero, one, or many Relationship Classes. Zero is valid and expected during setup — the person exists, but no policy reaches them until a class is assigned.
 
@@ -1365,7 +1370,7 @@ Both objects belong to the **Knowledge** domain (§3). ADR-010 keeps them out of
 | | WorkspaceState | OperationsState |
 |---|---------------|-----------------|
 | Owns | Configuration the customer edits | The record of what Aniyé did |
-| Schema | v6 | v1, versioned **independently** |
+| Schema | v7 | v2, versioned **independently** |
 | Storage key | `aniye_workspace` | `aniye_operations_v1` |
 | Growth | Bounded by organization size | Unbounded |
 | Mutability | Edited freely | Events append-only; Decisions immutable except supersession |
@@ -1435,6 +1440,50 @@ these is ever presented as an empty queue or as success.
 
 ---
 
+## 15f. Execution Brief
+
+> ✅ **Implemented in H3.2** — `OperationsState` v2. Item, vendor and courier selection do not exist.
+
+The operator's unit of work for one Moment: **who, where, how much, and what constraints apply.**
+Deliberately invisible to the customer — nothing here is projected into Workspace.
+
+| Field | Notes |
+|-------|-------|
+| `status` | `Confirmed` · `Superseded`. **There is no `Draft`** — an unconfirmed brief is UI preview state, exactly as ADR-006 requires of every draft choice |
+| `revision` | 1 on first confirmation, incrementing with each correction |
+| `revisionOfBriefId` / `supersededByBriefId` | The correction chain, in both directions |
+| `deliveryAddressSnapshot` | **Copied** from `Person.deliveryAddress` at confirmation, never referenced |
+| `addressSource` | `PersonDefault` · `OperatorOverride` |
+| `addressOverride` | Reason, actor, channel, timestamp and the previous address. Present only on an override |
+| `policyResolutionSnapshot`, `approvedBudget`, `constraints` | Read from the **Moment's** snapshot, never re-resolved live |
+
+**Only a `ReadyForExecution` Moment can produce a brief.** A Moment still under review has no
+resolved budget, so there are no constraints to brief against.
+
+### The address gate
+
+**A missing address never blocks Moment generation** — `MOMENT_STATUSES` is not expanded, because
+address completeness is a property of the brief, not of the Moment (ADR-011).
+
+**It blocks brief confirmation**, and the block names the missing fields and links to the Workspace
+page that fixes them. Enforced at the persistence layer as well as in the interface: a stored brief
+whose address is incomplete is refused, so the gate cannot be bypassed by a caller.
+
+### Override and correction
+
+An operator who finds an address wrong **overrides it for that brief alone**, with a required
+reason, actor, channel and timestamp. **`Person.deliveryAddress` is never written** — not
+automatically, not eventually (ADR-005).
+
+Correcting an already-confirmed brief **preserves the original**: a new revision is created, the
+original is marked `Superseded` with nothing else rewritten, the confirming Decision is superseded,
+and an **`ExecutionBriefAddressOverridden`** Event is appended. A Moment never holds two live briefs.
+
+**H3.2 scope.** Decision types: `BriefConfirmation`, `AddressOverride`. Event types:
+`BriefGenerated`, `ExecutionBriefAddressOverridden`. More arrive with the steps that produce them.
+
+---
+
 ## 16. Enterprise Readiness (Architectural Foundations)
 
 These capabilities are not built yet. They are documented here to ensure architectural decisions made in H1–H3 do not block their implementation in H4–H5.
@@ -1483,11 +1532,11 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 > **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
 > capability*, and they are not the same thing. Sections describing something not yet built carry an
-> explicit ⚠️ marker. As of **Workspace schema v6 and `OperationsState` v1**:
+> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v2**:
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), **Moment (generation), Decision, Operational Event, the `/operations` shell** | Program (Recurring, Triggered), **recipient address (ADR-011, schema v7)**, Execution Brief, Catalog, Gift/Vendor/Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, **recipient address, Execution Brief** | Program (Recurring, Triggered), Catalog, Gift/Vendor/Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
 
 > **The authoritative roadmap is [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).** The horizon table below
 > is the thematic summary; `MASTER_ROADMAP.md` carries the canonical H3.1 … H3.8 milestone
@@ -1534,7 +1583,7 @@ Full records for ADR-004 onward live in [`adr/`](adr/). Accepted decisions are b
 | **ADR-008** | Person has three lifecycle states | Accepted 2026-07-27 | **Yes** — schema v5 |
 | **ADR-009** | Policy lifecycle stays three states | Accepted 2026-07-27 | **Yes** — no code change was required |
 | **ADR-010** | Operational records live outside `WorkspaceState` | Accepted 2026-07-27 | **Yes** — H3.1, `OperationsState` v1 (§15d) |
-| **ADR-011** | Recipient address is customer-owned; operator overrides are per-brief | Accepted 2026-07-28 | **No** — accepted architecture. Workspace schema **v7 is not built** |
+| **ADR-011** | Recipient address is customer-owned; operator overrides are per-brief | Accepted 2026-07-28 | **Yes** — H3.2, Workspace schema v7 + `OperationsState` v2 (§15f) |
 
 #### ⚠️ ADR-003 — retired
 
@@ -1640,8 +1689,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.5 — Aniyé Africa — July 2026*
+*System Atlas v3.6 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.6: H3.2 — Execution Brief implemented. Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`). §4 Person marks the address implemented; new §15f defines the Execution Brief, the address gate, override and revision; §15d updated to v7/v2; §17 reading block restated; §18 marks ADR-011 implemented. `MOMENT_STATUSES` unchanged*
 *v3.5: H3.1 acceptance correction — defect **H3.1-D1** closed. §15e gains "The preview shows; the confirmation re-reads": confirmation re-reads the Workspace, Program status, frozen population, People, groups, assignments, policies and existing source keys, builds the batch from live state, writes nothing when live state moved or when a read fails, and requires a second confirmation. 15 regression checks added (operations 35 → 50). No schema change; WorkspaceState stays v6 and OperationsState stays v1. **Live visual verification still not performed**
 *v3.4: Council corrections to the reconciliation (documentation only). §17 H4 renamed **Learn**; **all external connectors moved to H5.4 — Integrations**, removing the intermediate H4.4/H4.5 placement. §12's Supported People Sources table corrected — it still placed Google Sheets, BambooHR, HiBob and Personio at H3 and the remaining five at H4; all nine are now H5.4. ADR-011 renamed to `adr/ADR-011-recipient-address.md` to match the repository's lowercase-kebab convention*
 *v3.3: Governance reconciliation (documentation only — no code, schema, migration or validation change). ADR-011 accepted (recipient address; Workspace schema v7 accepted, **not built**); §4 Person gains the accepted-not-implemented `deliveryAddress`; §4 Moment corrected to the implemented H3.1 model and the superseded pre-H3.1 shape marked as such; §18 registry gains ADR-010 and ADR-011 and corrects ADR-005/006/007 from "No" to "Partly"; §17 restated as Workspace v6 + OperationsState v1 and pointed at the new [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md), which is now authoritative for H3.1 … H3.8; H3/H4 horizon rows corrected — people-source connectors and Gift/Catalog/Vendor Intelligence sit in H4, not H3*

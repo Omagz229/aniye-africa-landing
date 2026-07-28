@@ -35,7 +35,7 @@ import { CURRENCY_CODE_PATTERN, currencyExponent, roundHalfAwayFromZero } from '
 export const LEGACY_UNVERSIONED_SCHEMA_VERSION = 1;
 
 /** Schema v6 — H2.6: Campaign Programs (ADR-004) + baseCurrency validation. */
-export const CURRENT_WORKSPACE_SCHEMA_VERSION = 6;
+export const CURRENT_WORKSPACE_SCHEMA_VERSION = 7;
 
 export const WORKSPACE_KEY = 'aniye_workspace';
 export const WORKSPACE_BACKUP_KEY_PREFIX = 'aniye_workspace_backup';
@@ -553,6 +553,30 @@ export const MIGRATIONS: readonly Migration[] = [
       };
     },
   },
+  {
+    id: 'v6-to-v7-adr-011-person-delivery-address',
+    from: 6,
+    to: 7,
+    description: 'H3.2 — declare the optional Person.deliveryAddress field (ADR-011).',
+    // **Purely additive, and deliberately a no-op on data.**
+    //
+    // ADR-011: "No existing record is transformed and no person is given an
+    // address by migration." There is nothing to seed — an absent address is
+    // the correct state for every existing Person, and inventing one would be
+    // worse than leaving it blank. The version bump exists so that a workspace
+    // written by this build is distinguishable from a v6 one, not because any
+    // byte of person data needs to change.
+    //
+    // Every field is carried through untouched, including keys this build does
+    // not recognize: the spread preserves unknown payload rather than
+    // reconstructing a known subset. A forward-compatible field written by a
+    // later build survives a round trip through this rung.
+    destructive: false,
+    run: workspace => ({
+      ...workspace,
+      schemaVersion: 7,
+    }),
+  },
 ];
 
 // ─── ADR-007 Money transform (schema v4 → v5) ────────────────────────────────
@@ -925,6 +949,28 @@ export function validateMigratedWorkspace(raw: unknown): { ok: true } | { ok: fa
       person.relationshipClassIds.some(id => typeof id !== 'string')
     ) {
       return { ok: false, reason: `Person "${person.id}" has a malformed relationshipClassIds list.` };
+    }
+    // ADR-011 — the address is optional, so absence is valid. What is refused is
+    // a *structurally* wrong shape, which would crash a brief rather than merely
+    // block one.
+    //
+    // An address present but **incomplete** is deliberately accepted here. It is
+    // a normal customer state — half-entered data that the Execution Brief
+    // refuses to confirm against and names for correction. Refusing the whole
+    // workspace over it would lock an administrator out of the very screen that
+    // fixes it.
+    if (person.deliveryAddress !== undefined) {
+      if (!isPlainObject(person.deliveryAddress)) {
+        return { ok: false, reason: `Person "${person.id}" has a malformed deliveryAddress.` };
+      }
+      for (const [key, value] of Object.entries(person.deliveryAddress)) {
+        if (value !== undefined && typeof value !== 'string') {
+          return {
+            ok: false,
+            reason: `Person "${person.id}" has a non-text deliveryAddress.${key}.`,
+          };
+        }
+      }
     }
   }
 

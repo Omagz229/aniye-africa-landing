@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Person, RelationshipClass, RelationshipType, WorkspaceState } from '@/lib/workspace';
-import { sortRelationshipClasses, updateWorkspace } from '@/lib/workspace';
+import {
+  ADDRESS_FIELD_LABELS,
+  formatAddress,
+  missingAddressFields,
+  normalizeAddress,
+  sortRelationshipClasses,
+  updateWorkspace,
+} from '@/lib/workspace';
 import {
   ensureManualSource,
   findPersonByEmail,
@@ -36,11 +43,18 @@ const DRAFT_KEY = 'aniye_person_draft';
 interface Draft {
   firstName: string; lastName: string; email: string; phone: string; role: string;
   country: string; startDate: string; birthday: string; classIds: string[]; step: number;
+  // ADR-011 — the customer's default delivery address. Optional here by design:
+  // a person with no address is a normal state, and Operations names the gap
+  // later rather than this form blocking on it.
+  addrLine1: string; addrLine2: string; addrCity: string; addrStateOrRegion: string;
+  addrPostalCode: string; addrCountryCode: string; addrLandmark: string; addrInstructions: string;
 }
 
 const EMPTY_DRAFT: Draft = {
   firstName: '', lastName: '', email: '', phone: '', role: '',
   country: '', startDate: '', birthday: '', classIds: [], step: 0,
+  addrLine1: '', addrLine2: '', addrCity: '', addrStateOrRegion: '',
+  addrPostalCode: '', addrCountryCode: '', addrLandmark: '', addrInstructions: '',
 };
 
 const STEPS = ['Who they are', 'Where they fit', 'Dates that matter', 'Review'];
@@ -78,12 +92,24 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
           email: person.email ?? '', phone: person.phone ?? '', role: person.role ?? '',
           country: person.country ?? '', startDate: person.startDate ?? '',
           birthday: person.birthday ?? '', classIds: person.relationshipClassIds, step: 0,
+          addrLine1: person.deliveryAddress?.line1 ?? '',
+          addrLine2: person.deliveryAddress?.line2 ?? '',
+          addrCity: person.deliveryAddress?.city ?? '',
+          addrStateOrRegion: person.deliveryAddress?.stateOrRegion ?? '',
+          addrPostalCode: person.deliveryAddress?.postalCode ?? '',
+          addrCountryCode: person.deliveryAddress?.countryCode ?? '',
+          addrLandmark: person.deliveryAddress?.landmark ?? '',
+          addrInstructions: person.deliveryAddress?.deliveryInstructions ?? '',
         }
       : EMPTY_DRAFT,
   );
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [showPhone, setShowPhone] = useState(Boolean(person?.phone));
+  // Progressive disclosure (Doctrine §1.2): eight address fields stay folded
+  // away until someone actually has an address to give, and open automatically
+  // when editing a person who already has one.
+  const [showAddress, setShowAddress] = useState(Boolean(person?.deliveryAddress));
   const [resumed, setResumed] = useState<Draft | null>(null);
 
   // Offer to resume rather than silently restoring — a surprise prefill is
@@ -121,6 +147,23 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
     }
     return groups;
   }, [workspace.relationshipClasses]);
+
+  // Shown on Review so the address is confirmed rather than assumed. An
+  // incomplete one is named as such — it is allowed to save, but the operator
+  // should know a gift cannot go out against it yet.
+  const reviewAddress = useMemo(() => {
+    const address = normalizeAddress({
+      line1: draft.addrLine1, line2: draft.addrLine2, city: draft.addrCity,
+      stateOrRegion: draft.addrStateOrRegion, postalCode: draft.addrPostalCode,
+      countryCode: draft.addrCountryCode, landmark: draft.addrLandmark,
+      deliveryInstructions: draft.addrInstructions,
+    });
+    if (!address) return undefined;
+    const missing = missingAddressFields(address).map(f => ADDRESS_FIELD_LABELS[f]);
+    return missing.length === 0
+      ? formatAddress(address)
+      : `${formatAddress(address)} — still needs a ${missing.join(' and ')}`;
+  }, [draft]);
 
   const staleSelections = draft.classIds
     .map(id => ({ id, cls: classesById.get(id) }))
@@ -204,6 +247,20 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
       workspace.peopleSources, now, `source-${crypto.randomUUID()}`,
     );
 
+    // ADR-011 — an empty form means no address, not a blank one. A partially
+    // filled address is stored as given: it is a normal in-progress state, and
+    // the Execution Brief is what refuses to confirm against it later.
+    const deliveryAddress = normalizeAddress({
+      line1: draft.addrLine1,
+      line2: draft.addrLine2,
+      city: draft.addrCity,
+      stateOrRegion: draft.addrStateOrRegion,
+      postalCode: draft.addrPostalCode,
+      countryCode: draft.addrCountryCode,
+      landmark: draft.addrLandmark,
+      deliveryInstructions: draft.addrInstructions,
+    });
+
     const base = {
       firstName: draft.firstName.trim(),
       lastName: draft.lastName.trim(),
@@ -214,6 +271,7 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
       startDate: startDate.value,
       birthday: birthday.value,
       relationshipClassIds: draft.classIds,
+      deliveryAddress,
       updatedAt: now,
     };
 
@@ -427,6 +485,89 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
               </p>
             </div>
 
+            {/* Delivery address — folded away until it is wanted (Doctrine §1.2). */}
+            {!showAddress ? (
+              <button type="button" onClick={() => setShowAddress(true)}
+                className="font-body text-sm text-stone hover:text-ink transition-colors underline underline-offset-2">
+                Add a delivery address
+              </button>
+            ) : (
+              <div className="space-y-4 border-t border-stone/10 pt-5">
+                <div>
+                  <p className="font-body text-sm font-semibold text-ink">Delivery address <OptionalTag /></p>
+                  <p className="font-body text-xs text-stone/70 mt-1 leading-snug">
+                    Where gifts should reach them. You can add this later — but a gift cannot be sent
+                    without a street address, city and country.
+                  </p>
+                </div>
+
+                <div>
+                  <label className={labelClass} htmlFor="pf-addr1">Street address</label>
+                  <input id="pf-addr1" className={field} value={draft.addrLine1}
+                    onChange={(e) => set('addrLine1', e.target.value)} placeholder="12 Adeola Odeku Street" />
+                </div>
+
+                <div>
+                  <label className={labelClass} htmlFor="pf-addr2">
+                    Apartment, floor or building <OptionalTag />
+                  </label>
+                  <input id="pf-addr2" className={field} value={draft.addrLine2}
+                    onChange={(e) => set('addrLine2', e.target.value)} placeholder="Flat 4B" />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className={labelClass} htmlFor="pf-city">City</label>
+                    <input id="pf-city" className={field} value={draft.addrCity}
+                      onChange={(e) => set('addrCity', e.target.value)} placeholder="Lagos" />
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="pf-region">
+                      State or region <OptionalTag />
+                    </label>
+                    <input id="pf-region" className={field} value={draft.addrStateOrRegion}
+                      onChange={(e) => set('addrStateOrRegion', e.target.value)} placeholder="Lagos State" />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className={labelClass} htmlFor="pf-addr-country">Country</label>
+                    <input id="pf-addr-country" className={`${field} uppercase`} maxLength={2}
+                      value={draft.addrCountryCode}
+                      onChange={(e) => set('addrCountryCode', e.target.value.toUpperCase())} placeholder="NG" />
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="pf-postal">
+                      Postal code <OptionalTag />
+                    </label>
+                    <input id="pf-postal" className={field} value={draft.addrPostalCode}
+                      onChange={(e) => set('addrPostalCode', e.target.value)} placeholder="101241" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={labelClass} htmlFor="pf-landmark">
+                    Nearest landmark <OptionalTag />
+                  </label>
+                  <input id="pf-landmark" className={field} value={draft.addrLandmark}
+                    onChange={(e) => set('addrLandmark', e.target.value)} placeholder="Opposite Eko Hotel" />
+                  <p className="font-body text-xs text-stone/70 mt-1.5">
+                    Often the difference between a delivery arriving and not.
+                  </p>
+                </div>
+
+                <div>
+                  <label className={labelClass} htmlFor="pf-instructions">
+                    Delivery notes <OptionalTag />
+                  </label>
+                  <input id="pf-instructions" className={field} value={draft.addrInstructions}
+                    onChange={(e) => set('addrInstructions', e.target.value)}
+                    placeholder="Reception holds parcels, weekdays before 5pm" />
+                </div>
+              </div>
+            )}
+
             {staleSelections.length > 0 && (
               <div className="bg-cream rounded-xl px-4 py-3">
                 <p className="font-body text-xs font-semibold text-ink mb-1">Kept from before</p>
@@ -499,6 +640,7 @@ export default function PersonForm({ workspace, person, onSaved, onCancel }: Pro
               <ReviewRow label="Role" value={draft.role.trim() || undefined} />
               <ReviewRow label="Phone" value={normalizePhone(draft.phone)} />
               <ReviewRow label="Country" value={draft.country.trim() || undefined} />
+              <ReviewRow label="Delivery address" value={reviewAddress} />
               <ReviewRow
                 label="Groups"
                 value={

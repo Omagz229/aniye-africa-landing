@@ -145,6 +145,14 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         </Panel>
       )}
 
+      {/* The one clear next action for a ready moment (Doctrine §1.1). */}
+      {moment.status === 'ReadyForExecution' && (
+        <Link href={`/operations/moments/${moment.id}/brief`}
+          className="block rounded-full bg-ink text-cream px-6 py-3 font-body text-sm font-semibold text-center hover:bg-ink/90 transition-colors">
+          Open the brief
+        </Link>
+      )}
+
       {/* Issues, with the workspace link that fixes each */}
       {moment.issues.length > 0 && (
         <div className="bg-white rounded-2xl border border-stone/20 p-5">

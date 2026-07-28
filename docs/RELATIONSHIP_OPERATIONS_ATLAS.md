@@ -33,7 +33,7 @@ exist to defend it — the first as a product and routing boundary, the second a
 | Scope | One organization | Across all organizations |
 | Route tree | `/workspace/*` | `/operations/*` |
 | Shell | `WorkspaceShell` | `OperationsShell` — shares nothing |
-| Persistence | `WorkspaceState`, key `aniye_workspace`, **v6** | `OperationsState`, key `aniye_operations_v1`, **v1** |
+| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v2** |
 | Nature of records | Configuration, edited freely | Operational history, accumulating |
 | Growth | Bounded by organization size | Unbounded |
 | Vocabulary | "recognition program", "upcoming recognition" | "campaign", "job", "brief" |
@@ -112,10 +112,12 @@ latter until Aniyé's commercial role is legally resolved. *(ADR-007 Council con
 
 ## 3. Operational objects
 
-### Implemented — H3.1
+### Implemented — H3.1 and H3.2
 
 Defined in `lib/operations/types.ts`. Access is through `OperationsRepository`
-(`lib/operations/store.ts`).
+(`lib/operations/store.ts`). Construction is pure, in `lib/operations/generation.ts` (Moments) and
+`lib/operations/briefs.ts` (briefs) — neither module can persist anything, which is what makes
+"preview writes nothing" enforceable rather than merely stated.
 
 #### Moment
 
@@ -140,24 +142,52 @@ A judgement between alternatives, with a **required reason**. Never mutated; sup
 - Statuses: **`Confirmed` · `Superseded`** only. `Proposed` and `Cancelled` are explicitly rejected —
   an unconfirmed proposal is UI draft state, and `Cancelled` is indistinguishable from `Superseded`.
 - Providers: `RuleEngine` (deterministic resolution) · `HumanOperator` (judgement).
-- Types implemented: `MomentQualification` · `PolicyResolution` · `MomentCancellation`.
+- Types implemented: `MomentQualification` · `PolicyResolution` · `MomentCancellation` · **`BriefConfirmation`** · **`AddressOverride`** (H3.2).
 
 #### OperationalEvent
 
 Something that happened. **Append-only** — never edited, never deleted. Corrected only by appending
 a referencing event.
 
-- Types implemented: `MomentCreated` · `MomentMarkedReady` · `MomentNeedsReview` · `MomentCancelled`.
+- Types implemented: `MomentCreated` · `MomentMarkedReady` · `MomentNeedsReview` · `MomentCancelled` · **`BriefGenerated`** · **`ExecutionBriefAddressOverridden`** (H3.2).
 - Actors: `System` · `Operator` · `Customer` · `Vendor` · `Courier`.
 - Sources: `Platform` · `WhatsApp` · `Email` · `Phone` · `Manual`.
 - Carries both `occurredAt` (when it happened in the world) and `recordedAt` (when Aniyé learned of
   it). The two diverge as soon as external parties report.
 
+#### ExecutionBrief
+
+The operator's unit of work — who, where, how much, what constraints. **Invisible to the customer.**
+
+- Statuses: **`Confirmed` · `Superseded`** only. **No `Draft`**: an unconfirmed brief is UI preview
+  state, exactly as ADR-006 requires of every draft choice.
+- `deliveryAddressSnapshot` is **copied** from `Person.deliveryAddress` at confirmation, never
+  referenced — the brief must still explain where a gift was sent after the customer edits their
+  record.
+- **Only a `ReadyForExecution` Moment can produce one.** A Moment under review has no resolved
+  budget, so there is nothing to brief against.
+- A Moment never holds **two live briefs**. A correction supersedes; it does not add.
+- Full definition: Atlas **§15f**.
+
+**Queue states.** The briefs queue distinguishes **loading**, **failed**, **empty** and **populated**.
+A read that failed is never rendered as an empty queue: the failure names what broke, preserves the
+adapter's reason, offers a recovery, and says explicitly that briefs may exist which cannot be read.
+Retrying re-reads and writes nothing. *(Closes H3.2-D1.)*
+
+**The address gate.** A missing address never blocks Moment generation — `MOMENT_STATUSES` is not
+expanded, because completeness is a property of the brief. It blocks **confirmation**, names the
+missing fields, and links to the Workspace page that fixes them. Enforced in the persistence layer
+as well as the interface, so it cannot be bypassed by a caller.
+
+**Override.** An operator corrects the address for **one brief**, with a required reason, actor,
+channel and timestamp. **`Person.deliveryAddress` is never written** (ADR-005, ADR-011). Correcting
+a confirmed brief preserves the original, creates a revision, supersedes the confirming Decision and
+appends `ExecutionBriefAddressOverridden`.
+
 ### Accepted, not implemented
 
 | Object | Milestone | Authority |
 |--------|-----------|-----------|
-| **Execution Brief** — recipient, `deliveryAddressSnapshot`, budget, constraints | H3.2 | Checkpoint milestone 4 · ADR-011 |
 | **Catalog Item** — flat list, budget-filtered | H3.3 | Checkpoint milestone 5 |
 | **Vendor Offer** — hand-entered | H3.4 | Checkpoint milestone 6 |
 | **Courier selection** — per country | H3.5 | Checkpoint milestone 7 |
@@ -279,7 +309,7 @@ Full table: checkpoint Part 2. Milestone identifiers: [`MASTER_ROADMAP.md`](MAST
 | Program activated | Program | — | `ProgramActivated` | H2.6 ✅ |
 | Moment generated | Moment | `MomentQualification` | `MomentCreated` | H3.1 ✅ |
 | Policy and budget resolved | `policyResolutionSnapshot` | `PolicyResolution` | — | H3.1 ✅ |
-| Brief prepared | ExecutionBrief | `BudgetException` if over | `BriefGenerated` | H3.2 |
+| Brief prepared | ExecutionBrief | `BriefConfirmation`, `AddressOverride` on correction | `BriefGenerated`, `ExecutionBriefAddressOverridden` | H3.2 ✅ |
 | Item selected | — | `ItemSelection` / `ItemSubstitution` | `ItemPrepared` | H3.3 |
 | Vendor offer selected | VendorOffer | `VendorSelection` | `VendorContacted` | H3.4 |
 | Courier selected | — | `CourierSelection` | — | H3.5 |
@@ -464,8 +494,10 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v1.1 — Aniyé Africa — 28 July 2026*
+*Relationship Operations Atlas v1.3 — Aniyé Africa — 28 July 2026*
+*v1.3: H3.2-D1 closed — §3 records the four distinct brief-queue states; a storage read failure is never presented as an empty queue.*
+*v1.2: H3.2 — the Execution Brief moves from accepted to **implemented**. §3 gains its definition, the address gate, override and revision rules; §6 marks the brief step done; Decision and Event type lists extended; persistence restated as Workspace v7 / OperationsState v2.*
 *v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
 *v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
-*Basis: Workspace schema v6, `OperationsState` v1, System Atlas v3.4, ADR-001 … ADR-011.*
+*Basis: Workspace schema v7, `OperationsState` v2, System Atlas v3.5, ADR-001 … ADR-011.*
 *Implemented state at reconstruction: H3.1 — Moment generation, Decisions and Operational Events. Everything from the Execution Brief onward is accepted architecture only.*
