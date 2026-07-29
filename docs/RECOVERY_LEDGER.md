@@ -901,6 +901,105 @@ brief → *Open the brief*; brief confirmed → *Choose an item*; item chosen �
 (40px links, 32px close). Pre-existing H3.1 shell chrome, untouched by this
 milestone, and recorded here rather than quietly absorbed.
 
+### ✅ H3.3-D1 — the repository trust boundary
+
+**Acceptance defect, found reviewing H3.3 after it shipped. No schema change.**
+
+`commitItemSelection()` re-read `OperationsState` and checked the Moment, the
+live brief's **id and revision**, and the absence of an existing selection — and
+then **believed the rest of the submitted Decision.**
+
+> A structurally valid bundle could therefore keep the correct brief reference
+> while carrying a different approved budget, different exclusions, a truncated
+> or reordered candidate set, a mispriced selected-item snapshot, or an Event
+> naming a different item — and still be committed.
+>
+> The result would have been an audit trail that was **internally consistent and
+> wrong**, which is worse than no audit trail: every downstream reader would have
+> had no way to tell.
+
+It also could not notice a catalog that had moved on. An item withdrawn,
+repriced above budget, repriced into another currency, or recategorized into an
+excluded category between the screen opening and the operator confirming would
+have been written as though it were still eligible.
+
+#### The correction
+
+`verifyItemSelection()` in `lib/operations/selection.ts` — pure, and called by
+the repository **before** the single atomic write. The rule is now absolute:
+**recompute the answer and compare; never believe what was handed in.**
+
+| Recomputed from | What is compared |
+|---|---|
+| Re-read `OperationsState` | Moment resolved and `ReadyForExecution`; not cancelled; no live `ItemSelection` |
+| The **live confirmed brief** | Brief id and revision; approved `Money`; applied exclusions. Refused outright if exclusions were never recorded |
+| The **current catalog** | Complete deterministic eligible set, in order; the selected item still active, exact-currency, at or under budget, outside the exclusions |
+| Rebuilt evidence | Ordered candidate ids **and** ordered candidate snapshots; selected id; selected name, category and copied `Money` |
+| The Decision itself | `ItemSelection` · `Confirmed` · `HumanOperator` · non-blank reason · no fabricated `recommendation` or `overrideReason` · correct workspace and Moment |
+| The Event | `ItemSelected` · `Operator` · `Platform` · same workspace, Moment, actor · payload's brief id/revision and item id equal to the Decision's · one shared instant across `createdAt`/`confirmedAt`/`occurredAt`/`recordedAt` |
+
+Any mismatch writes **nothing** and returns a named refusal ending *"Review the
+moment and choose again — nothing was recorded."* The single-write atomic
+transaction and append-only history are unchanged.
+
+**The Workspace policy is still never read here.** The brief's immutable snapshot
+remains authoritative for constraints — a policy edited since generation did not
+govern this Moment. The *catalog* is deliberately the opposite: read live,
+because staleness there is exactly the risk.
+
+**Also fixed:** `buildItemSelection` aliased the brief's approved-budget `Money`
+into the Decision instead of copying it — the same defect already corrected for
+the catalog-item snapshot, in the one place it had been missed.
+
+#### Catalog injection
+
+`createLocalOperationsRepository(storage, { catalog })`. Injected for the same
+reason storage already was: **a trust boundary that can only be exercised
+against the production seed cannot be tested for staleness.** Building a second
+repository over the *same* storage with a changed catalog reproduces the real
+scenario exactly. Production passes nothing and gets the shipped seed.
+
+#### 18 new repository-level checks — selection 47 → 65
+
+Every one submits something structurally valid that keeps the correct brief
+reference, and proves the refusal left **both** collections byte-identical and
+the storage write log untouched.
+
+| # | Proves zero writes for |
+|---|---|
+| 48 | The selected item removed from the catalog |
+| 49 | The selected item made inactive after the screen opened |
+| 50 | The selected item repriced **one minor unit** above budget — and that exactly at budget still commits, so the boundary is the boundary |
+| 51 | The selected item repriced into another currency |
+| 52 | The selected item's category becoming excluded |
+| 53 | Altered approved-budget evidence — inflated, wrong currency, missing |
+| 54 | Altered exclusion evidence — emptied, substituted, missing |
+| 55 | Missing, reordered, truncated, extended or absent candidate lists |
+| 56 | Altered candidate or selected-item snapshots — repriced, renamed, recategorized, missing |
+| 57 | A selected id disagreeing with its snapshot, in both directions |
+| 58 | An Event payload naming a different item, brief or revision |
+| 59 | `RuleEngine`, non-`Confirmed`, blank-reason, or fabricated recommendation/override |
+| 60 | Non-`Operator` actor, wrong source, wrong event type, wrong actor id |
+| 61 | A Decision and Event assembled at different instants |
+| 62 | A **tampered live brief at the same id and revision** — budget altered underneath |
+| 63 | A brief whose exclusions vanish at the same reference |
+| 64 | A Moment sent back for review, or cancelled, underneath |
+| 65 | The honest bundle still commits in one write — the boundary is not simply refusing everything |
+
+Check 65 is deliberate: a validation suite that only proves refusals would pass
+just as well against a boundary that refuses everything.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **299/299 across nine suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, **selection 65** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly baseline |
+| `build` | Succeeds, **24 routes** — unchanged |
+| Routes | All 12 sampled return 200 |
+| Links | Every internal `href` resolves to a built route |
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1450,3 +1549,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the pre-pilot experience corrections — EX-H1, EX-H3, EX-M5 and EX-M8 all closed. Assessment draft read through `useSyncExternalStore` with a null server snapshot; PolicyForm rebuilt into four guided steps; drawer first-frame accessibility moved from `inert` to CSS `visibility` in both shells. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*
 *Updated after the pre-pilot regression correction — assessment same-session resume prompt suppressed via an interaction latch; PolicyForm Review completed to 11 of 11 configurable values; PolicyForm step focus, live announcement and `aria-current` added. EX-M11 remains open. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*
 *Updated after H3.3 (Minimum Catalog + manual item selection) — `OperationsState` **v3** (additive; newly generated Moments snapshot `policyResolutionSnapshot.excludedCategories`, and the rung writes nothing into any existing record). Workspace schema unchanged at **v7**. A pre-H3.3 record **blocks** item selection with a named recovery rather than assuming an empty exclusion list, because a policy is edited in place at the same version and equivalence is not provable. Event named `ItemSelected`, not the checkpoint's `ItemPrepared`; `ItemSubstitution` not added. Three defects found and fixed — an aliased `Money` snapshot, missing workspace-id checks on Decisions and Events, and a false "not resolved / not recorded" panel before a brief exists. Four H3.2 checks amended and declared. **281 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. Verified live at 400px, 768px and 1200px; **1440px was not reachable and real-device testing is still not done**. System Atlas v3.7, Master Roadmap v1.4, Relationship Operations Atlas v1.4.*
+*Updated after the H3.3 repository trust-boundary correction (H3.3-D1) — `commitItemSelection()` verified the brief id and revision and then trusted the rest of the submitted Decision, so a structurally valid bundle could alter the budget, exclusions, candidate set, selected snapshot or Event payload and still commit; a stale catalog was invisible to it. `verifyItemSelection()` now recomputes every claim from re-read state, the live brief's immutable snapshot and the current catalog, and refuses any mismatch without writing. Approved-budget `Money` is now defensively copied when building the Decision. Catalog injection added to the local repository so staleness is testable without touching the production seed. 18 new repository-level checks (selection 47 → 65); **299 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. No schema change — `OperationsState` stays **v3**, Workspace stays **v7**.*

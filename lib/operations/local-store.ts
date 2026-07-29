@@ -13,6 +13,9 @@
  * guarantees are actually proven.
  */
 
+import type { CatalogItem } from '../catalog';
+import { CATALOG_ITEMS } from '../catalog';
+import { verifyItemSelection } from './selection';
 import type {
   BriefWrite,
   ItemSelectionWrite,
@@ -41,7 +44,26 @@ export interface OperationsStorage {
   setItem(key: string, value: string): void;
 }
 
-export function createLocalOperationsRepository(storage: OperationsStorage): OperationsRepository {
+export interface OperationsRepositoryOptions {
+  /**
+   * The catalog the repository recomputes item eligibility against.
+   *
+   * Injected for the same reason storage is: a trust boundary that can only be
+   * exercised against the production seed cannot be tested for **staleness**.
+   * Building a second repository over the *same* storage with a changed catalog
+   * is exactly the scenario the boundary exists for — an item withdrawn,
+   * repriced or newly excluded while an operator's screen sat open.
+   *
+   * Defaults to the shipped seed. Production passes nothing.
+   */
+  catalog?: readonly CatalogItem[];
+}
+
+export function createLocalOperationsRepository(
+  storage: OperationsStorage,
+  options: OperationsRepositoryOptions = {},
+): OperationsRepository {
+  const catalog = options.catalog ?? CATALOG_ITEMS;
 
   /**
    * Read, migrate, then validate. Never adopts a payload belonging to another
@@ -379,51 +401,46 @@ export function createLocalOperationsRepository(storage: OperationsStorage): Ope
 
       const { decision, event } = write;
 
-      if (decision.decisionType !== 'ItemSelection') {
-        return { ok: false, reason: 'That decision is not an item selection.' };
-      }
-      if (event.eventType !== 'ItemSelected') {
-        return { ok: false, reason: 'That event does not record an item selection.' };
-      }
       if (decision.momentId !== event.momentId) {
-        return { ok: false, reason: 'The decision and event refer to different moments.' };
-      }
-
-      const moment = state.value.moments.find(m => m.id === decision.momentId);
-      if (!moment) return { ok: false, reason: 'That moment no longer exists.' };
-      if (moment.status === 'Cancelled') {
-        return { ok: false, reason: 'That moment has been cancelled. Nothing was recorded.' };
-      }
-      if (moment.status !== 'ReadyForExecution') {
-        return { ok: false, reason: 'That moment is no longer ready for execution. Nothing was recorded.' };
-      }
-
-      // Revalidated here, not merely on the screen. A confirmation prepared
-      // against a brief that has since been corrected refers to a revision
-      // nobody is executing any more, and writing it would attach the choice
-      // to the wrong evidence.
-      const inputs = decision.inputs as { briefId?: string; briefRevision?: number };
-      const live = state.value.executionBriefs.find(
-        b => b.momentId === decision.momentId && b.status === 'Confirmed',
-      );
-      if (!live) {
-        return { ok: false, reason: 'This moment has no confirmed brief. Nothing was recorded.' };
-      }
-      if (inputs.briefId !== live.id || inputs.briefRevision !== live.revision) {
         return {
           ok: false,
-          reason: 'The brief was corrected while this was open. Review it and choose again — nothing was recorded.',
+          reason: 'The decision and event refer to different moments. Review the moment and choose again — nothing was recorded.',
         };
       }
 
-      // One live selection per Moment. Repeated clicks, a stale tab and a
-      // reloaded page all land here, and all of them are refused.
-      const existing = state.value.decisions.find(
-        d => d.momentId === decision.momentId && d.decisionType === 'ItemSelection' && d.status === 'Confirmed',
-      );
-      if (existing) {
-        return { ok: false, reason: 'An item has already been chosen for this moment.' };
+      const moment = state.value.moments.find(m => m.id === decision.momentId);
+      if (!moment) {
+        return {
+          ok: false,
+          reason: 'That moment no longer exists. Review the queue — nothing was recorded.',
+        };
       }
+
+      /**
+       * **The trust boundary.**
+       *
+       * Everything the submission asserts is recomputed here from re-read state
+       * and the current catalog, and compared. Before this call existed, the
+       * commit checked the brief id and revision and then believed the rest —
+       * so a bundle could keep the right brief reference while carrying a
+       * different budget, different exclusions, a truncated candidate set or a
+       * mispriced item snapshot, and still be written. An audit trail that is
+       * internally consistent and wrong is worse than none.
+       *
+       * The **brief's** immutable snapshot is authoritative for constraints; the
+       * Workspace policy is deliberately not read. The **catalog** is read live,
+       * so an item withdrawn, repriced or newly excluded while the screen sat
+       * open stops the write.
+       */
+      const verified = verifyItemSelection({
+        workspaceId,
+        moment,
+        briefs: state.value.executionBriefs,
+        decisions: state.value.decisions,
+        write,
+        items: catalog,
+      });
+      if (!verified.ok) return verified;
 
       if (state.value.decisions.some(d => d.id === decision.id)) {
         return { ok: false, reason: 'That decision has already been recorded.' };

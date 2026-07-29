@@ -133,11 +133,22 @@ export interface OperationsRepository {
    * Commit an item selection **atomically** — the Decision and its Event land
    * together or not at all, over a fully validated proposed state.
    *
-   * Revalidates before writing rather than trusting the caller: the Moment must
-   * still exist and still be ready, the referenced brief must still be the live
-   * one at the same revision, and the Moment must not already have a live
-   * selection. A confirmation screen opened before any of those changed writes
-   * nothing and says so.
+   * **Recomputes rather than trusts.** An implementation must re-read state and
+   * rebuild the answer from the live confirmed brief's immutable snapshot and
+   * the current catalog, then compare every piece of submitted evidence against
+   * it: the approved budget, the applied exclusions, the complete ordered
+   * candidate set and its snapshots, and the selected item's own snapshot. The
+   * Decision must be a Confirmed `HumanOperator` judgement with a reason, and
+   * the Event must describe the same occurrence at the same instant.
+   *
+   * A structurally valid bundle that keeps the right brief reference while
+   * altering any of that is **refused, and nothing is written** — an audit trail
+   * that is internally consistent and wrong is worse than no audit trail.
+   *
+   * Constraints come from the brief, never from a live Workspace policy read: a
+   * policy edited since generation did not govern this Moment. The catalog, by
+   * contrast, is read live, so an item withdrawn, repriced or newly excluded
+   * while the screen sat open stops the write.
    */
   commitItemSelection(
     workspaceId: string,

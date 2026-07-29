@@ -14,7 +14,7 @@
  */
 
 import type { CatalogItem, CatalogItemSnapshot, ItemConstraints } from '../catalog';
-import { CATALOG_ITEMS, eligibleItems, findCatalogItem, snapshotItem } from '../catalog';
+import { CATALOG_ITEMS, eligibleItems, findCatalogItem, itemEligibility, snapshotItem } from '../catalog';
 import { formatMoney } from '../money';
 import type { Money } from '../money';
 import type { Decision, ExecutionBrief, Moment, OperationalEvent } from './types';
@@ -297,7 +297,10 @@ export function buildItemSelection(input: ConfirmSelectionInput): SelectionResul
     inputs: {
       briefId: brief.id,
       briefRevision: brief.revision,
-      approvedBudget: constraints.approvedBudget,
+      // Copied, not aliased — the same rule the item snapshot follows. A written
+      // Decision must not hold a live reference into the brief it was judged
+      // against.
+      approvedBudget: { ...constraints.approvedBudget },
       excludedCategories: [...constraints.excludedCategories],
       candidateItemIds: preview.eligible.map(item => item.id),
       candidates: preview.eligible.map(snapshotItem),
@@ -329,4 +332,228 @@ export function buildItemSelection(input: ConfirmSelectionInput): SelectionResul
   };
 
   return { ok: true, value: { decision, event } };
+}
+
+// ─── The repository trust boundary ───────────────────────────────────────────
+
+/**
+ * Prove a submitted selection against recomputed truth.
+ *
+ * ─── Why this exists ─────────────────────────────────────────────────────────
+ * `buildItemSelection` produces correct evidence, but the repository must not
+ * *assume* its caller used it. Before this function, `commitItemSelection`
+ * checked the brief id and revision and then took the rest of the Decision on
+ * trust — so a structurally valid bundle could keep the right brief reference
+ * while carrying a different approved budget, different exclusions, a truncated
+ * candidate set or a selected-item snapshot at the wrong price, and still be
+ * written. The audit trail would have been internally consistent and wrong,
+ * which is the worst failure an audit trail has.
+ *
+ * The rule is simple and absolute: **the repository recomputes the answer and
+ * compares, rather than believing what it was handed.** Anything it cannot
+ * reproduce exactly is refused, and nothing is written.
+ *
+ * ─── Where truth comes from ──────────────────────────────────────────────────
+ * The **live confirmed brief's immutable snapshot** — never the current
+ * Workspace policy. A policy edited since the Moment was generated did not
+ * govern this Moment, and reading it here would let a later edit silently
+ * change what was allowed. The catalog, by contrast, *is* read live: an item
+ * withdrawn, repriced or newly excluded between the screen opening and the
+ * operator confirming must stop the write.
+ *
+ * Pure. It reads nothing and writes nothing; the repository hands it state.
+ */
+
+/** What the boundary compares against. All of it recomputed, none of it trusted. */
+export interface VerifySelectionInput {
+  workspaceId: string;
+  moment: Moment;
+  /** Every brief for this Moment, as stored. The live one is resolved here. */
+  briefs: readonly ExecutionBrief[];
+  /** Every Decision for this workspace, as stored. */
+  decisions: readonly Decision[];
+  write: SelectionBundle;
+  /** The catalog as it is **now**. Injected so staleness is testable. */
+  items?: readonly CatalogItem[];
+}
+
+export type VerifySelectionResult = { ok: true } | { ok: false; reason: string };
+
+/** Every refusal ends the same way: nothing was written, go and look again. */
+const REVIEW_AGAIN = 'Review the moment and choose again — nothing was recorded.';
+
+function refuse(what: string): { ok: false; reason: string } {
+  return { ok: false, reason: `${what} ${REVIEW_AGAIN}` };
+}
+
+function sameMoney(a: unknown, b: Money): boolean {
+  if (typeof a !== 'object' || a === null) return false;
+  const m = a as Partial<Money>;
+  return m.amountMinor === b.amountMinor && m.currency === b.currency;
+}
+
+function sameStringList(a: unknown, b: readonly string[]): boolean {
+  if (!Array.isArray(a) || a.length !== b.length) return false;
+  return a.every((value, i) => value === b[i]);
+}
+
+function sameSnapshot(a: unknown, b: CatalogItemSnapshot): boolean {
+  if (typeof a !== 'object' || a === null) return false;
+  const s = a as Partial<CatalogItemSnapshot>;
+  return (
+    s.itemId === b.itemId &&
+    s.name === b.name &&
+    s.category === b.category &&
+    sameMoney(s.price, b.price)
+  );
+}
+
+export function verifyItemSelection(input: VerifySelectionInput): VerifySelectionResult {
+  const { workspaceId, moment, write } = input;
+  const { decision, event } = write;
+  const items = input.items ?? CATALOG_ITEMS;
+
+  // ── 1. The Decision must be the kind of record this operation writes ──
+  if (decision.decisionType !== 'ItemSelection') {
+    return refuse('That decision does not record an item selection.');
+  }
+  if (decision.status !== 'Confirmed') {
+    return refuse('An item selection is only ever recorded as Confirmed.');
+  }
+  // ADR-006: choosing between real alternatives is a human judgement. A rule
+  // engine has no basis for it, and recording one as automatic would misstate
+  // who is answerable for the choice.
+  if (decision.provider !== 'HumanOperator') {
+    return refuse('An item selection must be recorded as an operator judgement.');
+  }
+  if (typeof decision.reason !== 'string' || decision.reason.trim().length === 0) {
+    return refuse('An item selection needs a reason.');
+  }
+  // H3.3 makes no recommendation, so there is nothing to recommend or override.
+  if (decision.recommendation !== undefined || decision.overrideReason !== undefined) {
+    return refuse('An item selection carries no recommendation to override.');
+  }
+  if (decision.workspaceId !== workspaceId || decision.momentId !== moment.id) {
+    return refuse('That decision belongs to a different workspace or moment.');
+  }
+
+  // ── 2. The Moment must still be executable ──
+  if (moment.status === 'Cancelled') {
+    return refuse('That moment has been cancelled.');
+  }
+  if (moment.status !== 'ReadyForExecution') {
+    return refuse('That moment is no longer ready for execution.');
+  }
+
+  // ── 3. One live selection, ever ──
+  if (findLiveSelectionDecision(input.decisions, moment.id)) {
+    return refuse('An item has already been chosen for this moment.');
+  }
+
+  // ── 4. The brief the operator saw must still be the live one ──
+  const live = input.briefs.find(b => b.momentId === moment.id && b.status === 'Confirmed') ?? null;
+  if (!live) {
+    return refuse('This moment has no confirmed brief.');
+  }
+
+  const inputs = decision.inputs as Record<string, unknown>;
+  if (inputs.briefId !== live.id || inputs.briefRevision !== live.revision) {
+    return refuse('The brief was corrected while this was open.');
+  }
+
+  // ── 5. Constraints come from the live brief, not from the submission ──
+  const snapshot = live.policyResolutionSnapshot;
+  const budget = snapshot.approvedRecognitionBudget;
+  const excluded = snapshot.excludedCategories;
+  if (excluded === undefined) {
+    return refuse('The rule that governed this moment was never recorded, so no item can be chosen against it.');
+  }
+
+  // ── 6. Recompute, then compare. Nothing below trusts the caller. ──
+  const eligible = eligibleItems({ approvedBudget: budget, excludedCategories: excluded }, items);
+
+  const chosen = findCatalogItem(String(inputs.selectedItemId ?? ''), items);
+  if (!chosen) {
+    return refuse('That item is no longer in the catalog.');
+  }
+  // Named individually so the operator learns *what changed*, not merely that
+  // something did.
+  const eligibility = itemEligibility(chosen, { approvedBudget: budget, excludedCategories: excluded });
+  if (!eligibility.eligible) {
+    switch (eligibility.reason) {
+      case 'inactive':
+        return refuse(`"${chosen.name}" has been withdrawn from the catalog.`);
+      case 'currency-mismatch':
+        return refuse(`"${chosen.name}" is no longer priced in ${budget.currency}.`);
+      case 'over-budget':
+        return refuse(`"${chosen.name}" is now priced above the approved budget.`);
+      case 'category-excluded':
+        return refuse(`"${chosen.name}" is in a category this moment's rule excludes.`);
+    }
+  }
+
+  const expectedSnapshot = snapshotItem(chosen);
+  const expectedCandidates = eligible.map(snapshotItem);
+
+  if (!sameMoney(inputs.approvedBudget, budget)) {
+    return refuse('The recorded budget does not match the brief.');
+  }
+  if (!sameStringList(inputs.excludedCategories, excluded)) {
+    return refuse('The recorded exclusions do not match the brief.');
+  }
+  // Order is part of the evidence: `eligibleItems` is a total order, so a
+  // reordered list is a list that was not produced by this system.
+  if (!sameStringList(inputs.candidateItemIds, eligible.map(i => i.id))) {
+    return refuse('The recorded list of qualifying items does not match the catalog.');
+  }
+  if (
+    !Array.isArray(inputs.candidates) ||
+    inputs.candidates.length !== expectedCandidates.length ||
+    !inputs.candidates.every((c, i) => sameSnapshot(c, expectedCandidates[i]))
+  ) {
+    return refuse('The recorded details of the qualifying items do not match the catalog.');
+  }
+  if (!sameSnapshot(inputs.selectedItem, expectedSnapshot)) {
+    return refuse('The recorded details of the chosen item do not match the catalog.');
+  }
+
+  // ── 7. The Event must describe the same occurrence ──
+  if (event.eventType !== 'ItemSelected') {
+    return refuse('That event does not record an item selection.');
+  }
+  if (event.workspaceId !== workspaceId || event.momentId !== moment.id) {
+    return refuse('That event belongs to a different workspace or moment.');
+  }
+  if (event.actorType !== 'Operator') {
+    return refuse('An item selection is an operator action.');
+  }
+  // The choice was made in the platform. A `WhatsApp` or `Phone` source here
+  // would claim it arrived through a channel that recorded nothing.
+  if (event.source !== 'Platform') {
+    return refuse('An item selection recorded here came through the platform.');
+  }
+  if (event.actorId !== decision.actorId) {
+    return refuse('The decision and event name different actors.');
+  }
+
+  const payload = event.payload as Record<string, unknown>;
+  if (
+    payload.briefId !== inputs.briefId ||
+    payload.briefRevision !== inputs.briefRevision ||
+    payload.itemId !== inputs.selectedItemId
+  ) {
+    return refuse('The event and the decision disagree about what was chosen.');
+  }
+
+  // One transaction, therefore one instant. The builder writes `now` to all
+  // four; anything else means the pair was assembled from two different moments
+  // and the timeline would lie about when the choice happened.
+  if (decision.createdAt !== decision.confirmedAt) {
+    return refuse('The decision was created and confirmed at different times.');
+  }
+  if (event.occurredAt !== event.recordedAt || event.occurredAt !== decision.confirmedAt) {
+    return refuse('The event and the decision disagree about when this happened.');
+  }
+
+  return { ok: true };
 }

@@ -40,7 +40,13 @@ import {
   migrateOperationsState,
   validateOperationsState,
 } from '../lib/operations/types';
-import type { Decision, ExecutionBrief, Moment } from '../lib/operations/types';
+import type {
+  Decision,
+  ExecutionBrief,
+  Moment,
+  OperationalEvent,
+  OperationsState,
+} from '../lib/operations/types';
 import { createLocalOperationsRepository } from '../lib/operations/local-store';
 import type { GenerationContext } from '../lib/operations/generation';
 import { buildMomentBatch } from '../lib/operations/generation';
@@ -90,6 +96,7 @@ function createMemoryStorage(seed: Record<string, string> = {}) {
 
 const T0 = '2026-07-01T00:00:00.000Z';
 const NOW = '2026-08-01T00:00:00.000Z';
+const LATER = '2026-08-02T00:00:00.000Z';
 const WS = 'org-1';
 
 let n = 0;
@@ -178,10 +185,12 @@ function context(people: Person[], p: RecognitionPolicy = policy()): GenerationC
  * A workspace with one prepared, ready Moment and one confirmed brief — the
  * only state from which an item may be chosen.
  */
-function preparedWorkspace(over: { policy?: RecognitionPolicy } = {}) {
+function preparedWorkspace(over: { policy?: RecognitionPolicy; catalog?: readonly CatalogItem[] } = {}) {
   const p = person({ id: 'p1' });
   const storage = createMemoryStorage();
-  const repo = createLocalOperationsRepository(storage);
+  // The repository recomputes eligibility against **its** catalog, so the
+  // fixture catalog is injected rather than the shipped seed.
+  const repo = createLocalOperationsRepository(storage, { catalog: over.catalog ?? FIXTURE_ITEMS });
   repo.initialise(WS, NOW);
 
   const batch = buildMomentBatch(context([p], over.policy ?? policy()), ids, 'operator-1');
@@ -868,6 +877,265 @@ check('47. The live selection lookup ignores superseded decisions', () => {
   assert(findLiveSelectionDecision([built.value.decision], fx.moment.id) !== null, 'A live selection was not found.');
   // And other moments' selections are not borrowed.
   assertEqual(findLiveSelectionDecision([built.value.decision], 'some-other-moment'), null, 'A selection leaked across moments.');
+});
+
+// ─── Part 8: the repository trust boundary ───────────────────────────────────
+//
+// The repository must **recompute** the answer and compare, never believe the
+// bundle it was handed. Every check below submits something structurally valid
+// that keeps the correct brief id and revision, and proves the write is refused
+// with both collections left exactly as they were.
+
+type Bundle = { decision: Decision; event: OperationalEvent };
+
+/** A bundle built against the fixture catalog, ready to be tampered with. */
+function goodBundle(fx: ReturnType<typeof preparedWorkspace>, itemId = 'fx-under'): Bundle {
+  const built = buildItemSelection({
+    ...selectionContext(fx), selectedItemId: itemId, reason: 'It fits the budget and the rule.',
+    now: NOW, ids, actorId: 'operator-1',
+  });
+  assert(built.ok, `Fixture bundle failed to build: ${built.ok ? '' : built.reason}`);
+  return built.value;
+}
+
+function withInputs(bundle: Bundle, patch: Record<string, unknown>): Bundle {
+  return { ...bundle, decision: { ...bundle.decision, inputs: { ...bundle.decision.inputs, ...patch } } };
+}
+
+/**
+ * Submit, expect refusal, and prove **nothing moved**.
+ *
+ * Both collections are compared verbatim and the storage write log is checked,
+ * so "it was refused" cannot quietly mean "it was refused after writing".
+ */
+function expectRefused(
+  fx: ReturnType<typeof preparedWorkspace>,
+  bundle: Bundle,
+  what: string,
+  repo = fx.repo,
+): void {
+  const before = fx.repo.load(WS);
+  assert(before.ok && before.value, 'State could not be read.');
+  const priorDecisions = JSON.stringify(before.value!.decisions);
+  const priorEvents = JSON.stringify(before.value!.events);
+  const priorWrites = fx.storage.writes.length;
+
+  const written = repo.commitItemSelection(WS, bundle, NOW);
+  assert(!written.ok, `${what} was accepted.`);
+  if (!written.ok) {
+    assert(
+      written.reason.includes('nothing was recorded') || written.reason.includes('Nothing was recorded'),
+      `${what} was refused without saying nothing was recorded: "${written.reason}"`,
+    );
+  }
+
+  assertEqual(fx.storage.writes.length, priorWrites, `${what} still wrote to storage.`);
+  const after = fx.repo.load(WS);
+  assert(after.ok && after.value, 'State could not be re-read.');
+  assertEqual(JSON.stringify(after.value!.decisions), priorDecisions, `${what} changed the decisions.`);
+  assertEqual(JSON.stringify(after.value!.events), priorEvents, `${what} changed the events.`);
+}
+
+/** A repository over the *same* storage, seeing a catalog that has since moved on. */
+function withCatalog(fx: ReturnType<typeof preparedWorkspace>, items: readonly CatalogItem[]) {
+  return createLocalOperationsRepository(fx.storage, { catalog: items });
+}
+
+const WITHOUT_CHOSEN = FIXTURE_ITEMS.filter(i => i.id !== 'fx-under');
+function mutateChosen(patch: Partial<CatalogItem>): readonly CatalogItem[] {
+  return FIXTURE_ITEMS.map(i => (i.id === 'fx-under' ? { ...i, ...patch } : i));
+}
+
+check('48. A selected item removed from the catalog writes nothing', () => {
+  const fx = preparedWorkspace();
+  expectRefused(fx, goodBundle(fx), 'A withdrawn-from-catalog item', withCatalog(fx, WITHOUT_CHOSEN));
+});
+
+check('49. A selected item made inactive after the screen opened writes nothing', () => {
+  const fx = preparedWorkspace();
+  expectRefused(fx, goodBundle(fx), 'A deactivated item', withCatalog(fx, mutateChosen({ isActive: false })));
+});
+
+check('50. A selected item repriced one minor unit above budget writes nothing', () => {
+  const fx = preparedWorkspace();
+  const overBudget = mutateChosen({ price: { amountMinor: BUDGET.amountMinor + 1, currency: 'NGN' } });
+  expectRefused(fx, goodBundle(fx), 'An item repriced one minor unit over budget', withCatalog(fx, overBudget));
+  // And exactly at budget is still fine, so the boundary is the boundary.
+  const atBudget = mutateChosen({ price: { amountMinor: BUDGET.amountMinor, currency: 'NGN' } });
+  const fresh = preparedWorkspace({ catalog: atBudget });
+  const built = buildItemSelection({
+    ...selectionContext(fresh, { items: atBudget }), selectedItemId: 'fx-under',
+    reason: 'Exactly at budget.', now: NOW, ids, actorId: 'operator-1',
+  });
+  assert(built.ok, 'A repriced-to-exactly-budget item failed to build.');
+  assert(fresh.repo.commitItemSelection(WS, built.value, NOW).ok, 'An item exactly at budget was refused.');
+});
+
+check('51. A selected item repriced into another currency writes nothing', () => {
+  const fx = preparedWorkspace();
+  const foreign = mutateChosen({ price: { amountMinor: 100, currency: 'KES' } });
+  expectRefused(fx, goodBundle(fx), 'An item repriced in another currency', withCatalog(fx, foreign));
+});
+
+check('52. A selected item whose category becomes excluded writes nothing', () => {
+  const fx = preparedWorkspace();
+  const nowExcluded = mutateChosen({ category: 'Wellness & Spa' });
+  expectRefused(fx, goodBundle(fx), 'An item moved into an excluded category', withCatalog(fx, nowExcluded));
+});
+
+check('53. Altered approved-budget evidence writes nothing', () => {
+  const fx = preparedWorkspace();
+  const inflated = { amountMinor: BUDGET.amountMinor * 2, currency: 'NGN' };
+  expectRefused(fx, withInputs(goodBundle(fx), { approvedBudget: inflated }), 'An inflated budget');
+  expectRefused(fx, withInputs(goodBundle(fx), { approvedBudget: { amountMinor: BUDGET.amountMinor, currency: 'KES' } }), 'A budget in another currency');
+  expectRefused(fx, withInputs(goodBundle(fx), { approvedBudget: undefined }), 'A missing budget');
+});
+
+check('54. Altered exclusion evidence writes nothing', () => {
+  const fx = preparedWorkspace();
+  expectRefused(fx, withInputs(goodBundle(fx), { excludedCategories: [] }), 'An emptied exclusion list');
+  expectRefused(fx, withInputs(goodBundle(fx), { excludedCategories: ['Food & Drink'] }), 'A substituted exclusion list');
+  expectRefused(fx, withInputs(goodBundle(fx), { excludedCategories: undefined }), 'A missing exclusion list');
+});
+
+check('55. Missing, reordered, incomplete or extra candidates write nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  const ids0 = (full.decision.inputs as { candidateItemIds: string[] }).candidateItemIds;
+  const snaps = (full.decision.inputs as { candidates: unknown[] }).candidates;
+  assertEqual(ids0.length, 2, 'The fixture no longer offers two candidates.');
+
+  expectRefused(fx, withInputs(full, { candidateItemIds: [] }), 'An emptied candidate list');
+  expectRefused(fx, withInputs(full, { candidateItemIds: [...ids0].reverse(), candidates: [...snaps].reverse() }), 'A reordered candidate list');
+  expectRefused(fx, withInputs(full, { candidateItemIds: ids0.slice(0, 1) }), 'A truncated candidate list');
+  expectRefused(fx, withInputs(full, { candidateItemIds: [...ids0, 'fx-excluded'] }), 'An extended candidate list');
+  expectRefused(fx, withInputs(full, { candidates: snaps.slice(0, 1) }), 'A truncated candidate snapshot list');
+  expectRefused(fx, withInputs(full, { candidateItemIds: undefined }), 'A missing candidate list');
+});
+
+check('56. An altered candidate or selected-item snapshot writes nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  const snaps = (full.decision.inputs as { candidates: Record<string, unknown>[] }).candidates;
+  const selected = (full.decision.inputs as { selectedItem: Record<string, unknown> }).selectedItem;
+
+  expectRefused(fx, withInputs(full, { candidates: [{ ...snaps[0], price: { amountMinor: 1, currency: 'NGN' } }, snaps[1]] }), 'A repriced candidate snapshot');
+  expectRefused(fx, withInputs(full, { candidates: [{ ...snaps[0], name: 'Something else' }, snaps[1]] }), 'A renamed candidate snapshot');
+  expectRefused(fx, withInputs(full, { selectedItem: { ...selected, price: { amountMinor: 1, currency: 'NGN' } } }), 'A repriced selected snapshot');
+  expectRefused(fx, withInputs(full, { selectedItem: { ...selected, name: 'Something else' } }), 'A renamed selected snapshot');
+  expectRefused(fx, withInputs(full, { selectedItem: { ...selected, category: 'Art & Culture' } }), 'A recategorized selected snapshot');
+  expectRefused(fx, withInputs(full, { selectedItem: undefined }), 'A missing selected snapshot');
+});
+
+check('57. A selected id that disagrees with the selected snapshot writes nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  // The id names one eligible item; the snapshot describes the other.
+  const other = FIXTURE_ITEMS.find(i => i.id === 'fx-exact')!;
+  expectRefused(fx, withInputs(full, { selectedItem: snapshotItem(other) }), 'An id disagreeing with its snapshot');
+  expectRefused(fx, withInputs(full, { selectedItemId: 'fx-exact' }), 'A snapshot disagreeing with its id');
+  expectRefused(fx, withInputs(full, { selectedItemId: 'fx-does-not-exist' }), 'An unknown selected id');
+  expectRefused(fx, withInputs(full, { selectedItemId: undefined }), 'A missing selected id');
+});
+
+check('58. An Event whose payload disagrees with the Decision writes nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  const p = full.event.payload as Record<string, unknown>;
+  for (const [patch, label] of [
+    [{ itemId: 'fx-exact' }, 'An event naming a different item'],
+    [{ briefId: 'brief-somewhere-else' }, 'An event naming a different brief'],
+    [{ briefRevision: 99 }, 'An event naming a different revision'],
+    [{ itemId: undefined }, 'An event naming no item'],
+  ] as const) {
+    expectRefused(fx, { ...full, event: { ...full.event, payload: { ...p, ...patch } } }, label);
+  }
+});
+
+check('59. A non-operator, non-Confirmed or wrongly-attributed Decision writes nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  expectRefused(fx, { ...full, decision: { ...full.decision, provider: 'RuleEngine' } }, 'A rule-engine selection');
+  expectRefused(fx, { ...full, decision: { ...full.decision, status: 'Superseded' } }, 'A superseded selection');
+  expectRefused(fx, { ...full, decision: { ...full.decision, decisionType: 'BriefConfirmation' } }, 'A non-selection decision');
+  expectRefused(fx, { ...full, decision: { ...full.decision, reason: '   ' } }, 'A blank reason');
+  expectRefused(fx, { ...full, decision: { ...full.decision, recommendation: 'the cheapest one' } }, 'A fabricated recommendation');
+  expectRefused(fx, { ...full, decision: { ...full.decision, overrideReason: 'because' } }, 'A fabricated override reason');
+  expectRefused(fx, { ...full, decision: { ...full.decision, workspaceId: 'org-elsewhere' } }, 'A foreign-workspace decision');
+});
+
+check('60. A non-Operator or wrong-source Event writes nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  expectRefused(fx, { ...full, event: { ...full.event, actorType: 'System' } }, 'A system-attributed event');
+  expectRefused(fx, { ...full, event: { ...full.event, source: 'WhatsApp' } }, 'An event claiming another channel');
+  expectRefused(fx, { ...full, event: { ...full.event, eventType: 'BriefGenerated' } }, 'A non-selection event');
+  expectRefused(fx, { ...full, event: { ...full.event, actorId: 'somebody-else' } }, 'An event naming a different actor');
+  expectRefused(fx, { ...full, event: { ...full.event, workspaceId: 'org-elsewhere' } }, 'A foreign-workspace event');
+});
+
+check('61. A decision and event assembled at different instants write nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  expectRefused(fx, { ...full, event: { ...full.event, occurredAt: LATER } }, 'An event from a different instant');
+  expectRefused(fx, { ...full, event: { ...full.event, recordedAt: LATER } }, 'An event recorded at another instant');
+  expectRefused(fx, { ...full, decision: { ...full.decision, createdAt: LATER } }, 'A decision created before it was confirmed');
+});
+
+check('62. Tampered live-brief constraints at the same reference write nothing', () => {
+  // The brief keeps its id and revision — the submitted reference still matches
+  // — but its immutable snapshot has been altered underneath. Constraints are
+  // read from the brief, so the submission no longer reconciles.
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+
+  const raw = JSON.parse(fx.storage.getItem(OPERATIONS_KEY)!) as OperationsState;
+  raw.executionBriefs[0].policyResolutionSnapshot.approvedRecognitionBudget = { amountMinor: 100, currency: 'NGN' };
+  fx.storage.setItem(OPERATIONS_KEY, JSON.stringify(raw));
+  assertEqual(raw.executionBriefs[0].id, (full.decision.inputs as { briefId: string }).briefId, 'The reference no longer matches.');
+
+  expectRefused(fx, full, 'A submission against a tampered brief budget');
+});
+
+check('63. A brief whose exclusions vanish at the same reference writes nothing', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+
+  const raw = JSON.parse(fx.storage.getItem(OPERATIONS_KEY)!) as OperationsState;
+  delete (raw.executionBriefs[0].policyResolutionSnapshot as unknown as Record<string, unknown>).excludedCategories;
+  fx.storage.setItem(OPERATIONS_KEY, JSON.stringify(raw));
+
+  expectRefused(fx, full, 'A submission against a brief with no recorded exclusions');
+});
+
+check('64. A submission for a cancelled or unready moment writes nothing at the boundary', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+
+  const raw = JSON.parse(fx.storage.getItem(OPERATIONS_KEY)!) as OperationsState;
+  raw.moments[0].status = 'NeedsReview';
+  fx.storage.setItem(OPERATIONS_KEY, JSON.stringify(raw));
+  expectRefused(fx, full, 'A submission for a moment sent back for review');
+
+  const cancelled = JSON.parse(fx.storage.getItem(OPERATIONS_KEY)!) as OperationsState;
+  cancelled.moments[0].status = 'Cancelled';
+  cancelled.moments[0].cancelledAt = LATER;
+  fx.storage.setItem(OPERATIONS_KEY, JSON.stringify(cancelled));
+  expectRefused(fx, full, 'A submission for a cancelled moment');
+});
+
+check('65. The honest bundle still commits, so the boundary is not simply refusing everything', () => {
+  const fx = preparedWorkspace();
+  const full = goodBundle(fx);
+  const before = fx.storage.writes.length;
+  const written = fx.repo.commitItemSelection(WS, full, NOW);
+  assert(written.ok, `An untampered bundle was refused: ${written.ok ? '' : written.reason}`);
+  assertEqual(fx.storage.writes.length - before, 1, 'The honest commit was not a single write.');
+
+  const state = fx.repo.load(WS);
+  assert(state.ok && state.value, 'State could not be re-read.');
+  assertEqual(state.value!.decisions.filter(d => d.decisionType === 'ItemSelection').length, 1, 'Wrong number of selections.');
+  assertEqual(state.value!.events.filter(e => e.eventType === 'ItemSelected').length, 1, 'Wrong number of events.');
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
