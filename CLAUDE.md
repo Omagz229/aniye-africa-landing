@@ -34,9 +34,9 @@ These files govern structural work. They exist in this repository — check them
 - **Do not encode unresolved checkpoint questions as settled architecture.** An open question stays open until a Council decision closes it.
 - **Run an architecture review before structural domain work** — new canonical objects, lifecycle changes, persistence changes, Workspace/Operations boundary changes, money. Use `/aniye-architecture-review`.
 - **One roadmap milestone per implementation scope.** Milestone identifiers come from `docs/MASTER_ROADMAP.md`. Use `/aniye-implement-milestone`. If a request spans several, ask which one.
-- **The next milestone is H3.2 — Execution Brief**, and it is gated: **ADR-011 is accepted but Workspace schema v7 is not built.** H3.2 starts with the additive `Person.deliveryAddress` migration, not with the brief UI.
+- **The next milestone is H3.4 — Vendor directory, hand-entered offers + manual selection.** Nothing structural gates it. A vendor is a row an operator typed, not an account, so ADR-010's external-pilot gate does not bind; U3 (merchant of record) binds at H3.7. ⚠️ **Operations Atlas §9 U5 — partner onboarding — does not exist**; raise an ADR rather than reconstructing it.
 - **Inspect existing code before editing.** Most of what a milestone needs already exists — the migration runner, `resolvePolicyAssignment()`, the Money helpers, the operations repository, `ConfirmDialog`. Reimplementing them is a defect.
-- **Structural persistence changes require** an ordered migration, a schema-version update, and a Recovery Ledger entry. The workspace chain is in `lib/migrations.ts` (currently v6) and moves one version at a time; `OperationsState` versions independently in `lib/operations/types.ts` (v1). Historical migrations are frozen — pin their value sets rather than referencing live enums.
+- **Structural persistence changes require** an ordered migration, a schema-version update, and a Recovery Ledger entry. The workspace chain is in `lib/migrations.ts` (currently v7) and moves one version at a time; `OperationsState` versions independently in `lib/operations/types.ts` (v3). Historical migrations are frozen — pin their value sets rather than referencing live enums.
 - **Never silently overwrite unrelated working-tree changes.** Run `git status` first and preserve what you did not author.
 - **Do not commit, push or tag unless explicitly requested.**
 
@@ -47,7 +47,7 @@ npm run typecheck            npm run lint              npm run build
 npm run validate:verification    npm run validate:migration
 npm run validate:assignments     npm run validate:people
 npm run validate:money           npm run validate:programs
-npm run validate:operations
+npm run validate:operations     npm run validate:selection
 ```
 
 Validation is plain `.mts` scripts under `scripts/`, run via a Node type-stripping resolver — **there is no test framework**. A new domain area gets its own suite plus a `validate:<area>` script.

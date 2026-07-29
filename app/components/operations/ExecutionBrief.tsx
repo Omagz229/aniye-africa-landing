@@ -160,6 +160,11 @@ export default function ExecutionBriefPanel({ momentId }: { momentId: string }) 
           <p className="font-body text-xs text-cream/70 mt-1">
             {new Date(live.confirmedAt).toLocaleString()} · shipping to {formatAddress(live.deliveryAddressSnapshot)}
           </p>
+          {/* The one obvious next step once a brief is confirmed (H3.3). */}
+          <Link href={`/operations/moments/${moment.id}/item`}
+            className="mt-3 inline-flex items-center rounded-full bg-gold text-ink px-5 font-body text-sm font-semibold hover:brightness-105 transition-all min-h-[44px]">
+            Choose an item →
+          </Link>
         </div>
       )}
 

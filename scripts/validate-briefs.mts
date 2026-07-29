@@ -272,8 +272,13 @@ check('5. A structurally malformed address is refused; an incomplete one is not'
 
 // ─── Part 2: OperationsState v2 ──────────────────────────────────────────────
 
-check('6. OperationsState is at v2 and independent of the workspace', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 2, 'Operations schema is not at v2.');
+// H3.3 amended this check and checks 7, 9 and 35. They pinned the literal
+// version `2` and the pre-H3.3 decision set, so a legitimate additive rung
+// (v2 → v3, `excludedCategories`) failed them. What they were actually testing
+// — that operations versions independently of the workspace, and that a v1
+// payload still walks every rung — is unchanged and now version-agnostic.
+check('6. OperationsState is at or beyond v2 and independent of the workspace', () => {
+  assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 2, 'Operations schema regressed below v2.');
   const ops: number = CURRENT_OPERATIONS_SCHEMA_VERSION;
   const ws: number = CURRENT_WORKSPACE_SCHEMA_VERSION;
   assert(ops !== ws, 'The two schema versions are coupled; they must move independently.');
@@ -288,7 +293,7 @@ check('7. A v1 operations payload migrates rather than being quarantined', () =>
   const result = migrateOperationsState(v1);
   assert(result.status === 'migrated', 'A v1 payload was not migrated.');
   assertEqual(result.from, 1, 'Wrong source version reported.');
-  assertEqual(result.state.schemaVersion, 2, 'Migration did not reach v2.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current version.');
   assert(Array.isArray(result.state.executionBriefs), 'executionBriefs was not added.');
   assertEqual(result.state.executionBriefs.length, 0, 'Migration invented briefs.');
 });
@@ -318,7 +323,7 @@ check('9. A stored v1 payload is read through the repository, not set aside', ()
   const loaded = repo.load(WS);
   assert(loaded.ok, `A v1 payload was refused: ${loaded.ok ? '' : loaded.reason}`);
   assert(loaded.value !== null, 'A v1 payload read as empty.');
-  assertEqual(loaded.value!.schemaVersion, 2, 'The read did not migrate.');
+  assertEqual(loaded.value!.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'The read did not migrate.');
   // Reads have no side effects — that is what lets preview claim to write nothing.
   assertEqual(storage.writes.length, 0, 'Reading wrote to storage.');
 });
@@ -771,8 +776,9 @@ check('35. The new Decision and Event types are declared, and no more', () => {
   }
   // The ambiguous checkpoint name must not come back (ADR-011 supersedes it).
   assert(!(EVENT_TYPES as readonly string[]).includes('AddressUpdated'), 'AddressUpdated was reintroduced.');
-  // Later milestones must not be pre-empted here.
-  for (const t of ['ItemSelection', 'VendorSelection', 'CourierSelection', 'QAException']) {
+  // Later milestones must not be pre-empted here. `ItemSelection` left this
+  // list at H3.3, which is the milestone that produces it; the rest have not.
+  for (const t of ['VendorSelection', 'CourierSelection', 'QAException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {

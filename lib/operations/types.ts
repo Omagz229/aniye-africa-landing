@@ -59,6 +59,26 @@ export interface PolicyResolutionSnapshot {
   resolvedCountryScope: string;
   occasionType: string;
   approvedRecognitionBudget: Money;
+  /**
+   * The gift categories the governing policy excluded, captured at generation —
+   * **H3.3, and deliberately optional.**
+   *
+   * Optional because it is *absent* on every Moment generated before H3.3, and
+   * absent has to keep meaning "nobody recorded this", not "nothing was
+   * excluded". Defaulting it to `[]` would be the worst possible repair: it
+   * reads as a fact, it is silent, and it would let an operator send a gift the
+   * governing rule forbade.
+   *
+   * There is no way to recover it after the fact. `RecognitionPolicy` is edited
+   * **in place at the same version** — `PolicyForm.save()` writes the same `id`
+   * and the same `version` back, including when publishing — so matching
+   * `policyId` and `policyVersion` against the live policy proves nothing about
+   * whether `excludedCategories` still holds what it held at generation.
+   *
+   * So a Moment without this field blocks item selection with a named
+   * explanation and a recovery, rather than being filtered against a guess.
+   */
+  excludedCategories?: string[];
   resolvedAt: string;
 }
 
@@ -111,7 +131,7 @@ export type DecisionStatus = (typeof DECISION_STATUSES)[number];
 export const DECISION_PROVIDERS = ['HumanOperator', 'RuleEngine'] as const;
 export type DecisionProvider = (typeof DECISION_PROVIDERS)[number];
 
-/** Only the types H3.1 and H3.2 actually produce. More arrive with the steps that need them. */
+/** Only the types H3.1 – H3.3 actually produce. More arrive with the steps that need them. */
 export const DECISION_TYPES = [
   'MomentQualification',
   'PolicyResolution',
@@ -120,6 +140,13 @@ export const DECISION_TYPES = [
   // brief is correct and executable); overriding its address is a second one.
   'BriefConfirmation',
   'AddressOverride',
+  // H3.3 — the first Decision with real alternatives. Several items fit the
+  // budget and the rule; the operator picks one and says why.
+  //
+  // `ItemSubstitution` is **not** added here. Substituting presupposes a
+  // selection that already exists and something downstream that consumed it;
+  // neither exists yet, and a type nothing can produce is not architecture.
+  'ItemSelection',
 ] as const;
 export type DecisionType = (typeof DECISION_TYPES)[number];
 
@@ -164,6 +191,12 @@ export const EVENT_TYPES = [
   // record updated. Supersedes the checkpoint's ambiguous `AddressUpdated`,
   // which implied a write across the ADR-005 boundary that never occurs.
   'ExecutionBriefAddressOverridden',
+  // H3.3. The checkpoint proposed `ItemPrepared`, but nothing is prepared here:
+  // no vendor has been asked, no order exists, nothing has been made or moved.
+  // An item was **selected**, and that is the whole occurrence. Per
+  // `RELATIONSHIP_OPERATIONS_ATLAS.md` §6 the checkpoint's downstream names are
+  // proposals, and the milestone that builds each one fixes its final name.
+  'ItemSelected',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -289,13 +322,15 @@ export interface ExecutionBrief {
  * Independent of the workspace schema version — see ADR-010.
  *
  * **v2 (H3.2)** adds the `executionBriefs` collection. Additive.
+ * **v3 (H3.3)** admits `policyResolutionSnapshot.excludedCategories` on newly
+ * generated Moments. Additive, and it **adds nothing to existing records**.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 2;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 3;
 
 /**
  * The storage *location*, not a version assertion.
  *
- * Deliberately unchanged at v2. ADR-010 and Atlas §15d name this key, and
+ * Deliberately unchanged at v3. ADR-010 and Atlas §15d name this key, and
  * moving it would orphan every operational record already written — the exact
  * history this module exists to protect. The version lives inside the payload.
  */
@@ -384,6 +419,21 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     };
   }
 
+  // v2 → v3: admit `policyResolutionSnapshot.excludedCategories` on Moments
+  // generated from here on. **A pure version bump — no record is touched.**
+  //
+  // It is tempting to walk the Moments and give each an empty exclusion list,
+  // and that would be a data-loss bug wearing a migration's clothes: a v2
+  // Moment genuinely does not know what its policy excluded, and writing `[]`
+  // would convert "unknown" into the false claim "nothing was excluded". The
+  // absence is the evidence, and it is preserved exactly. `selection.ts` reads
+  // it as *unknown* and blocks, which is the only honest outcome.
+  //
+  // Same shape as the workspace v6 → v7 rung, and for the same reason.
+  if ((working.schemaVersion as number) === 2) {
+    working = { ...working, schemaVersion: 3 };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -399,6 +449,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * A policy snapshot's exclusion list, if it has one.
+ *
+ * Absent is **valid** — that is every pre-H3.3 record, and refusing it would
+ * quarantine real operational history. Present but malformed is not: a
+ * half-written exclusion list is worse than none, because selection would treat
+ * it as trustworthy.
+ */
+function excludedCategoriesValid(snapshot: unknown): boolean {
+  if (!isPlainObject(snapshot)) return true;
+  const excluded = snapshot.excludedCategories;
+  if (excluded === undefined) return true;
+  return Array.isArray(excluded) && excluded.every(c => typeof c === 'string');
 }
 
 /**
@@ -467,6 +532,9 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (moment.status === 'ReadyForExecution' && !isPlainObject(moment.policyResolutionSnapshot)) {
       return { ok: false, reason: `Moment "${moment.id}" is ready but has no policy resolution snapshot.` };
     }
+    if (!excludedCategoriesValid(moment.policyResolutionSnapshot)) {
+      return { ok: false, reason: `Moment "${moment.id}" has a malformed excluded-category snapshot.` };
+    }
   }
 
   const decisionIds = new Set<string>();
@@ -492,6 +560,26 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (!momentIds.has(decision.momentId as string)) {
       return { ok: false, reason: `Decision "${decision.id}" references an unknown moment.` };
     }
+    // Tenancy, enforced at the record and not only at the payload. Moments and
+    // briefs were already checked; decisions and events were not, so a record
+    // stamped with another organization's id could be filed under this one.
+    if (decision.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Decision "${decision.id}" belongs to a different workspace.` };
+    }
+  }
+
+  // ── One live item selection per Moment (H3.3) ──
+  // Enforced here rather than only in the repository, so a batch that would
+  // produce two live selections commits nothing — "the selected item" has to
+  // stay unambiguous for every step downstream of it.
+  const liveSelectionByMoment = new Set<string>();
+  for (const decision of raw.decisions as Record<string, unknown>[]) {
+    if (decision.decisionType !== 'ItemSelection' || decision.status !== 'Confirmed') continue;
+    const momentId = decision.momentId as string;
+    if (liveSelectionByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one live item selection.` };
+    }
+    liveSelectionByMoment.add(momentId);
   }
 
   const eventIds = new Set<string>();
@@ -512,6 +600,9 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     }
     if (!momentIds.has(event.momentId as string)) {
       return { ok: false, reason: `Event "${event.id}" references an unknown moment.` };
+    }
+    if (event.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Event "${event.id}" belongs to a different workspace.` };
     }
   }
 
@@ -539,6 +630,9 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     }
     if (!isPlainObject(brief.policyResolutionSnapshot)) {
       return { ok: false, reason: `Brief "${brief.id}" has no policy resolution snapshot.` };
+    }
+    if (!excludedCategoriesValid(brief.policyResolutionSnapshot)) {
+      return { ok: false, reason: `Brief "${brief.id}" has a malformed excluded-category snapshot.` };
     }
 
     // ADR-011 — the confirmation gate, enforced at the persistence layer and

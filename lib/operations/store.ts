@@ -36,6 +36,12 @@ export interface BriefWrite {
   supersedes?: { briefId: string; decisionId?: string };
 }
 
+/** What one confirmed item selection writes, atomically (H3.3). */
+export interface ItemSelectionWrite {
+  decision: Decision;
+  event: OperationalEvent;
+}
+
 export interface OperationsRepository {
   /**
    * Read the stored state for a workspace.
@@ -112,6 +118,32 @@ export interface OperationsRepository {
    * unless the write supersedes it.
    */
   commitBrief(workspaceId: string, write: BriefWrite, now: string): StoreResult<ExecutionBrief>;
+
+  // ── Item selection (H3.3) ──
+
+  /**
+   * The one live `ItemSelection` Decision for a Moment, or null.
+   *
+   * A read. Superseded selections are excluded — this answers "what is chosen
+   * now", not "what has ever been chosen".
+   */
+  findLiveItemSelection(workspaceId: string, momentId: string): StoreResult<Decision | null>;
+
+  /**
+   * Commit an item selection **atomically** — the Decision and its Event land
+   * together or not at all, over a fully validated proposed state.
+   *
+   * Revalidates before writing rather than trusting the caller: the Moment must
+   * still exist and still be ready, the referenced brief must still be the live
+   * one at the same revision, and the Moment must not already have a live
+   * selection. A confirmation screen opened before any of those changed writes
+   * nothing and says so.
+   */
+  commitItemSelection(
+    workspaceId: string,
+    write: ItemSelectionWrite,
+    now: string,
+  ): StoreResult<Decision>;
 
   /** Structural check of the stored state, without modifying it. */
   validate(workspaceId: string): StoreResult<true>;

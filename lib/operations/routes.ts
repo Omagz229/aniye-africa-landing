@@ -16,6 +16,7 @@
 export function titleFor(pathname: string): string {
   if (/^\/operations\/programs\/[^/]+\/prepare$/.test(pathname)) return 'Prepare moments';
   if (/^\/operations\/moments\/[^/]+\/brief$/.test(pathname)) return 'Brief';
+  if (/^\/operations\/moments\/[^/]+\/item$/.test(pathname)) return 'Choose an item';
   if (/^\/operations\/moments\/[^/]+$/.test(pathname)) return 'Moment';
   if (pathname.startsWith('/operations/moments')) return 'Moments';
   if (pathname.startsWith('/operations/briefs')) return 'Briefs';

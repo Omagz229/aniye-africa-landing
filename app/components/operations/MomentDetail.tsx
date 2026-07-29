@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getWorkspace } from '@/lib/workspace';
 import { formatMoney } from '@/lib/money';
-import type { Decision, Moment, OperationalEvent } from '@/lib/operations/types';
+import type { Decision, ExecutionBrief, Moment, OperationalEvent } from '@/lib/operations/types';
 import { browserOperationsRepository } from '@/lib/operations/local-store';
 import { buildCancellation } from '@/lib/operations/generation';
+import { findLiveSelectionDecision } from '@/lib/operations/selection';
 
 export default function MomentDetail({ momentId }: { momentId: string }) {
   const [moment, setMoment] = useState<Moment | null>(null);
+  const [brief, setBrief] = useState<ExecutionBrief | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [events, setEvents] = useState<OperationalEvent[]>([]);
   const [notFound, setNotFound] = useState(false);
@@ -31,6 +33,10 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
     const found = repo.findMoment(ws.organizationId, momentId);
     if (!found.ok || found.value === null) { setNotFound(true); return; }
     setMoment(found.value);
+
+    // Read so the next action can be computed from state rather than guessed.
+    const live = repo.findLiveBriefForMoment(ws.organizationId, momentId);
+    if (live.ok) setBrief(live.value);
 
     const state = repo.load(ws.organizationId);
     if (state.ok && state.value) {
@@ -89,6 +95,9 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
 
   const recipient = moment.recipientSnapshot;
   const snapshot = moment.policyResolutionSnapshot;
+  const selection = findLiveSelectionDecision(decisions, moment.id);
+  const nextAction: 'brief' | 'item' | 'done' =
+    !brief || brief.status !== 'Confirmed' ? 'brief' : selection ? 'done' : 'item';
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -145,12 +154,29 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         </Panel>
       )}
 
-      {/* The one clear next action for a ready moment (Doctrine §1.1). */}
+      {/*
+        The one clear next action for a ready moment, **chosen from state**
+        (Doctrine §1.1): no brief yet → confirm one; brief confirmed but nothing
+        chosen → choose an item; item chosen → the moment is as far as this
+        build takes it.
+      */}
       {moment.status === 'ReadyForExecution' && (
-        <Link href={`/operations/moments/${moment.id}/brief`}
-          className="block rounded-full bg-ink text-cream px-6 py-3 font-body text-sm font-semibold text-center hover:bg-ink/90 transition-colors">
-          Open the brief
-        </Link>
+        nextAction === 'brief' ? (
+          <Link href={`/operations/moments/${moment.id}/brief`}
+            className="block rounded-full bg-ink text-cream px-6 py-3 font-body text-sm font-semibold text-center hover:bg-ink/90 transition-colors">
+            Open the brief
+          </Link>
+        ) : nextAction === 'item' ? (
+          <Link href={`/operations/moments/${moment.id}/item`}
+            className="block rounded-full bg-ink text-cream px-6 py-3 font-body text-sm font-semibold text-center hover:bg-ink/90 transition-colors">
+            Choose an item
+          </Link>
+        ) : (
+          <Link href={`/operations/moments/${moment.id}/item`}
+            className="block rounded-full border border-stone/20 px-6 py-3 font-body text-sm font-semibold text-ink text-center hover:border-stone/40 transition-colors">
+            View the chosen item
+          </Link>
+        )
       )}
 
       {/* Issues, with the workspace link that fixes each */}
@@ -176,13 +202,20 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         </div>
       )}
 
-      {/* Next truthful action */}
+      {/*
+        Where this moment actually stands. The previous copy here said the
+        Execution Brief "is not yet enabled" — true when H3.1 shipped, false
+        from H3.2 onward, and it sat directly beneath a button that opened it.
+      */}
       {moment.status === 'ReadyForExecution' && (
         <div className="bg-cream rounded-2xl border border-stone/20 p-5">
           <p className="font-body text-sm font-semibold text-ink mb-1">Ready for execution</p>
           <p className="font-body text-sm text-stone leading-relaxed">
-            The Execution Brief is the next stage and is not yet enabled. Nothing further can be done
-            with this moment in this build.
+            {nextAction === 'brief'
+              ? 'Confirm the brief next — it fixes the address and the budget an item is chosen against.'
+              : nextAction === 'item'
+                ? 'The brief is confirmed. Choosing an item is the next step.'
+                : 'An item has been chosen. Sourcing it from a vendor is the next stage and is not built yet — nothing further can be done with this moment in this build.'}
           </p>
         </div>
       )}
@@ -287,6 +320,9 @@ function humanEvent(type: string): string {
     case 'MomentMarkedReady': return 'Marked ready for execution';
     case 'MomentNeedsReview': return 'Flagged for review';
     case 'MomentCancelled': return 'Cancelled';
+    case 'BriefGenerated': return 'Brief confirmed';
+    case 'ExecutionBriefAddressOverridden': return 'Brief address corrected';
+    case 'ItemSelected': return 'Item chosen';
     default: return type;
   }
 }

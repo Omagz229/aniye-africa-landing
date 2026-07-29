@@ -179,6 +179,17 @@ export function assessPerson(personId: string, context: GenerationContext): Pers
         resolvedCountryScope: resolved.assignment.countryCode ?? 'Global',
         occasionType: program.occasionType,
         approvedRecognitionBudget: rule.budgetPerPerson,
+        /**
+         * H3.3 — captured here, at generation, for the same reason the budget
+         * is: the exclusions that governed this Moment must survive the policy
+         * being edited afterwards.
+         *
+         * A policy is editable **in place at the same version**, so there is no
+         * way to recover this later. Copied rather than referenced, and copied
+         * defensively so a subsequent edit to the live policy's array cannot
+         * reach through into a written snapshot.
+         */
+        excludedCategories: [...(resolved.policy.excludedCategories ?? [])],
         resolvedAt: context.now,
       };
     }

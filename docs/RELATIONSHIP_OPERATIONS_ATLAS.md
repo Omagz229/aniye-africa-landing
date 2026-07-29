@@ -33,7 +33,7 @@ exist to defend it — the first as a product and routing boundary, the second a
 | Scope | One organization | Across all organizations |
 | Route tree | `/workspace/*` | `/operations/*` |
 | Shell | `WorkspaceShell` | `OperationsShell` — shares nothing |
-| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v2** |
+| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v3** |
 | Nature of records | Configuration, edited freely | Operational history, accumulating |
 | Growth | Bounded by organization size | Unbounded |
 | Vocabulary | "recognition program", "upcoming recognition" | "campaign", "job", "brief" |
@@ -112,12 +112,14 @@ latter until Aniyé's commercial role is legally resolved. *(ADR-007 Council con
 
 ## 3. Operational objects
 
-### Implemented — H3.1 and H3.2
+### Implemented — H3.1, H3.2 and H3.3
 
 Defined in `lib/operations/types.ts`. Access is through `OperationsRepository`
-(`lib/operations/store.ts`). Construction is pure, in `lib/operations/generation.ts` (Moments) and
-`lib/operations/briefs.ts` (briefs) — neither module can persist anything, which is what makes
-"preview writes nothing" enforceable rather than merely stated.
+(`lib/operations/store.ts`). Construction is pure, in `lib/operations/generation.ts` (Moments),
+`lib/operations/briefs.ts` (briefs) and `lib/operations/selection.ts` (item selection) — none of
+these modules can persist anything, which is what makes "preview writes nothing" enforceable rather
+than merely stated. The catalog itself is `lib/catalog.ts`, a pure seed outside `lib/operations/`
+because the Catalog belongs to Gift Intelligence; only the *selection* is an operational act.
 
 #### Moment
 
@@ -142,14 +144,20 @@ A judgement between alternatives, with a **required reason**. Never mutated; sup
 - Statuses: **`Confirmed` · `Superseded`** only. `Proposed` and `Cancelled` are explicitly rejected —
   an unconfirmed proposal is UI draft state, and `Cancelled` is indistinguishable from `Superseded`.
 - Providers: `RuleEngine` (deterministic resolution) · `HumanOperator` (judgement).
-- Types implemented: `MomentQualification` · `PolicyResolution` · `MomentCancellation` · **`BriefConfirmation`** · **`AddressOverride`** (H3.2).
+- Types implemented: `MomentQualification` · `PolicyResolution` · `MomentCancellation` · **`BriefConfirmation`** · **`AddressOverride`** (H3.2) · **`ItemSelection`** (H3.3).
+- `ItemSubstitution` is **not** implemented. It presupposes a selection something downstream has
+  already consumed, and nothing downstream exists.
 
 #### OperationalEvent
 
 Something that happened. **Append-only** — never edited, never deleted. Corrected only by appending
 a referencing event.
 
-- Types implemented: `MomentCreated` · `MomentMarkedReady` · `MomentNeedsReview` · `MomentCancelled` · **`BriefGenerated`** · **`ExecutionBriefAddressOverridden`** (H3.2).
+- Types implemented: `MomentCreated` · `MomentMarkedReady` · `MomentNeedsReview` · `MomentCancelled` · **`BriefGenerated`** · **`ExecutionBriefAddressOverridden`** (H3.2) · **`ItemSelected`** (H3.3).
+- **`ItemSelected`, not the checkpoint's `ItemPrepared`.** Nothing is prepared at that step: no
+  vendor has been asked, no order exists, nothing has been made or moved. An item was *selected*,
+  and that is the whole occurrence. This is §6's rule applied — the milestone that builds a step
+  fixes its final name.
 - Actors: `System` · `Operator` · `Customer` · `Vendor` · `Courier`.
 - Sources: `Platform` · `WhatsApp` · `Email` · `Phone` · `Manual`.
 - Carries both `occurredAt` (when it happened in the world) and `recordedAt` (when Aniyé learned of
@@ -184,11 +192,46 @@ channel and timestamp. **`Person.deliveryAddress` is never written** (ADR-005, A
 a confirmed brief preserves the original, creates a revision, supersedes the confirming Decision and
 appends `ExecutionBriefAddressOverridden`.
 
+#### Catalog Item and item selection (H3.3)
+
+**The catalog is a flat, deterministic seed** — `lib/catalog.ts`. Six fields and no more: stable id,
+name, one-line description, one existing `GiftCategory`, an active flag, and a canonical `Money`
+price. **No vendor, no cost, no intent, no collections, no images, no tags.** There is no catalog
+administration surface and no customer-facing catalog route; adding an item is a code change.
+
+This **re-issues the `Gift / Item` draft field list in Atlas §4**, which is superseded. Every field
+that list carried beyond the six above belongs to a milestone that has not been built.
+
+**Eligibility is four pure rules**, and an item must pass all of them:
+
+| Rule | Why |
+|---|---|
+| The item is **active** | A withdrawn item is never a candidate; it stays in the list so historical selections stay legible |
+| Currency matches the approved budget **exactly** | ADR-007 — no implicit FX. A foreign-currency item is not "about right", it is **not comparable** |
+| `amountMinor` is **at or under** budget | `<=`. Exactly at budget qualifies; **one minor unit over does not** |
+| The category is **not excluded** by the governing snapshot | Compared against the same `GiftCategory` strings the policy stores |
+
+**Selection reads the snapshot, never a live policy.** A policy edited after the Moment was
+generated did not govern that Moment.
+
+⚠️ **A Moment prepared before H3.3 blocks selection**, and this is deliberate.
+`PolicyResolutionSnapshot.excludedCategories` is optional because it is genuinely **absent** on
+every pre-H3.3 record, and there is no honest way to recover it: `PolicyForm.save()` writes an
+edited policy back to the **same id at the same version**, so `policyId` + `policyVersion` cannot
+prove the exclusions are unchanged. Equivalence is not provable, so the block is named, the recovery
+is to re-prepare the recipient, and the original record is left untouched. **Defaulting to an empty
+list is prohibited** — it converts "unknown" into "nothing was excluded" and could send a gift the
+governing rule forbade.
+
+**One live selection per Moment**, enforced in `validateOperationsState` as well as the repository.
+A confirmation is refused if the Moment is cancelled or no longer ready, if the referenced brief is
+not the current live one **at the same revision**, or if a selection already exists. Browsing,
+filtering, opening details, changing the draft choice and navigating away all write **nothing**.
+
 ### Accepted, not implemented
 
 | Object | Milestone | Authority |
 |--------|-----------|-----------|
-| **Catalog Item** — flat list, budget-filtered | H3.3 | Checkpoint milestone 5 |
 | **Vendor Offer** — hand-entered | H3.4 | Checkpoint milestone 6 |
 | **Courier selection** — per country | H3.5 | Checkpoint milestone 7 |
 | **Fulfillment** — dispatch → delivered → proof | H3.6 | Atlas §4, §13 · Checkpoint milestone 8 |
@@ -197,21 +240,25 @@ appends `ExecutionBriefAddressOverridden`.
 
 ### ⚠️ Draft, not specification
 
-**`Gift / Item`, `Fulfilment` and `Memory` — and likewise `Insight` — are specified in Atlas §4 but
-absent from code.** Their Atlas field lists predate H3 and have not been reconciled against the
-implemented model the way §4 Moment was in R6.
+**`Fulfilment` and `Memory` — and likewise `Insight` — are specified in Atlas §4 but absent from
+code.** Their Atlas field lists predate H3 and have not been reconciled against the implemented
+model the way §4 Moment was in R6.
 
 **Repository evidence cannot support canonical field definitions for any of them.** Atlas §4 Moment
-turned out to be wrong on every field once H3.1 was built; there is no reason to assume these four
-fared better. **Treat them as drafts, not specifications**, until the milestone that builds each one
+turned out to be wrong on every field once H3.1 was built; there is no reason to assume these fared
+better. **Treat them as drafts, not specifications**, until the milestone that builds each one
 reviews and re-issues its field list:
 
 | Object | Reviewed and fixed by |
 |---|---|
-| `Gift / Item` | H3.3 |
+| ~~`Gift / Item`~~ | ✅ **H3.3 — re-issued above.** Atlas §4's field list is superseded |
 | `Fulfilment` | H3.6 |
 | `Memory` | H3.8 |
 | `Insight` | H4.5 |
+
+The `Gift / Item` case is the warning made concrete: its Atlas draft carried `vendorId`, `intent`,
+`collectionIds`, `vendorCost`, `images` and `tags`, and **not one of them survived contact with the
+milestone that built it.**
 
 **Do not implement against these field lists as written.** Do not cite them as settled architecture.
 
@@ -225,7 +272,11 @@ reviews and re-issues its field list:
 This is ADR-006's central rule and the most frequently breached one.
 
 - **Browsing is not persisted.** Abandoned selections are not persisted.
-- **Previewing writes nothing.** `previewPreparation()` is pure.
+- **Previewing writes nothing.** `previewPreparation()`, `previewBrief()` and
+  `previewItemSelection()` are pure and live in modules that cannot reach storage at all.
+- Browsing a catalog of six eligible items, filtering by category, opening details and changing the
+  chosen card four times produces **one** `ItemSelection` Decision, at confirmation — or none, if
+  the operator leaves.
 - Comparing four vendor offers produces **one** `VendorSelection` Decision, at confirmation.
 - The proposed state is **validated in full before anything is stored** — a batch that would produce
   an invalid state commits nothing at all (`validateOperationsState`).
@@ -266,6 +317,19 @@ schemes can coexist without ambiguity; the extension is not yet designed. *(See 
 4. **Confirm.** One atomic operation commits Moments, qualification Decisions, policy-resolution
    Decisions and Events together.
 5. **Work the queue.** `/operations/moments`, and `/operations/moments/[id]` for detail.
+
+### Implemented — brief, then item
+
+6. **Confirm the brief.** `/operations/moments/[id]/brief`. Fixes the address, the budget and the
+   constraints an item will be chosen against.
+7. **Choose an item.** `/operations/moments/[id]/item`. Only a Moment with a **current confirmed
+   brief** reaches this screen. The operator sees recipient, occasion, approved budget and the
+   applicable excluded categories; only eligible items are listed; the choice needs an explicit
+   confirmation and a meaningful reason, and the screen says what confirming records.
+
+**The next action is computed from state, not offered as a menu.** On a Moment: no brief → *Open the
+brief*; brief confirmed and nothing chosen → *Choose an item*; item chosen → *View the chosen item*.
+Doctrine §1.1.
 
 ### Eligibility is re-evaluated, and nobody is silently dropped
 
@@ -310,7 +374,7 @@ Full table: checkpoint Part 2. Milestone identifiers: [`MASTER_ROADMAP.md`](MAST
 | Moment generated | Moment | `MomentQualification` | `MomentCreated` | H3.1 ✅ |
 | Policy and budget resolved | `policyResolutionSnapshot` | `PolicyResolution` | — | H3.1 ✅ |
 | Brief prepared | ExecutionBrief | `BriefConfirmation`, `AddressOverride` on correction | `BriefGenerated`, `ExecutionBriefAddressOverridden` | H3.2 ✅ |
-| Item selected | — | `ItemSelection` / `ItemSubstitution` | `ItemPrepared` | H3.3 |
+| Item selected | Catalog Item snapshot on the Decision | `ItemSelection` | `ItemSelected` | H3.3 ✅ |
 | Vendor offer selected | VendorOffer | `VendorSelection` | `VendorContacted` | H3.4 |
 | Courier selected | — | `CourierSelection` | — | H3.5 |
 | Fulfilment tracked | Fulfillment | `Redelivery` / `Escalation` | `Dispatched`, `DeliveryFailed` | H3.6 |
@@ -494,10 +558,11 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v1.3 — Aniyé Africa — 28 July 2026*
+*Relationship Operations Atlas v1.4 — Aniyé Africa — 29 July 2026*
+*v1.4: **H3.3 — minimum catalog and item selection implemented.** §3 gains the Catalog Item definition and the four eligibility rules, and **re-issues Atlas §4's `Gift / Item` field list**, which is superseded — not one of its six speculative fields survived. §3 records why a pre-H3.3 record blocks selection: a policy is edited in place at the same version, so equivalence is not provable and an empty exclusion list may never be invented. §4 records that browsing a catalog writes nothing. §5 gains the brief → item workflow and the state-computed next action. §6 marks the item step done and fixes the Event name as **`ItemSelected`**, not the checkpoint's `ItemPrepared` — nothing is prepared there. `ItemSubstitution` is explicitly not implemented. Persistence restated as Workspace v7 / `OperationsState` **v3**.*
 *v1.3: H3.2-D1 closed — §3 records the four distinct brief-queue states; a storage read failure is never presented as an empty queue.*
 *v1.2: H3.2 — the Execution Brief moves from accepted to **implemented**. §3 gains its definition, the address gate, override and revision rules; §6 marks the brief step done; Decision and Event type lists extended; persistence restated as Workspace v7 / OperationsState v2.*
 *v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
 *v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
-*Basis: Workspace schema v7, `OperationsState` v2, System Atlas v3.5, ADR-001 … ADR-011.*
-*Implemented state at reconstruction: H3.1 — Moment generation, Decisions and Operational Events. Everything from the Execution Brief onward is accepted architecture only.*
+*Basis: Workspace schema v7, `OperationsState` v3, System Atlas v3.6, ADR-001 … ADR-011.*
+*Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection. Everything from the Vendor Offer onward is accepted architecture only.*

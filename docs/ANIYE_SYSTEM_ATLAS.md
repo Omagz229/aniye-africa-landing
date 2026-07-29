@@ -547,25 +547,37 @@ an address; completeness is a property of the Execution Brief.
 
 ---
 
-### Gift / Item
+### Gift / Item — Catalog Item
 
-A curated product or experience. The customer experiences Items — vendor information is secondary.
+A product an operator can choose for a recipient.
+
+**Implemented at H3.3** in `lib/catalog.ts`, as a pure seed module. It is deliberately **not** in
+`WorkspaceState`: the catalog is Aniyé's, not the customer's, and no catalog master data is ever
+written into the customer's document.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | UUID | — |
-| `vendorId` | UUID | Source vendor (not exposed to end customer) |
+| `id` | string | Stable across builds — a confirmed Decision references it forever |
 | `name` | string | — |
-| `description` | string | — |
-| `intent` | enum | Celebrate / Welcome / Appreciate / Comfort / Festive |
-| `category` | string | Parent category label |
-| `collectionIds` | UUID[] | Curated collections this item appears in |
-| `price` | Money | Retail price as shown to customer |
-| `vendorCost` | Money | Internal cost (not customer-facing) |
-| `availableCountries` | string[] | ISO codes for delivery coverage |
-| `images` | string[] | URLs |
-| `tags` | string[] | Freeform |
-| `status` | enum | Draft / Active / OutOfStock / Discontinued |
+| `description` | string | One line, to tell two similar items apart |
+| `category` | `GiftCategory` | **The existing policy vocabulary**, never a competing taxonomy |
+| `isActive` | boolean | Withdrawn items stay in the list so historical selections stay legible |
+| `price` | Money | Canonical — integer minor units, pinned exponent (ADR-007) |
+
+> ⚠️ **The pre-H3.3 field list is superseded.** It specified `vendorId`, `intent`, `collectionIds`,
+> `vendorCost`, `availableCountries`, `images`, `tags` and a four-value `status`. **None of them
+> survived the milestone that built the object.** Each belongs to work that does not exist: vendors
+> and cost to H3.4 and H3.7, the intent hierarchy and collections to **H4.2 Catalog Intelligence**,
+> behind the pilot.
+>
+> This is the second time a §4 field list written ahead of implementation turned out to be wrong on
+> every field — §4 Moment was the first. Treat `Fulfilment`, `Memory` and `Insight` accordingly.
+> *(See `RELATIONSHIP_OPERATIONS_ATLAS.md` §3.)*
+
+**Selection is an operational act, not a catalog one.** An item is chosen against a Moment's
+**immutable** policy snapshot — approved budget and excluded categories — and the choice is recorded
+as one `ItemSelection` Decision carrying the complete eligible candidate set, the selected item's
+snapshot and the operator's reason. Currencies are matched exactly and never converted.
 
 ---
 
@@ -1370,7 +1382,7 @@ Both objects belong to the **Knowledge** domain (§3). ADR-010 keeps them out of
 | | WorkspaceState | OperationsState |
 |---|---------------|-----------------|
 | Owns | Configuration the customer edits | The record of what Aniyé did |
-| Schema | v7 | v2, versioned **independently** |
+| Schema | v7 | v3, versioned **independently** |
 | Storage key | `aniye_workspace` | `aniye_operations_v1` |
 | Growth | Bounded by organization size | Unbounded |
 | Mutability | Edited freely | Events append-only; Decisions immutable except supersession |
@@ -1442,7 +1454,7 @@ these is ever presented as an empty queue or as success.
 
 ## 15f. Execution Brief
 
-> ✅ **Implemented in H3.2** — `OperationsState` v2. Item, vendor and courier selection do not exist.
+> ✅ **Implemented in H3.2** — `OperationsState` v2, carried forward at v3. Vendor and courier selection do not exist.
 
 The operator's unit of work for one Moment: **who, where, how much, and what constraints apply.**
 Deliberately invisible to the customer — nothing here is projected into Workspace.
@@ -1532,11 +1544,11 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 > **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
 > capability*, and they are not the same thing. Sections describing something not yet built carry an
-> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v2**:
+> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v3**:
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, **recipient address, Execution Brief** | Program (Recurring, Triggered), Catalog, Gift/Vendor/Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, **the minimum flat Catalog and manual item selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, Vendor, Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
 
 > **The authoritative roadmap is [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).** The horizon table below
 > is the thematic summary; `MASTER_ROADMAP.md` carries the canonical H3.1 … H3.8 milestone
@@ -1689,8 +1701,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.6 — Aniyé Africa — July 2026*
+*System Atlas v3.7 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.7: H3.3 — minimum Catalog and manual item selection implemented. `OperationsState` **v3** (additive: `policyResolutionSnapshot.excludedCategories`, invented on no existing record); Workspace schema unchanged at **v7**. **§4 `Gift / Item` re-issued** — its pre-H3.3 field list is superseded, and none of `vendorId`, `intent`, `collectionIds`, `vendorCost`, `availableCountries`, `images` or `tags` survived; the implemented object has six fields and lives in `lib/catalog.ts`, never in `WorkspaceState`. §15d updated to v7/v3; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Catalog, Gift and Vendor Intelligence remain deferred to H4.2–H4.4, behind the pilot; ADR-010 remains the external-pilot gate*
 *v3.6: H3.2 — Execution Brief implemented. Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`). §4 Person marks the address implemented; new §15f defines the Execution Brief, the address gate, override and revision; §15d updated to v7/v2; §17 reading block restated; §18 marks ADR-011 implemented. `MOMENT_STATUSES` unchanged*
 *v3.5: H3.1 acceptance correction — defect **H3.1-D1** closed. §15e gains "The preview shows; the confirmation re-reads": confirmation re-reads the Workspace, Program status, frozen population, People, groups, assignments, policies and existing source keys, builds the batch from live state, writes nothing when live state moved or when a read fails, and requires a second confirmation. 15 regression checks added (operations 35 → 50). No schema change; WorkspaceState stays v6 and OperationsState stays v1. **Live visual verification still not performed**
 *v3.4: Council corrections to the reconciliation (documentation only). §17 H4 renamed **Learn**; **all external connectors moved to H5.4 — Integrations**, removing the intermediate H4.4/H4.5 placement. §12's Supported People Sources table corrected — it still placed Google Sheets, BambooHR, HiBob and Personio at H3 and the remaining five at H4; all nine are now H5.4. ADR-011 renamed to `adr/ADR-011-recipient-address.md` to match the repository's lowercase-kebab convention*

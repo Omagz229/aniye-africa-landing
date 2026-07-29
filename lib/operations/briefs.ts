@@ -75,6 +75,17 @@ function constraintsFrom(moment: Moment): string[] {
     `Recognition rule: ${snapshot.policyName} (v${snapshot.policyVersion}).`,
     scope,
     `Occasion: ${snapshot.occasionType}.`,
+    // H3.3 — the exclusions are on the brief in words, not only in the snapshot
+    // the code filters on. An operator reading the brief has to be able to see
+    // what the rule forbade without opening the item screen. The three
+    // outcomes are deliberately distinct: unrecorded is not the same fact as
+    // "nothing was excluded", and saying so is what stops the first from being
+    // read as the second.
+    snapshot.excludedCategories === undefined
+      ? 'Excluded categories: not recorded when this moment was prepared.'
+      : snapshot.excludedCategories.length === 0
+        ? 'Excluded categories: none.'
+        : `Excluded categories: ${snapshot.excludedCategories.join(', ')}.`,
   ];
 }
 

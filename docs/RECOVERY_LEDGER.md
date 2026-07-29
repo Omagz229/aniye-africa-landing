@@ -29,7 +29,8 @@
 | 4 | **Relationship Operations Atlas** | ✅ **Reconstructed** | R6 |
 | — | **R6 — governance reconciliation (ADR-011, Master Roadmap)** | ✅ **Complete** | R6 |
 | — | **H3.2 — Execution Brief** | ✅ **Complete** — schema v7, OperationsState v2 | H3.2 |
-| — | **H3.3 — Minimum Catalog** | ⬅️ **Next** — ungated | — |
+| — | **H3.3 — Minimum Catalog + manual item selection** | ✅ **Complete** — OperationsState v3 | H3.3 |
+| — | **H3.4 — Vendor directory + hand-entered offers** | ⬅️ **Next** — nothing structural gates it | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -761,6 +762,145 @@ Start fresh:**
 | Continue / Back in PolicyForm | Focus landed on the heading wrapper each time; live region read "Step 2 of 4: Which occasions?", "Step 3 of 4: How it is delivered", "Step 2 of 4: Which occasions?"; `aria-current` tracked |
 | Review | All **11** labels present; signature "Yes — recipient signs on delivery", proof "No" |
 
+### ✅ H3.3 — Minimum Catalog and manual item selection
+
+**First new-build milestone since H3.2, and the first Decision with real
+alternatives.** Everything before it was a deterministic resolution or a yes/no
+confirmation.
+
+**What was built.** `lib/catalog.ts` — a pure seed of 24 items across NGN, KES
+and GHS, each with a stable id, name, one-line description, one existing
+`GiftCategory`, an active flag and a canonical `Money` price. Four pure
+eligibility rules. `lib/operations/selection.ts` — preview and builders, neither
+able to reach storage. A new route `/operations/moments/[id]/item`, entered from
+the confirmed brief and from the Moment.
+
+**Deliberately not built:** catalog administration, a customer-facing catalog
+route, vendor availability, intent hierarchy, collections, ranking,
+recommendations, personalization, images. Those are H4.2 – H4.4, behind the
+pilot.
+
+#### The configuration gap, and why history blocks rather than guesses
+
+`PolicyResolutionSnapshot` recorded the approved budget but **not** the
+exclusions, so H3.3 could not have filtered against anything trustworthy for an
+existing record.
+
+Generation now snapshots `excludedCategories`, and `OperationsState` moves
+**v2 → v3**: one rung, additive, and it **writes nothing into any existing
+record**.
+
+> **The tempting repair was the dangerous one.** Walking the stored Moments and
+> giving each an empty exclusion list would have converted *"nobody recorded
+> this"* into the confident claim *"nothing was excluded"* — silent, and capable
+> of sending a gift the governing rule forbade.
+>
+> The escape hatch was checked and is **unavailable**:
+> `PolicyForm.save()` (`app/components/workspace/PolicyForm.tsx:299`) writes an
+> edited policy back to the **same `id` at the same `version`**, including when
+> publishing. `policyId` + `policyVersion` therefore prove nothing about whether
+> the exclusions still hold. Equivalence is not provable, so selection **blocks**
+> with a named explanation and a recovery — re-prepare the recipient — and the
+> original record is left untouched.
+
+#### Naming
+
+The checkpoint proposed the Event `ItemPrepared`. **`ItemSelected` was recorded
+instead**: nothing is prepared there — no vendor asked, no order, nothing made
+or moved. `RELATIONSHIP_OPERATIONS_ATLAS.md` §6 reserves that call for the
+milestone that builds the step. `ItemSubstitution` was **not** added; it
+presupposes a selection something downstream has consumed.
+
+#### Two defects the new suite found before a human did
+
+| Defect | Consequence had it shipped |
+|---|---|
+| `snapshotItem()` aliased the item's `Money` object instead of copying it | Repricing a catalog item would have rewritten what an operator chose last quarter — the exact failure the snapshot exists to prevent |
+| `validateOperationsState` checked `workspaceId` on Moments and briefs but **not** on Decisions or Events | A record stamped with another organization's id could be filed under this one. Fixed at the validation layer, so it closes on the H3.2 write paths too |
+
+#### One found in the live browser
+
+With no brief yet confirmed, the summary panel read *"Approved budget: Not
+resolved"* and *"Excluded categories: not recorded"*. **Both were false** — they
+are on the Moment; there was simply no brief to read them from. The panel now
+falls back to the Moment's own snapshot for display, clearly labelled, while
+eligibility still comes from the brief alone. The fallback cannot widen what may
+be chosen, and it cannot reach past the trust gate: a brief whose snapshot lacks
+exclusions still blocks.
+
+#### Amendments to the H3.2 suite — declared, not silent
+
+Four checks in `validate-briefs.mts` pinned literals this milestone legitimately
+moves. **They were amended, so "existing suites unchanged" is not true of this
+milestone and is not claimed.**
+
+| Check | Was | Now |
+|---|---|---|
+| 6 | `CURRENT_OPERATIONS_SCHEMA_VERSION === 2` | `>= 2`, and still asserts independence from the workspace version |
+| 7 | migrates to literal `2` | migrates to `CURRENT_OPERATIONS_SCHEMA_VERSION` |
+| 9 | read reaches literal `2` | read reaches `CURRENT_OPERATIONS_SCHEMA_VERSION` |
+| 35 | `ItemSelection` forbidden as a later milestone | removed from that list — H3.3 is the milestone that produces it |
+
+Three of the four are now version-agnostic, so the next rung will not break them
+again. What they test is unchanged.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **281/281 across nine suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, **selection 47** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly the pre-H3.3 baseline |
+| `build` | Succeeds, **24 routes** — one intentional addition |
+| Routes | All 12 sampled return 200, including `/operations/moments/[id]/item` |
+| Links | Every internal `href` resolves to a built route; no dead ends |
+
+#### Browser evidence
+
+Full flow driven live, not simulated: seed → prepare → confirm brief → choose an
+item.
+
+| State | Result |
+|---|---|
+| Loading | `role="status" aria-live="polite"`; resolves within a frame on local storage — not separately captured |
+| Read failure | Corrupted payload: named, adapter's reason preserved, *"Nothing has been changed"*, retry and a way back. **Not rendered as an empty list** |
+| No confirmed brief | Named, links to the brief |
+| Constraints unrecorded | Named, recovery is re-prepare, **no items listed** |
+| No eligible items | Budget lowered to NGN 1,000 — names the budget, explains that budget and exclusions belong to the customer, links to Workspace |
+| Eligible list | Exactly the 6 expected of 24, price-ascending; spa day at *exactly* budget correctly absent (excluded category), withdrawn whisky set absent, KES and GHS items absent |
+| Draft selection | Arrow keys moved and selected; live region announced *"Artisan chocolate box selected — NGN 35,000.00"*; **store still held 0 selections after two changes** |
+| Confirmation | Primary action disabled until a reason is typed; panel states what will be recorded |
+| Confirmed | **1** Decision, **1** Event, **1** storage write. Candidate set of 6 recorded; `recommendation` and `overrideReason` both absent |
+| Duplicate refusal | Reload → still 1 and 1; list gone; *"An item has already been chosen"* |
+| Keyboard and focus | Native radios, `peer-focus-visible` ring, detail toggle separate from selection |
+| Targets | No H3.3 control under 44px |
+| Overflow | No page-level or inner-container horizontal scroll at any width |
+
+**Widths actually measured** (`window.innerWidth`): **400px**, **768px**,
+**1200px**.
+
+> ⚠️ **1440px was not reached.** The widest physically achievable viewport on the
+> verification machine was 1200px. **No width was simulated by toggling classes**,
+> and none is reported as though it were. Two non-issues were identified and
+> dismissed by inspection: an `sr-only` legend with `overflow:hidden`, and a 4px
+> overshoot inside the closed, `visibility:hidden` nav drawer — pre-existing shell
+> markup, never on screen.
+>
+> **Real-device testing was not performed and is not claimed.** It remains a
+> pre-pilot **[P]** item (H4.0).
+
+#### Also corrected
+
+`MomentDetail` still said *"The Execution Brief is the next stage and is not yet
+enabled"* — true when H3.1 shipped, false from H3.2 onward, and sitting directly
+beneath a button that opened it. The next action is now computed from state: no
+brief → *Open the brief*; brief confirmed → *Choose an item*; item chosen →
+*View the chosen item*.
+
+**Still open:** four sub-44px targets in the `OperationsShell` navigation drawer
+(40px links, 32px close). Pre-existing H3.1 shell chrome, untouched by this
+milestone, and recorded here rather than quietly absorbed.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1309,3 +1449,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the EX-M8 review — the finding was already resolved and had been mischaracterised; correction recorded in the friction register. A desktop table overflow introduced by the H3.2 address badge was found by direct measurement and fixed by stacking the badges. Audit gap noted: page-overflow checks do not catch inner scroll containers.*
 *Updated after the pre-pilot experience corrections — EX-H1, EX-H3, EX-M5 and EX-M8 all closed. Assessment draft read through `useSyncExternalStore` with a null server snapshot; PolicyForm rebuilt into four guided steps; drawer first-frame accessibility moved from `inert` to CSS `visibility` in both shells. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*
 *Updated after the pre-pilot regression correction — assessment same-session resume prompt suppressed via an interaction latch; PolicyForm Review completed to 11 of 11 configurable values; PolicyForm step focus, live announcement and `aria-current` added. EX-M11 remains open. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*
+*Updated after H3.3 (Minimum Catalog + manual item selection) — `OperationsState` **v3** (additive; newly generated Moments snapshot `policyResolutionSnapshot.excludedCategories`, and the rung writes nothing into any existing record). Workspace schema unchanged at **v7**. A pre-H3.3 record **blocks** item selection with a named recovery rather than assuming an empty exclusion list, because a policy is edited in place at the same version and equivalence is not provable. Event named `ItemSelected`, not the checkpoint's `ItemPrepared`; `ItemSubstitution` not added. Three defects found and fixed — an aliased `Money` snapshot, missing workspace-id checks on Decisions and Events, and a false "not resolved / not recorded" panel before a brief exists. Four H3.2 checks amended and declared. **281 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. Verified live at 400px, 768px and 1200px; **1440px was not reachable and real-device testing is still not done**. System Atlas v3.7, Master Roadmap v1.4, Relationship Operations Atlas v1.4.*

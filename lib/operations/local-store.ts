@@ -13,7 +13,13 @@
  * guarantees are actually proven.
  */
 
-import type { BriefWrite, MomentBatch, OperationsRepository, StoreResult } from './store';
+import type {
+  BriefWrite,
+  ItemSelectionWrite,
+  MomentBatch,
+  OperationsRepository,
+  StoreResult,
+} from './store';
 import type {
   Decision,
   ExecutionBrief,
@@ -357,6 +363,89 @@ export function createLocalOperationsRepository(storage: OperationsStorage): Ope
       return { ok: true, value: write.brief };
     },
 
+    findLiveItemSelection(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      const found =
+        state.value?.decisions.find(
+          d => d.momentId === momentId && d.decisionType === 'ItemSelection' && d.status === 'Confirmed',
+        ) ?? null;
+      return { ok: true, value: found };
+    },
+
+    commitItemSelection(workspaceId, write: ItemSelectionWrite, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+
+      const { decision, event } = write;
+
+      if (decision.decisionType !== 'ItemSelection') {
+        return { ok: false, reason: 'That decision is not an item selection.' };
+      }
+      if (event.eventType !== 'ItemSelected') {
+        return { ok: false, reason: 'That event does not record an item selection.' };
+      }
+      if (decision.momentId !== event.momentId) {
+        return { ok: false, reason: 'The decision and event refer to different moments.' };
+      }
+
+      const moment = state.value.moments.find(m => m.id === decision.momentId);
+      if (!moment) return { ok: false, reason: 'That moment no longer exists.' };
+      if (moment.status === 'Cancelled') {
+        return { ok: false, reason: 'That moment has been cancelled. Nothing was recorded.' };
+      }
+      if (moment.status !== 'ReadyForExecution') {
+        return { ok: false, reason: 'That moment is no longer ready for execution. Nothing was recorded.' };
+      }
+
+      // Revalidated here, not merely on the screen. A confirmation prepared
+      // against a brief that has since been corrected refers to a revision
+      // nobody is executing any more, and writing it would attach the choice
+      // to the wrong evidence.
+      const inputs = decision.inputs as { briefId?: string; briefRevision?: number };
+      const live = state.value.executionBriefs.find(
+        b => b.momentId === decision.momentId && b.status === 'Confirmed',
+      );
+      if (!live) {
+        return { ok: false, reason: 'This moment has no confirmed brief. Nothing was recorded.' };
+      }
+      if (inputs.briefId !== live.id || inputs.briefRevision !== live.revision) {
+        return {
+          ok: false,
+          reason: 'The brief was corrected while this was open. Review it and choose again — nothing was recorded.',
+        };
+      }
+
+      // One live selection per Moment. Repeated clicks, a stale tab and a
+      // reloaded page all land here, and all of them are refused.
+      const existing = state.value.decisions.find(
+        d => d.momentId === decision.momentId && d.decisionType === 'ItemSelection' && d.status === 'Confirmed',
+      );
+      if (existing) {
+        return { ok: false, reason: 'An item has already been chosen for this moment.' };
+      }
+
+      if (state.value.decisions.some(d => d.id === decision.id)) {
+        return { ok: false, reason: 'That decision has already been recorded.' };
+      }
+      if (state.value.events.some(e => e.id === event.id)) {
+        return { ok: false, reason: 'That event has already been recorded.' };
+      }
+
+      // One transaction, over a proposed state validated in full (ADR-006).
+      // Existing decisions and events are carried through untouched.
+      const written = commit(
+        {
+          ...state.value,
+          decisions: [...state.value.decisions, decision],
+          events: [...state.value.events, event],
+        },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: decision };
+    },
+
     validate(workspaceId) {
       const state = read(workspaceId);
       if (!state.ok) return state;
@@ -372,4 +461,13 @@ export function browserOperationsRepository(): OperationsRepository | null {
   return createLocalOperationsRepository(window.localStorage);
 }
 
-export type { OperationalEvent, Decision, ExecutionBrief, Moment, MomentStatus, MomentBatch, BriefWrite };
+export type {
+  OperationalEvent,
+  Decision,
+  ExecutionBrief,
+  Moment,
+  MomentStatus,
+  MomentBatch,
+  BriefWrite,
+  ItemSelectionWrite,
+};
