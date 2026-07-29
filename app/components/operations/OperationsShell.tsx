@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { titleFor } from '@/lib/operations/routes';
 import { usePathname, useRouter } from 'next/navigation';
 import type { WorkspaceState } from '@/lib/workspace';
 import { getWorkspace } from '@/lib/workspace';
@@ -48,6 +49,26 @@ export default function OperationsShell({ children }: Props) {
   const closeNav = useCallback(() => setNavOpen(false), []);
   useEffect(() => { closeNav(); }, [pathname, closeNav]);
 
+  /**
+   * Below `lg` the sidebar is a drawer translated off-screen. Off-screen is not
+   * the same as unreachable: without this it keeps its tab stops, so a keyboard
+   * or screen-reader user lands on navigation they cannot see (H3.1-D2).
+   *
+   * Tracked in state rather than read from CSS because the hiding is a Tailwind
+   * breakpoint, and `inert` has to agree with it. At `lg` and above the drawer
+   * is permanently visible and must never be inert.
+   */
+  const [isDesktop, setIsDesktop] = useState(true);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setIsDesktop(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  const navHidden = !isDesktop && !navOpen;
+
   useEffect(() => {
     if (!navOpen) return;
     function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') closeNav(); }
@@ -82,6 +103,10 @@ export default function OperationsShell({ children }: Props) {
       {/* Sidebar — dark, to make the surface unmistakably internal */}
       <aside
         aria-label="Operations navigation"
+        // Hidden from the accessibility tree and from tab order whenever it is
+        // translated off-screen — never at lg and above, where it is visible.
+        aria-hidden={navHidden || undefined}
+        inert={navHidden || undefined}
         className={`fixed inset-y-0 left-0 w-60 max-w-[80vw] bg-ink flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 lg:z-20 ${
           navOpen ? 'translate-x-0 shadow-xl lg:shadow-none' : '-translate-x-full'
         }`}
@@ -161,9 +186,3 @@ export default function OperationsShell({ children }: Props) {
   );
 }
 
-function titleFor(pathname: string): string {
-  if (/^\/operations\/programs\/[^/]+\/prepare$/.test(pathname)) return 'Prepare moments';
-  if (/^\/operations\/moments\/[^/]+$/.test(pathname)) return 'Moment';
-  if (pathname.startsWith('/operations/moments')) return 'Moments';
-  return 'Command';
-}

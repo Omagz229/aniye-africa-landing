@@ -159,7 +159,7 @@ export default function PrepareMoments({ programId }: { programId: string }) {
   if (blocked) {
     return (
       <div className="space-y-5 max-w-2xl">
-        <Link href="/operations" className="font-body text-sm text-stone hover:text-ink transition-colors inline-block">
+        <Link href="/operations" className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2">
           &#8592; Back to Command
         </Link>
         <div className="bg-white rounded-2xl border border-stone/20 p-5 space-y-2">
@@ -220,7 +220,7 @@ export default function PrepareMoments({ programId }: { programId: string }) {
     <div className="space-y-6 max-w-2xl">
 
       <div>
-        <Link href="/operations" className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 inline-block">
+        <Link href="/operations" className="font-body text-sm text-stone hover:text-ink transition-colors mb-1 inline-flex items-center min-h-[44px] py-2">
           &#8592; Back to Command
         </Link>
         <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">Prepare moments</p>
@@ -261,6 +261,17 @@ export default function PrepareMoments({ programId }: { programId: string }) {
         ) : (
           <Fact label="Allocation">Nothing resolves yet</Fact>
         )}
+        {preview.needsReview.length > 0 && (
+          // The allocation counts everyone whose policy resolved, including those
+          // held back for review — so the figure is the campaign's full cost, not
+          // what will actually go out today. Said plainly rather than left to be
+          // inferred from two numbers that disagree (H3.1-D4).
+          <p className="font-body text-xs text-stone/60 pt-1">
+            Includes {preview.needsReview.length}{' '}
+            {preview.needsReview.length === 1 ? 'person who still needs' : 'people who still need'} review
+            and cannot proceed yet.
+          </p>
+        )}
         {preview.byCurrency.length > 1 && (
           <p className="font-body text-xs text-stone/60 pt-1">
             Currencies are listed separately — they are never added together.
@@ -293,7 +304,12 @@ export default function PrepareMoments({ programId }: { programId: string }) {
                       <p key={i} className="font-body text-xs text-stone mt-0.5">
                         {issue.message}
                         {issue.href && (
-                          <Link href={issue.href} className="font-semibold text-ink hover:text-gold transition-colors ml-1">
+                          // Own line with vertical padding: an inline link inherited
+                          // the 15px line-box and was unusably small on a phone (H3.1-D3).
+                          <Link
+                            href={issue.href}
+                            className="mt-1 inline-flex items-center min-h-[44px] py-2 font-semibold text-ink hover:text-gold transition-colors"
+                          >
                             Fix in workspace &#8594;
                           </Link>
                         )}

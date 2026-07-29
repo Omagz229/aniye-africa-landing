@@ -523,6 +523,32 @@ canonical record**. No new abstraction: it mirrors the shape `confirmation.ts` a
 (41); foreign-workspace payload → error, never guessed empty (42); unreadable workspace → error (43);
 retry performs a fresh read and recovers (44); reading writes no Brief, Decision or Event (45).
 
+### ✅ Visual acceptance corrections — H3.1-D2…D4 and H3.2-D2…D3
+
+**The live visual verification finally ran** on 2026-07-29, once the Chrome extension connected.
+It found five defects that every automated suite had passed. All five are corrected here.
+
+| # | Defect | Correction |
+|---|--------|-----------|
+| **H3.1-D2** | `OperationsShell`'s closed drawer kept **5 tab stops** while translated off-screen — keyboard and screen-reader users landed on navigation they could not see | `inert` + `aria-hidden` applied whenever the drawer is off-screen, driven by a `matchMedia('(min-width: 1024px)')` listener so it never applies at `lg` and above where the sidebar is permanently visible |
+| **H3.1-D3** | Tap targets below any usable minimum — "Fix in workspace" **15px**, "Back to Command" **20px** | Both raised to a **44px** minimum with `inline-flex` + `min-h-[44px]` |
+| **H3.1-D4** | Allocation read *"across 5 people"* beside *"4 Ready / 1 Need review"* — the figure counts everyone whose policy resolved, including those held back | The count is now stated: *"Includes 1 person who still needs review and cannot proceed yet."* The number was never wrong; it was ambiguous |
+| **H3.2-D2** | `titleFor()` had no case for either new route — `/operations/briefs` fell through to **"Command"**, and `/operations/moments/[id]/brief` inherited **"Moments"** | Both cases added, brief tested **before** the moments prefix. Extracted to `lib/operations/routes.ts` so the mapping is unit-testable rather than only visible in a browser |
+| **H3.2-D3** | The brief's missing-address recovery links to `/workspace/people`, but that directory showed **no indication of who lacked an address** — the destination did not surface what the operator was sent to fix | A "No delivery address" badge on both the mobile card and desktop row, driven by the **same `isAddressComplete()` predicate** the brief gate uses, so the two can never disagree |
+
+**Regression coverage — 2 new checks, brief suite 45 → 47.** Route titles for all six Operations
+paths (46); address completeness agreeing between the directory badge and the queue flag (47).
+The drawer and tap-target fixes are verified in the browser rather than by unit test — they are
+rendering properties, and asserting them in jsdom would prove nothing.
+
+**Verified live at 390–500px:** drawer links **unfocusable** when hidden and fully interactive when
+opened; both tap targets measured at **44px**; the allocation note rendering; the "No delivery
+address" badge appearing on exactly the right people; header titles correct on every route.
+
+**Still outstanding.** `WorkspaceShell` carries the **identical** drawer defect to H3.1-D2 —
+9 tab stops when closed. It is E1-era code, outside both milestones, and deliberately left rather
+than silently widening this scope. **It should be fixed before pilot.**
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1065,3 +1091,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.1 acceptance correction (H3.1-D1) — confirmation now re-reads live Workspace, Program status, population, People, groups, assignments, policies and source keys before writing; a material change or any read failure writes nothing and requires review. 15 regression checks added (operations 35 → 50); 187 checks total. No schema change — WorkspaceState v6, OperationsState v1. System Atlas v3.5. **Live visual verification still pending; H3.1 not yet fully accepted.***
 *Updated after H3.2 (Execution Brief) — Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`); a stored v1 operations payload migrates rather than being quarantined; the address gate blocks brief confirmation but never Moment generation; `MOMENT_STATUSES` unchanged. 209 checks across eight suites. System Atlas v3.5, Master Roadmap v1.2, Relationship Operations Atlas v1.2. **First post-recovery build milestone.***
 *Updated after the H3.2 acceptance correction (H3.2-D1) — the brief queue now distinguishes loading, failed, empty and populated; a read failure is never shown as an empty queue and its reason is preserved. 8 regression checks added (briefs 37 → 45); 232 checks total across eight suites. H3.1-D1 committed and pushed at `312a22d`. **Live visual verification still pending for all H2.6, H3.1 and H3.2 routes; neither milestone is fully accepted.***
+*Updated after live visual verification (2026-07-29) — five defects found and corrected: H3.1-D2 drawer focus trap, H3.1-D3 sub-44px tap targets, H3.1-D4 ambiguous allocation, H3.2-D2 wrong header titles, H3.2-D3 missing-address invisible in the recovery destination. 234 checks across eight suites. `WorkspaceShell`'s identical drawer defect remains, out of scope.*

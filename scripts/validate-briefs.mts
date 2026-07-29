@@ -45,6 +45,7 @@ import { createLocalOperationsRepository } from '../lib/operations/local-store';
 import type { GenerationContext } from '../lib/operations/generation';
 import { buildMomentBatch } from '../lib/operations/generation';
 import { buildBriefConfirmation, buildBriefRevision, loadBriefQueue, previewBrief } from '../lib/operations/briefs';
+import { titleFor } from '../lib/operations/routes';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -921,6 +922,39 @@ check('45. Reading the queue writes no Brief, Decision or Event', () => {
   assertEqual(state.value!.executionBriefs.length, 0, 'A brief was created by reading.');
   assertEqual(state.value!.decisions.length, 2, 'Decisions changed while reading.');
   assertEqual(state.value!.events.length, 2, 'Events changed while reading.');
+});
+
+// ─── Part 9: acceptance corrections (H3.2-D2, H3.2-D3) ───────────────────────
+
+check('46. Every operations route resolves a correct header title (H3.2-D2)', () => {
+  assertEqual(titleFor('/operations'), 'Command', 'Command title wrong.');
+  assertEqual(titleFor('/operations/moments'), 'Moments', 'Moments title wrong.');
+  assertEqual(titleFor('/operations/moments/m-1'), 'Moment', 'Moment title wrong.');
+  // The brief lives under a moment, so it must be matched before the prefix.
+  assertEqual(titleFor('/operations/moments/m-1/brief'), 'Brief', 'Brief route inherited the Moments title.');
+  assertEqual(titleFor('/operations/briefs'), 'Briefs', 'Briefs route fell through to Command.');
+  assertEqual(titleFor('/operations/programs/p-1/prepare'), 'Prepare moments', 'Prepare title wrong.');
+});
+
+check('47. Address completeness drives the directory badge (H3.2-D3)', () => {
+  // The predicate the Workspace directory badge and the brief gate both use —
+  // they must agree, or the recovery link sends people to the wrong person.
+  assert(!isAddressComplete(undefined), 'No address counted as complete.');
+  assert(!isAddressComplete({ line1: '9 Bishop Aboyade', city: '', countryCode: '' }), 'A partial address counted as complete.');
+  assert(isAddressComplete(GOOD_ADDRESS), 'A complete address was marked incomplete.');
+
+  // And the queue flag agrees with it for the same people.
+  const withAddr = person({ id: 'p1', deliveryAddress: GOOD_ADDRESS });
+  const without = person({ id: 'p2' });
+  const partial = person({ id: 'p3', deliveryAddress: { line1: '9 Bishop', city: '', countryCode: '' } });
+  for (const [p, expected] of [[withAddr, true], [without, false], [partial, false]] as const) {
+    const { repo } = repoWithMoment([p]);
+    const r = loadBriefQueue({ readWorkspace: () => queueWorkspace([p]) as never, repository: repo });
+    assert(r.status === 'ok', 'Queue read failed.');
+    if (r.status === 'ok') {
+      assertEqual(r.waiting[0].hasAddress, expected, `Wrong address flag for ${p.id}.`);
+    }
+  }
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

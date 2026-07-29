@@ -12,6 +12,7 @@ import type {
 } from '@/lib/workspace';
 import {
   PERSON_STATUS_LABELS,
+  isAddressComplete,
   RELATIONSHIP_TYPES,
   getWorkspace,
   personFullName,
@@ -481,6 +482,11 @@ export default function PeopleDirectory() {
                             <span className={`font-body text-xs rounded-full px-2 py-0.5 whitespace-nowrap ${SOURCE_STYLES[person.sourceType]}`}>
                               {SOURCE_LABELS[person.sourceType]}
                             </span>
+                            {!isAddressComplete(person.deliveryAddress) && (
+                          <span className="font-body text-xs rounded-full px-2 py-0.5 bg-gold/20 text-ink whitespace-nowrap">
+                            No delivery address
+                          </span>
+                        )}
                           </Td>
                           <Td className="text-right whitespace-nowrap">
                             <RowActions person={person}
@@ -508,9 +514,19 @@ export default function PeopleDirectory() {
                         </p>
                         {person.role && <p className="font-body text-xs text-stone">{person.role}</p>}
                       </div>
-                      <span className={`font-body text-xs rounded-full px-2 py-0.5 flex-shrink-0 ${SOURCE_STYLES[person.sourceType]}`}>
-                        {SOURCE_LABELS[person.sourceType]}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
+                        {/* Operations sends administrators here to fix a missing address
+                            (H3.2-D3). Without this the destination never showed which
+                            person they were sent to fix. */}
+                        {!isAddressComplete(person.deliveryAddress) && (
+                          <span className="font-body text-xs rounded-full px-2 py-0.5 bg-gold/20 text-ink whitespace-nowrap">
+                            No delivery address
+                          </span>
+                        )}
+                        <span className={`font-body text-xs rounded-full px-2 py-0.5 ${SOURCE_STYLES[person.sourceType]}`}>
+                          {SOURCE_LABELS[person.sourceType]}
+                        </span>
+                      </div>
                     </div>
                     {(person.email || person.phone) && (
                       <p className="font-body text-xs text-stone break-words">
