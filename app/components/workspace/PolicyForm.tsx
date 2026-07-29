@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import StepHeader from './StepHeader';
 import { useRouter } from 'next/navigation';
 import type {
   Money,
@@ -16,7 +17,7 @@ import {
   RECOGNITION_MOMENT_TYPES,
   GIFT_CATEGORIES,
 } from '@/lib/workspace';
-import { parseMoney, toMajorString, zero } from '@/lib/money';
+import { formatMoney, parseMoney, toMajorString, zero } from '@/lib/money';
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -63,6 +64,15 @@ function buildBlankPolicy(workspaceId: string, baseCurrency: string): Recognitio
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ReviewRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-4 py-1.5">
+      <p className="font-body text-xs uppercase tracking-wide text-stone/60 sm:w-40 flex-shrink-0">{label}</p>
+      <p className={`font-body text-sm ${value ? 'text-ink' : 'text-stone/50'}`}>{value ?? 'Not set'}</p>
+    </div>
+  );
+}
 
 function FormSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -181,6 +191,24 @@ interface Props {
   onCancel?: () => void;
 }
 
+/**
+ * EX-M5 — a half-written rule used to vanish on navigation. Draft only: nothing
+ * reaches `workspace.recognitionPolicies` until Save or Publish, and edits are
+ * never autosaved, so an abandoned edit leaves the stored rule exactly as it was.
+ */
+const DRAFT_KEY = 'aniye_policy_draft';
+
+/**
+ * EX-H3 — four questions instead of one wall.
+ *
+ * The previous form put six sections, fourteen fields and nine occasion rows on
+ * a single page: the highest cognitive load in the product, at the step users
+ * understand least. Everything below step 2 has a sensible default, so the
+ * guided order is name → occasions → delivery → review, and the rule is
+ * publishable after step 2.
+ */
+const STEPS = ['What is this rule?', 'Which occasions?', 'How it is delivered', 'Review'];
+
 export default function PolicyForm({ existingPolicy, onCancel }: Props) {
   const router = useRouter();
   // EX-H2 — /workspace/policies/new rendered this component with no props, so
@@ -190,6 +218,10 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
   const [form, setForm] = useState<RecognitionPolicy | null>(null);
   const [baseCurrency, setBaseCurrency] = useState('NGN');
   const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
+  const [showGifts, setShowGifts] = useState(false);
+  const [resumed, setResumed] = useState<RecognitionPolicy | null>(null);
+  const isEdit = !!existingPolicy;
 
   useEffect(() => {
     const ws = getWorkspace();
@@ -197,10 +229,27 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
     setBaseCurrency(ws.baseCurrency);
     if (existingPolicy) {
       setForm({ ...existingPolicy });
-    } else {
-      setForm(buildBlankPolicy(ws.organizationId, ws.baseCurrency));
+      return;
+    }
+    setForm(buildBlankPolicy(ws.organizationId, ws.baseCurrency));
+    // Offered back rather than silently restored (EX-M5).
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as RecognitionPolicy;
+        if (parsed && typeof parsed === 'object' && parsed.id) setResumed(parsed);
+      }
+    } catch {
+      // A malformed draft is simply not offered.
     }
   }, [router, existingPolicy]);
+
+  // Autosave new rules only. Never edits.
+  useEffect(() => {
+    if (isEdit || resumed || !form) return;
+    if (!form.name.trim() && !form.recognitionRules.some(r => r.isEnabled)) return;
+    try { window.localStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch { /* convenience, not a contract */ }
+  }, [form, isEdit, resumed]);
 
   function patch(partial: Partial<RecognitionPolicy>) {
     setForm(prev => prev ? { ...prev, ...partial, updatedAt: new Date().toISOString() } : null);
@@ -244,40 +293,69 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
       ? existing.map((p, i) => (i === idx ? toSave : p))
       : [...existing, toSave];
     updateWorkspace({ recognitionPolicies: updated });
+    try { window.localStorage.removeItem(DRAFT_KEY); } catch { /* nothing to clean up */ }
     router.push('/workspace/policies');
   }
 
   if (!form) return null;
 
+  // ─── Resume prompt (EX-M5) ─────────────────────────────────────────────────
+  if (resumed) {
+    return (
+      <div className="max-w-xl space-y-6">
+        <div>
+          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">Recognition rules</p>
+          <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-2">
+            Pick up where you left off?
+          </h2>
+          <p className="font-body text-stone">
+            You were writing{' '}
+            <span className="font-semibold text-ink">{resumed.name.trim() || 'a rule'}</span>{' '}
+            and didn&apos;t finish. Nothing was saved to your rules.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button"
+            onClick={() => { setForm(resumed); setResumed(null); }}
+            className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all">
+            Continue &#8594;
+          </button>
+          <button type="button"
+            onClick={() => { try { window.localStorage.removeItem(DRAFT_KEY); } catch {} setResumed(null); }}
+            className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2">
+            Start fresh
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isLast = step === STEPS.length - 1;
+  const enabledRules = form.recognitionRules.filter(r => r.isEnabled);
+
   const canPublish = form.name.trim().length > 0 && form.recognitionRules.some(r => r.isEnabled);
-  const isEdit = !!existingPolicy;
 
   return (
     <div className="space-y-8">
 
-      {/* Page intro — with a persistent way back (EX-H2) */}
+      {/* Persistent way back (EX-H2) */}
       <div>
         <button
           type="button"
           onClick={leave}
-          className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 -ml-1 px-1 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-stone"
+          className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 -ml-1 px-1 inline-flex items-center min-h-[44px] rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-stone"
         >
           &#8592; Back to recognition rules
         </button>
-        <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">
-          {isEdit ? 'Edit rule' : 'New rule'}
-        </p>
-        <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink">
-          {isEdit ? (form.name || 'Untitled rule') : 'Write a recognition rule'}
-        </h2>
-        {!isEdit && (
-          <p className="font-body text-stone mt-1">
-            Rules are reusable — you&apos;ll decide who this one applies to in the next step.
-          </p>
-        )}
+        <StepHeader
+          eyebrow={isEdit ? 'Edit rule' : 'New rule'}
+          title={isEdit ? (form.name || 'Untitled rule') : 'Write a recognition rule'}
+          steps={STEPS}
+          current={step}
+        />
       </div>
 
-      {/* Section 0: Policy Details */}
+      {step === 0 && (
       <FormSection label="Rule details">
         <Field label="Policy name">
           <input
@@ -298,8 +376,9 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           />
         </Field>
       </FormSection>
+      )}
 
-      {/* Section 1: Recognition Rules */}
+      {step === 1 && (
       <FormSection label="Occasions and budgets">
         <p className="font-body text-xs text-stone/70 -mt-1">
           Turn on the occasions this rule covers, and set a budget per person for each.
@@ -335,8 +414,10 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           Budgets are per person, per occasion, in {baseCurrency}.
         </p>
       </FormSection>
+      )}
 
-      {/* Section 2: Approval Workflow */}
+      {step === 2 && (
+      <div className="space-y-8">
       <FormSection label="Approvals">
         <Field label="Who signs this off before it happens?">
           <select
@@ -357,7 +438,12 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
         )}
       </FormSection>
 
-      {/* Section 3: Experience Preferences */}
+      {!showGifts ? (
+        <button type="button" onClick={() => setShowGifts(true)}
+          className="font-body text-sm text-stone hover:text-ink transition-colors underline underline-offset-2 inline-flex items-center min-h-[44px] py-2">
+          Set gift preferences
+        </button>
+      ) : (
       <FormSection label="Gift preferences">
         <div>
           <p className="font-body text-sm font-medium text-ink mb-3">Preferred gift categories</p>
@@ -422,8 +508,8 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           </div>
         </div>
       </FormSection>
+      )}
 
-      {/* Section 4: Delivery Requirements */}
       <FormSection label="Delivery">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Delivery method">
@@ -467,7 +553,6 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
         </div>
       </FormSection>
 
-      {/* Section 5: Reporting */}
       <FormSection label="Reporting">
         <Field
           label="Reporting cadence"
@@ -485,41 +570,83 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           </select>
         </Field>
       </FormSection>
+      </div>
+      )}
 
-      {/* Actions */}
+      {/* Step 3 — Review. Nothing is written until an action here. */}
+      {step === 3 && (
+        <FormSection label="Review">
+          <ReviewRow label="Name" value={form.name.trim() || undefined} />
+          <ReviewRow label="Description" value={form.description.trim() || undefined} />
+          <ReviewRow
+            label="Occasions"
+            value={enabledRules.length === 0 ? undefined
+              : enabledRules.map(r => `${r.momentType} · ${formatMoney(r.budgetPerPerson)}`).join(', ')}
+          />
+          <ReviewRow label="Approval" value={form.approvalWorkflow === 'None' ? 'No approval required' : `${form.approvalWorkflow} approval`} />
+          <ReviewRow label="Delivery" value={form.deliveryRequirement} />
+          <ReviewRow label="Delivery timing" value={form.preferredDeliveryWindow.trim() || undefined} />
+          <ReviewRow label="Preferred gifts" value={form.preferredGiftCategories.join(', ') || undefined} />
+          <ReviewRow label="Excluded gifts" value={form.excludedCategories.join(', ') || undefined} />
+          <ReviewRow label="Reporting" value={form.reportingCadence === 'None' ? 'No reporting' : form.reportingCadence} />
+          <p className="font-body text-xs text-stone/60 pt-1">
+            A draft can be edited freely. Publishing makes this rule assignable to a relationship group.
+          </p>
+        </FormSection>
+      )}
+
+      {/* Navigation — one clear next action per step (Doctrine §1.1) */}
       <div className="flex flex-col sm:flex-row items-start gap-3 pt-2">
-        <button
-          type="button"
-          onClick={() => save('Draft')}
-          className="rounded-full border border-stone/30 text-ink font-semibold text-sm px-6 py-3 hover:border-stone/60 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-stone focus-visible:ring-offset-2"
-        >
-          Save as draft
-        </button>
-        <button
-          type="button"
-          onClick={() => save('Published')}
-          disabled={!canPublish}
-          className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Publish rule
-        </button>
+        {!isLast ? (
+          <button
+            type="button"
+            onClick={() => { setBudgetError(null); setStep(sx => Math.min(STEPS.length - 1, sx + 1)); }}
+            className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
+          >
+            Continue &#8594;
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => save('Published')}
+              disabled={!canPublish}
+              className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Publish rule
+            </button>
+            <button
+              type="button"
+              onClick={() => save('Draft')}
+              className="rounded-full border border-stone/30 text-ink font-semibold text-sm px-6 py-3 hover:border-stone/60 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-stone focus-visible:ring-offset-2"
+            >
+              Save as draft
+            </button>
+          </>
+        )}
+        {step > 0 && (
+          <button
+            type="button"
+            onClick={() => setStep(sx => Math.max(0, sx - 1))}
+            className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2"
+          >
+            Back
+          </button>
+        )}
         <button
           type="button"
           onClick={leave}
-          className="font-body text-sm text-stone hover:text-ink transition-colors py-3 sm:ml-auto"
+          className="font-body text-sm text-stone/70 hover:text-ink transition-colors sm:ml-auto inline-flex items-center min-h-[44px] py-2"
         >
           Cancel
         </button>
       </div>
 
-      {!canPublish && form.name.trim().length > 0 && (
+      {isLast && !canPublish && (
         <p className="font-body text-xs text-stone/60 -mt-4">
-          Turn on at least one occasion before you can publish this rule.
-        </p>
-      )}
-      {!form.name.trim() && (
-        <p className="font-body text-xs text-stone/60 -mt-4">
-          Give this rule a name before you can publish it.
+          {!form.name.trim()
+            ? 'Give this rule a name before you can publish it.'
+            : 'Turn on at least one occasion before you can publish this rule.'}
         </p>
       )}
 

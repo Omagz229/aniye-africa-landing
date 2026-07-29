@@ -652,6 +652,70 @@ table's own `overflow-x-auto`. A container scrolling within a page is exactly wh
 calls a fallback, and the audit had no check for it. **Any future visual pass should measure inner
 scroll containers, not only page overflow.**
 
+### ✅ Pre-pilot experience corrections — EX-H1, EX-H3, EX-M5, EX-M8
+
+The last open pre-pilot findings from the Experience Audit, plus the drawer
+accessibility work finished properly.
+
+**EX-H1 — assessment autosave.** Fifteen fields over four steps lived only in
+`useState`; a refresh lost all of it, on the first thing a stranger fills in.
+Now autosaved to `aniye_assessment_draft` and **offered back**, never silently
+restored.
+
+Read through **`useSyncExternalStore`**, not an effect and not a lazy
+`useState` initializer. The server has no `localStorage`: a lazy initializer
+would render nothing on the server and a resume prompt on the client — a
+hydration mismatch. `getServerSnapshot` returns `null` so both renders agree.
+`getSnapshot` returns the **raw string**, which `Object.is` compares by value,
+so an unchanged draft cannot loop; parsing happens separately in a `useMemo`.
+Same-window writes announce themselves through a custom event, because
+`storage` only reaches *other* tabs.
+
+**EX-H3 — `PolicyForm` guided rebuild.** Six sections, fourteen fields and nine
+occasion rows on one page became **four steps**: name → occasions → delivery →
+review. Everything after step 2 has a sensible default, so a rule is publishable
+once occasions are set. Gift preferences sit behind progressive disclosure.
+
+**EX-M5 — policy draft autosave.** Landed with EX-H3, which it depended on. New
+rules autosave to `aniye_policy_draft` and are offered back; **edits are never
+autosaved**, so an abandoned edit leaves the stored rule exactly as it was.
+
+**Drawer first-frame accessibility.** The previous fix relied on `inert` applied
+by an effect, which leaves the first frame unprotected. Corrected in both shells
+with **`invisible` / `lg:visible` in CSS**: `visibility: hidden` removes the
+closed drawer from the tab order and the accessibility tree from first paint,
+with no JavaScript. Server and initial client markup are unchanged — the shells
+render a loading state and mount the drawer only after hydration, so there is no
+markup to mismatch. `inert` and `aria-hidden` remain as belt-and-braces once the
+breakpoint is known.
+
+**EX-M8 — closed, no code needed.** Its two named components, `PolicyLibrary.tsx`
+and `PeopleImport.tsx`, were rebuilt without tables, so the `overflow-x-auto` it
+described no longer exists. `PeopleDirectory` was the cited good example and
+still renders cards below `lg`.
+
+**Browser evidence.**
+
+| Claim | Evidence |
+|---|---|
+| Drawer safe at first frame | With `lg:visible` removed and **`inert`/`aria-hidden` stripped**, computed `visibility: hidden` and **all links refused focus** — CSS alone, both shells |
+| Desktop nav visible and focusable | `visibility: visible`, focus succeeds at 1792px, both shells |
+| Open restores it | `invisible` → `visible` on the hamburger, both shells |
+| Escape and backdrop close it | Both return the drawer to `invisible` |
+| EX-H1 autosave | Draft written on first keystroke; step persisted as the wizard advanced |
+| EX-H1 resume | Prompt shown after reload; **Continue restored Step 2 of 4** and all three field values |
+| EX-H1 start fresh | Draft removed, wizard reset to Step 1, fields empty |
+| EX-H1 submit | Draft cleared, `aniye_last_submission` written, return visit shows **no** resume prompt |
+| EX-H3 create | Four steps, Review lists every value, publish enabled only with a name and an occasion |
+| EX-H3 edit | Full prefill across all steps; Back/Forward retained values exactly; save transitioned Draft → Published with no duplicate |
+| EX-H3 edit autosave suppressed | `aniye_policy_draft` stayed `null` throughout an edit |
+| EX-H3 cancel | Stored policy unchanged across all ten fields, gifts, exclusions and rules |
+
+**A note on the verification itself.** A renderer freeze during this pass was
+caused by my own instrumentation — a `setInterval(…, 0)` polling for an element
+that does not exist on `/assessment` — not by the application. Recorded so the
+freeze is not later mistaken for a product defect.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1198,3 +1262,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the complete H3 visual acceptance matrix (2026-07-29) — all 30 route × width cells re-run from scratch; the earlier 19-vs-20 discrepancy corrected to 20 unchecked at that time. WorkspaceShell drawer defect root-caused and fixed via a shared `useOffcanvasHidden` hook; sub-44px touch targets corrected across five H3.1/H3.2 routes. 234 checks across eight suites, lint at baseline. Two mobile cells measured at 500px rather than ~390 due to a Chrome minimum-window-width floor. H2-era touch targets remain outstanding.*
 *Updated after the H2-era touch-target correction — `/workspace/people`, `/workspace/programs/[id]` and `/workspace/programs/new` raised to a 44px minimum; a wrap regression in the desktop people table was caught and fixed. Two 42px shared form inputs left as-is (clears WCAG AA). 234 checks, lint at baseline.*
 *Updated after the EX-M8 review — the finding was already resolved and had been mischaracterised; correction recorded in the friction register. A desktop table overflow introduced by the H3.2 address badge was found by direct measurement and fixed by stacking the badges. Audit gap noted: page-overflow checks do not catch inner scroll containers.*
+*Updated after the pre-pilot experience corrections — EX-H1, EX-H3, EX-M5 and EX-M8 all closed. Assessment draft read through `useSyncExternalStore` with a null server snapshot; PolicyForm rebuilt into four guided steps; drawer first-frame accessibility moved from `inert` to CSS `visibility` in both shells. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*

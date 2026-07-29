@@ -1,9 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { AssessmentData } from "@/lib/assessment";
 import { EMPTY_ASSESSMENT } from "@/lib/assessment";
+import {
+  clearAssessmentDraft,
+  getAssessmentDraftServerSnapshot,
+  getAssessmentDraftSnapshot,
+  isAssessmentStarted,
+  parseAssessmentDraft,
+  subscribeAssessmentDraft,
+  writeAssessmentDraft,
+} from "@/lib/assessment-draft";
 import StepOrganization from "./steps/StepOrganization";
 import StepContact from "./steps/StepContact";
 import StepScope from "./steps/StepScope";
@@ -20,6 +29,35 @@ export default function AssessmentWizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<AssessmentData>(EMPTY_ASSESSMENT);
+  /**
+   * EX-H1 — the longest unsaved form in the product was also the first thing a
+   * stranger fills in. Fifteen fields across four steps lived only in `useState`,
+   * so a refresh, a back button or a closed tab lost all of it.
+   *
+   * Read through `useSyncExternalStore`: the server has no draft, so the server
+   * snapshot is `null` and the first client render matches it exactly. No
+   * effect, no lazy initializer, no hydration mismatch.
+   */
+  const rawDraft = useSyncExternalStore(
+    subscribeAssessmentDraft,
+    getAssessmentDraftSnapshot,
+    getAssessmentDraftServerSnapshot,
+  );
+  const storedDraft = useMemo(() => parseAssessmentDraft(rawDraft), [rawDraft]);
+
+  // Offered back rather than silently restored — a surprise prefill is worse
+  // than a restart. Dismissed once the visitor answers either way.
+  const [dismissedResume, setDismissedResume] = useState(false);
+  const resumed = dismissedResume ? null : storedDraft;
+
+  // Autosave every change once anything has actually been typed. Suspended
+  // while a resume prompt is showing, so declining it cannot be overwritten
+  // before the visitor has chosen.
+  useEffect(() => {
+    if (resumed) return;
+    if (!isAssessmentStarted(data)) return;
+    writeAssessmentDraft(data, step);
+  }, [data, step, resumed]);
 
   function update(partial: Partial<AssessmentData>) {
     setData((prev) => ({ ...prev, ...partial }));
@@ -29,7 +67,6 @@ export default function AssessmentWizard() {
   function back() { setStep((s) => Math.max(s - 1, 0)); }
 
   function submit() {
-    console.log("[Aniyé Assessment Submission]", data);
     try {
       localStorage.setItem(
         "aniye_last_submission",
@@ -38,9 +75,49 @@ export default function AssessmentWizard() {
     } catch {
       // localStorage unavailable in some environments
     }
+    // The draft has served its purpose once the answers are submitted.
+    clearAssessmentDraft();
     // TODO: POST to process.env.NEXT_PUBLIC_SUBMISSION_WEBHOOK_URL (Airtable / Sheets / Notion)
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
     router.push(`/report?d=${encoded}`);
+  }
+
+  // ─── Resume prompt ─────────────────────────────────────────────────────────
+
+  if (resumed) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <p className="font-body text-xs text-stone uppercase tracking-widest mb-1">Assessment</p>
+          <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink mb-2">
+            Pick up where you left off?
+          </h2>
+          <p className="font-body text-stone">
+            You started this assessment
+            {resumed.data.companyName ? (
+              <> for <span className="font-semibold text-ink">{resumed.data.companyName}</span></>
+            ) : null}{" "}
+            and didn&apos;t finish. Nothing has been sent.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => { setData(resumed.data); setStep(resumed.step); setDismissedResume(true); }}
+            className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
+          >
+            Continue &#8594;
+          </button>
+          <button
+            type="button"
+            onClick={() => { clearAssessmentDraft(); setData(EMPTY_ASSESSMENT); setStep(0); setDismissedResume(true); }}
+            className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2"
+          >
+            Start fresh
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const stepProps = { data, update, onNext: next, onBack: back };

@@ -91,8 +91,15 @@ export default function OperationsShell({ children }: Props) {
         // translated off-screen — never at lg and above, where it is visible.
         aria-hidden={navHidden || undefined}
         inert={navHidden || undefined}
-        className={`fixed inset-y-0 left-0 w-60 max-w-[80vw] bg-ink flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 lg:z-20 ${
-          navOpen ? 'translate-x-0 shadow-xl lg:shadow-none' : '-translate-x-full'
+        // `invisible` is doing the accessibility work, not `inert`: it applies
+        // from the very first paint, with no JavaScript, so a closed drawer is
+        // out of the tab order and the a11y tree before any effect has run.
+        // `lg:visible` restores it where it is permanently on screen, and
+        // opening it below lg restores it too. The hook below then adds `inert`
+        // and `aria-hidden` once the breakpoint is known — belt and braces, not
+        // the mechanism.
+        className={`fixed inset-y-0 left-0 w-60 max-w-[80vw] bg-ink flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 lg:z-20 lg:visible ${
+          navOpen ? 'visible translate-x-0 shadow-xl lg:shadow-none' : 'invisible -translate-x-full'
         }`}
       >
         <div className="px-5 pt-6 pb-4 border-b border-cream/10">

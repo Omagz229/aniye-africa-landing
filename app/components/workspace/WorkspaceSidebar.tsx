@@ -51,8 +51,10 @@ export default function WorkspaceSidebar({ workspace, open, onNavigate }: Props)
       aria-label="Workspace navigation"
       aria-hidden={hidden || undefined}
       inert={hidden || undefined}
-      className={`fixed inset-y-0 left-0 w-60 max-w-[80vw] bg-white border-r border-stone/15 flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 lg:z-20 ${
-        open ? 'translate-x-0 shadow-xl lg:shadow-none' : '-translate-x-full'
+      // See OperationsShell: `invisible` removes the closed drawer from the tab
+      // order and the a11y tree from first paint, before any effect runs.
+      className={`fixed inset-y-0 left-0 w-60 max-w-[80vw] bg-white border-r border-stone/15 flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 lg:z-20 lg:visible ${
+        open ? 'visible translate-x-0 shadow-xl lg:shadow-none' : 'invisible -translate-x-full'
       }`}
     >
 
