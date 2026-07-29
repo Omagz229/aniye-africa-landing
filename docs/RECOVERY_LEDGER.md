@@ -549,6 +549,73 @@ address" badge appearing on exactly the right people; header titles correct on e
 9 tab stops when closed. It is E1-era code, outside both milestones, and deliberately left rather
 than silently widening this scope. **It should be fixed before pilot.**
 
+### ✅ H3 final visual acceptance — complete 10 × 3 matrix
+
+**This is a different exercise from the targeted pass on 2026-07-28.** That one covered the
+critical paths only — 11 of 30 cells — and its report contained an arithmetic error: it said
+*"19 of 30 remain unchecked"* while its own matrix showed **20** unchecked cells. **The correct
+figure was 20 unchecked / 10 checked**, and neither number is load-bearing now: this pass re-ran
+**all 30 cells from scratch** and relied on none of the earlier results.
+
+**Widths verified by reading `window.innerWidth` on every cell**, never by trusting a resize tool's
+success report — an early screenshot in the previous pass reported success at 390 while the viewport
+was actually 1360, and was discarded.
+
+| Column | Measured |
+|---|---|
+| Mobile | **392px** on 8 routes; **500px** on 2 (`/workspace/people`, `/operations/briefs`) |
+| Tablet | **768px** on all 10 |
+| Desktop | **1440px** on all 10 |
+
+⚠️ **Two mobile cells were measured at 500px, not ~390.** Chrome enforced a minimum window width
+of 500 once the extension side panel was open — 340px was requested and 500 returned. Both are
+below the `lg` (1024px) breakpoint, so the mobile layout was genuinely exercised, but the exact
+390px figure was not reached on those two. Recorded rather than rounded.
+
+**Result: no horizontal overflow, correct route header and correct drawer state on all 30 cells.**
+
+### WorkspaceShell drawer — root cause and correction
+
+The closed drawer kept **nine tab stops**. The cause was not merely a missing `inert`:
+
+```jsx
+aria-hidden={!open ? undefined : false}
+```
+
+That evaluates to *"not hidden"* in **both** states — closed **and** open. It never hid anything
+from assistive technology at all.
+
+Corrected with the pattern already verified in `OperationsShell`, extracted once rather than pasted
+twice: **`lib/use-offcanvas-hidden.ts`** reads the `lg` breakpoint through `matchMedia` and returns
+whether the drawer is currently off-canvas. Both shells consume it; the inline copy written for
+H3.1-D2 was removed. It returns `false` during SSR and first paint, so hidden navigation is never
+briefly exposed and no hydration mismatch is introduced.
+
+**Browser evidence, `/workspace/people` at 392px:** closed → `inert=true`, `aria-hidden="true"`,
+all **9** links refused focus, `document.activeElement` stayed `BODY`. Opened → `inert` and
+`aria-hidden` removed, first link took focus. Escape → `inert` restored. At **1440px** on all ten
+routes → drawer at `x=0`, **never** inert, navigation focusable.
+
+### Further defects found and corrected in this pass
+
+**Sub-44px touch targets across five H3.1/H3.2 routes.** The worst was **"Open in Workspace →" at
+17px** — the recovery action out of a blocked brief, and the smallest control on the screen. Also
+"Back to the moment" (20px), the override toggle (20px), "Back to moments" (20px), "Cancel this
+moment" (20px), "View moments" (20px, in the already-prepared state) and the moments filter chips
+(34px). All raised to a **44px** minimum. Re-verified at 500px: **zero** sub-44px controls remain
+on `/operations/moments`, `/operations/moments/[id]`, `/operations/moments/[id]/brief`,
+`/operations/programs/[id]/prepare`.
+
+**Out of scope, left deliberately.** The same defect class exists in H2-era code and was **not**
+touched: `/workspace/people` (13 controls, including Edit/Pause/Archive at 16px),
+`/workspace/programs/new` (3) and `/workspace/programs/[id]` (2). These are H2.5/H2.6 surfaces.
+**They should be corrected before pilot** — `/workspace/people` especially, since it is the
+destination of the brief's missing-address recovery link.
+
+**Environmental interference accounted for.** The Notion extension's floating control overlays the
+bottom-left of every page and obscured a primary CTA during the previous pass. It was suppressed by
+injected CSS for the duration of this verification.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1092,3 +1159,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.2 (Execution Brief) — Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`); a stored v1 operations payload migrates rather than being quarantined; the address gate blocks brief confirmation but never Moment generation; `MOMENT_STATUSES` unchanged. 209 checks across eight suites. System Atlas v3.5, Master Roadmap v1.2, Relationship Operations Atlas v1.2. **First post-recovery build milestone.***
 *Updated after the H3.2 acceptance correction (H3.2-D1) — the brief queue now distinguishes loading, failed, empty and populated; a read failure is never shown as an empty queue and its reason is preserved. 8 regression checks added (briefs 37 → 45); 232 checks total across eight suites. H3.1-D1 committed and pushed at `312a22d`. **Live visual verification still pending for all H2.6, H3.1 and H3.2 routes; neither milestone is fully accepted.***
 *Updated after live visual verification (2026-07-29) — five defects found and corrected: H3.1-D2 drawer focus trap, H3.1-D3 sub-44px tap targets, H3.1-D4 ambiguous allocation, H3.2-D2 wrong header titles, H3.2-D3 missing-address invisible in the recovery destination. 234 checks across eight suites. `WorkspaceShell`'s identical drawer defect remains, out of scope.*
+*Updated after the complete H3 visual acceptance matrix (2026-07-29) — all 30 route × width cells re-run from scratch; the earlier 19-vs-20 discrepancy corrected to 20 unchecked at that time. WorkspaceShell drawer defect root-caused and fixed via a shared `useOffcanvasHidden` hook; sub-44px touch targets corrected across five H3.1/H3.2 routes. 234 checks across eight suites, lint at baseline. Two mobile cells measured at 500px rather than ~390 due to a Chrome minimum-window-width floor. H2-era touch targets remain outstanding.*

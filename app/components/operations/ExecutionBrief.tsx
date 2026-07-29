@@ -143,7 +143,7 @@ export default function ExecutionBriefPanel({ momentId }: { momentId: string }) 
     <div className="space-y-5">
       <div>
         <Link href={`/operations/moments/${moment.id}`}
-          className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 inline-block">
+          className="font-body text-sm text-stone hover:text-ink transition-colors mb-1 inline-flex items-center min-h-[44px] py-2">
           ← Back to the moment
         </Link>
         <h2 className="font-display font-bold text-2xl sm:text-3xl text-ink">Brief</h2>
@@ -217,7 +217,7 @@ export default function ExecutionBriefPanel({ momentId }: { momentId: string }) 
                 {b.message}
                 {b.recovery && <span className="block text-xs text-stone/80 mt-0.5">{b.recovery}</span>}
                 {b.href && (
-                  <Link href={b.href} className="font-semibold text-ink hover:text-gold transition-colors ml-1">
+                  <Link href={b.href} className="font-semibold text-ink hover:text-gold transition-colors mt-1 inline-flex items-center min-h-[44px] py-2">
                     Open in Workspace →
                   </Link>
                 )}
@@ -238,7 +238,7 @@ export default function ExecutionBriefPanel({ momentId }: { momentId: string }) 
         <div className="bg-white rounded-2xl p-5 sm:p-6">
           {!overriding ? (
             <button type="button" onClick={() => { setOverriding(true); setError(null); }}
-              className="font-body text-sm text-stone hover:text-ink transition-colors underline underline-offset-2">
+              className="font-body text-sm text-stone hover:text-ink transition-colors underline underline-offset-2 inline-flex items-center min-h-[44px] py-2">
               {live ? 'Correct the delivery address' : 'Use a different address for this brief'}
             </button>
           ) : (

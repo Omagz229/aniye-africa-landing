@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { titleFor } from '@/lib/operations/routes';
+import { useOffcanvasHidden } from '@/lib/use-offcanvas-hidden';
 import { usePathname, useRouter } from 'next/navigation';
 import type { WorkspaceState } from '@/lib/workspace';
 import { getWorkspace } from '@/lib/workspace';
@@ -49,25 +50,8 @@ export default function OperationsShell({ children }: Props) {
   const closeNav = useCallback(() => setNavOpen(false), []);
   useEffect(() => { closeNav(); }, [pathname, closeNav]);
 
-  /**
-   * Below `lg` the sidebar is a drawer translated off-screen. Off-screen is not
-   * the same as unreachable: without this it keeps its tab stops, so a keyboard
-   * or screen-reader user lands on navigation they cannot see (H3.1-D2).
-   *
-   * Tracked in state rather than read from CSS because the hiding is a Tailwind
-   * breakpoint, and `inert` has to agree with it. At `lg` and above the drawer
-   * is permanently visible and must never be inert.
-   */
-  const [isDesktop, setIsDesktop] = useState(true);
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const sync = () => setIsDesktop(mq.matches);
-    sync();
-    mq.addEventListener('change', sync);
-    return () => mq.removeEventListener('change', sync);
-  }, []);
-
-  const navHidden = !isDesktop && !navOpen;
+  // Hidden from tab order and the a11y tree whenever it is off-canvas.
+  const navHidden = useOffcanvasHidden(navOpen);
 
   useEffect(() => {
     if (!navOpen) return;

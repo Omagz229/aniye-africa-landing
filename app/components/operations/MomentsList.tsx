@@ -81,7 +81,7 @@ export default function MomentsList() {
               ['Cancelled', `Cancelled ${counts.Cancelled}`],
             ] as const).map(([value, label]) => (
               <button key={value} type="button" onClick={() => setFilter(value as MomentStatus | 'all')}
-                className={`rounded-full px-4 py-2 font-body text-xs transition-colors ${
+                className={`rounded-full px-4 min-h-[44px] inline-flex items-center font-body text-xs transition-colors ${
                   filter === value ? 'bg-ink text-cream' : 'bg-white border border-stone/20 text-stone hover:text-ink'
                 }`}>
                 {label}

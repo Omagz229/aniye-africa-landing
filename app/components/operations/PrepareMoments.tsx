@@ -362,7 +362,7 @@ export default function PrepareMoments({ programId }: { programId: string }) {
             Every frozen person in this campaign already has a moment.
           </p>
           <Link href="/operations/moments"
-            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors inline-block mt-2">
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors inline-flex items-center min-h-[44px] py-2 mt-1">
             View moments &#8594;
           </Link>
         </div>

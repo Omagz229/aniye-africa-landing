@@ -1,5 +1,6 @@
 "use client";
 
+import { useOffcanvasHidden } from '@/lib/use-offcanvas-hidden';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -28,6 +29,8 @@ const NAV_ITEMS = [
 ];
 
 export default function WorkspaceSidebar({ workspace, open, onNavigate }: Props) {
+  // Hidden from tab order and the a11y tree whenever it is off-canvas.
+  const hidden = useOffcanvasHidden(open);
   const pathname = usePathname();
 
   function isLocked(item: (typeof NAV_ITEMS)[number]): boolean {
@@ -46,7 +49,8 @@ export default function WorkspaceSidebar({ workspace, open, onNavigate }: Props)
   return (
     <aside
       aria-label="Workspace navigation"
-      aria-hidden={!open ? undefined : false}
+      aria-hidden={hidden || undefined}
+      inert={hidden || undefined}
       className={`fixed inset-y-0 left-0 w-60 max-w-[80vw] bg-white border-r border-stone/15 flex flex-col z-40 transition-transform duration-200 lg:translate-x-0 lg:z-20 ${
         open ? 'translate-x-0 shadow-xl lg:shadow-none' : '-translate-x-full'
       }`}

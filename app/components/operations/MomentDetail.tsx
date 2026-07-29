@@ -94,7 +94,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
     <div className="space-y-6 max-w-2xl">
 
       <div>
-        <Link href="/operations/moments" className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 inline-block">
+        <Link href="/operations/moments" className="font-body text-sm text-stone hover:text-ink transition-colors mb-1 inline-flex items-center min-h-[44px] py-2">
           &#8592; Back to moments
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -272,7 +272,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           </div>
         ) : (
           <button type="button" onClick={() => setCancelling(true)}
-            className="font-body text-sm text-stone hover:text-ink transition-colors">
+            className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2">
             Cancel this moment
           </button>
         )
