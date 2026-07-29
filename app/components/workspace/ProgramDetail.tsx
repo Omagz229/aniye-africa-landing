@@ -73,7 +73,7 @@ export default function ProgramDetail({ programId }: { programId: string }) {
 
       <div>
         <Link href="/workspace/programs"
-          className="font-body text-sm text-stone hover:text-ink transition-colors mb-3 inline-block">
+          className="font-body text-sm text-stone hover:text-ink transition-colors mb-1 inline-flex items-center min-h-[44px] py-2">
           &#8592; Back to campaigns
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -146,7 +146,7 @@ export default function ProgramDetail({ programId }: { programId: string }) {
       {program.status !== 'Archived' && (
         <div className="flex flex-wrap items-center gap-4">
           <button type="button" onClick={() => setPendingArchive(program)}
-            className="font-body text-sm text-stone hover:text-ink transition-colors">
+            className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2">
             Archive this campaign
           </button>
         </div>

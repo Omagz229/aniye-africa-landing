@@ -606,11 +606,21 @@ moment" (20px), "View moments" (20px, in the already-prepared state) and the mom
 on `/operations/moments`, `/operations/moments/[id]`, `/operations/moments/[id]/brief`,
 `/operations/programs/[id]/prepare`.
 
-**Out of scope, left deliberately.** The same defect class exists in H2-era code and was **not**
-touched: `/workspace/people` (13 controls, including Edit/Pause/Archive at 16px),
-`/workspace/programs/new` (3) and `/workspace/programs/[id]` (2). These are H2.5/H2.6 surfaces.
-**They should be corrected before pilot** — `/workspace/people` especially, since it is the
-destination of the brief's missing-address recovery link.
+**H2-era targets — subsequently corrected.** The same defect class existed in H2.5/H2.6 code and
+was initially left out of scope. It was corrected in a follow-up on request:
+`/workspace/people` **13 → 0** (Edit/Pause/Archive raised from **16px**, "Or import a list" from
+20px), `/workspace/programs/[id]` **2 → 0**, `/workspace/programs/new` **3 → 2**.
+
+The two remaining are **42px text inputs** using the shared form-input class. They were left
+deliberately: raising that class restyles every input across People, Policy and Campaign forms for
+two pixels, and 42px clears WCAG 2.5.8 AA (24px) comfortably. Not a defect.
+
+⚠️ **A regression was introduced and caught during this work.** Adding `flex-wrap` to the row
+actions made them stack vertically in the desktop table's narrow actions column, tripling row
+height to ~180px. Corrected with `whitespace-nowrap` and no wrapping; rows measured back at 77px.
+A before/after measurement confirmed the tap-target classes add **0px** to the table's 924px
+scroll width — that width is the pre-existing **EX-M8** `overflow-x-auto` behaviour, and page-level
+overflow remains false at every width.
 
 **Environmental interference accounted for.** The Notion extension's floating control overlays the
 bottom-left of every page and obscured a primary CTA during the previous pass. It was suppressed by
@@ -1160,3 +1170,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.2 acceptance correction (H3.2-D1) — the brief queue now distinguishes loading, failed, empty and populated; a read failure is never shown as an empty queue and its reason is preserved. 8 regression checks added (briefs 37 → 45); 232 checks total across eight suites. H3.1-D1 committed and pushed at `312a22d`. **Live visual verification still pending for all H2.6, H3.1 and H3.2 routes; neither milestone is fully accepted.***
 *Updated after live visual verification (2026-07-29) — five defects found and corrected: H3.1-D2 drawer focus trap, H3.1-D3 sub-44px tap targets, H3.1-D4 ambiguous allocation, H3.2-D2 wrong header titles, H3.2-D3 missing-address invisible in the recovery destination. 234 checks across eight suites. `WorkspaceShell`'s identical drawer defect remains, out of scope.*
 *Updated after the complete H3 visual acceptance matrix (2026-07-29) — all 30 route × width cells re-run from scratch; the earlier 19-vs-20 discrepancy corrected to 20 unchecked at that time. WorkspaceShell drawer defect root-caused and fixed via a shared `useOffcanvasHidden` hook; sub-44px touch targets corrected across five H3.1/H3.2 routes. 234 checks across eight suites, lint at baseline. Two mobile cells measured at 500px rather than ~390 due to a Chrome minimum-window-width floor. H2-era touch targets remain outstanding.*
+*Updated after the H2-era touch-target correction — `/workspace/people`, `/workspace/programs/[id]` and `/workspace/programs/new` raised to a 44px minimum; a wrap regression in the desktop people table was caught and fixed. Two 42px shared form inputs left as-is (clears WCAG AA). 234 checks, lint at baseline.*

@@ -324,7 +324,7 @@ export default function PeopleDirectory() {
         </button>
         {isEmpty ? (
           <button type="button" onClick={() => setMode('import')}
-            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors">
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors inline-flex items-center min-h-[44px] py-2">
             Or import a list
           </button>
         ) : readyToConfirm ? (
@@ -334,7 +334,7 @@ export default function PeopleDirectory() {
           </button>
         ) : (
           <button type="button" onClick={() => setMode('import')}
-            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors">
+            className="font-body text-sm font-semibold text-ink hover:text-gold transition-colors inline-flex items-center min-h-[44px] py-2">
             Or import a list
           </button>
         )}
@@ -702,27 +702,37 @@ function RowActions({
   onArchive: () => void;
   onReactivate: () => void;
 }) {
+  // Row actions sat at 16px — the smallest controls in the product, on the
+  // surface Operations sends administrators to when a delivery address is
+  // missing. Raised to a 44px touch minimum; the label stays 12px, only the
+  // hit area grows.
+  // `whitespace-nowrap` and no wrapping: the desktop table's actions column is
+  // narrow, and letting these wrap stacked them vertically and tripled the row
+  // height. Height grows, the line does not break.
+  const action =
+    'font-body text-xs transition-colors inline-flex items-center min-h-[44px] whitespace-nowrap';
+
   return (
     <div className="inline-flex items-center gap-4">
       <button type="button" onClick={onEdit}
-        className="font-body text-xs font-semibold text-ink hover:text-gold transition-colors">
+        className={`${action} font-semibold text-ink hover:text-gold`}>
         Edit
       </button>
       {person.status !== 'Active' && (
         <button type="button" onClick={onReactivate}
-          className="font-body text-xs text-stone hover:text-ink transition-colors">
+          className={`${action} text-stone hover:text-ink`}>
           Reactivate
         </button>
       )}
       {person.status === 'Active' && (
         <button type="button" onClick={onPause}
-          className="font-body text-xs text-stone hover:text-ink transition-colors">
+          className={`${action} text-stone hover:text-ink`}>
           Pause
         </button>
       )}
       {person.status !== 'Archived' && (
         <button type="button" onClick={onArchive}
-          className="font-body text-xs text-stone hover:text-ink transition-colors">
+          className={`${action} text-stone hover:text-ink`}>
           Archive
         </button>
       )}

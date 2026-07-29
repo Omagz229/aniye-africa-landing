@@ -534,7 +534,7 @@ export default function CampaignWizard({ workspace }: { workspace: WorkspaceStat
           </button>
         )}
         <Link href="/workspace/programs"
-          className="font-body text-sm text-stone/70 hover:text-ink transition-colors sm:ml-auto">
+          className="font-body text-sm text-stone/70 hover:text-ink transition-colors sm:ml-auto inline-flex items-center min-h-[44px] py-2">
           Cancel
         </Link>
       </div>
