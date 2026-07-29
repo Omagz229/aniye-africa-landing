@@ -479,14 +479,19 @@ export default function PeopleDirectory() {
                           </Td>
                           <Td><ClassBadges person={person} classesById={classesById} /></Td>
                           <Td>
-                            <span className={`font-body text-xs rounded-full px-2 py-0.5 whitespace-nowrap ${SOURCE_STYLES[person.sourceType]}`}>
-                              {SOURCE_LABELS[person.sourceType]}
-                            </span>
-                            {!isAddressComplete(person.deliveryAddress) && (
-                          <span className="font-body text-xs rounded-full px-2 py-0.5 bg-gold/20 text-ink whitespace-nowrap">
-                            No delivery address
-                          </span>
-                        )}
+                            {/* Stacked, not side by side: laying these in a row widened the
+                                column by 94px and pushed the whole table into horizontal
+                                scroll. Vertical costs height the row already has. */}
+                            <div className="flex flex-col items-start gap-1">
+                              <span className={`font-body text-xs rounded-full px-2 py-0.5 whitespace-nowrap ${SOURCE_STYLES[person.sourceType]}`}>
+                                {SOURCE_LABELS[person.sourceType]}
+                              </span>
+                              {!isAddressComplete(person.deliveryAddress) && (
+                                <span className="font-body text-xs rounded-full px-2 py-0.5 bg-gold/20 text-ink whitespace-nowrap">
+                                  No delivery address
+                                </span>
+                              )}
+                            </div>
                           </Td>
                           <Td className="text-right whitespace-nowrap">
                             <RowActions person={person}

@@ -626,6 +626,32 @@ overflow remains false at every width.
 bottom-left of every page and obscured a primary CTA during the previous pass. It was suppressed by
 injected CSS for the duration of this verification.
 
+### ✅ EX-M8 closed, and a desktop overflow of my own making
+
+**EX-M8 was mischaracterised in the previous report.** It was recorded as *"the People table still
+relies on horizontal scroll below `lg` rather than a card layout"*. That was wrong twice over:
+
+- The finding names **`PolicyLibrary.tsx` and `PeopleImport.tsx`**, not `PeopleDirectory`. Both have
+  since been rebuilt and **contain no tables at all** — the `overflow-x-auto` it described is gone.
+- `PeopleDirectory` was EX-M8's **good example**, not a victim. It renders cards below `lg` and a
+  table above, and always has.
+
+**EX-M8 is therefore resolved**, and was already resolved before this pass touched anything.
+
+**What was actually broken was mine.** The desktop People table scrolled horizontally — 924px inside
+an 830px container. Measured directly by hiding the H3.2 "No delivery address" badge and
+re-measuring: **830px without it, 924px with it. The badge cost exactly 94px, exactly the
+overflow.** Two badges laid side by side widened the Added column to 264px.
+
+Fixed by stacking them vertically: Added column **264 → 162px**, table **924 → 830px**, inner scroll
+gone, row heights unchanged at 77px, badge still shown.
+
+**Why the complete matrix missed it.** The sweep tested `documentElement.scrollWidth > innerWidth` —
+*page* overflow — which stayed `false` throughout because the scroll was contained inside the
+table's own `overflow-x-auto`. A container scrolling within a page is exactly what Doctrine §2.8
+calls a fallback, and the audit had no check for it. **Any future visual pass should measure inner
+scroll containers, not only page overflow.**
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1171,3 +1197,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after live visual verification (2026-07-29) — five defects found and corrected: H3.1-D2 drawer focus trap, H3.1-D3 sub-44px tap targets, H3.1-D4 ambiguous allocation, H3.2-D2 wrong header titles, H3.2-D3 missing-address invisible in the recovery destination. 234 checks across eight suites. `WorkspaceShell`'s identical drawer defect remains, out of scope.*
 *Updated after the complete H3 visual acceptance matrix (2026-07-29) — all 30 route × width cells re-run from scratch; the earlier 19-vs-20 discrepancy corrected to 20 unchecked at that time. WorkspaceShell drawer defect root-caused and fixed via a shared `useOffcanvasHidden` hook; sub-44px touch targets corrected across five H3.1/H3.2 routes. 234 checks across eight suites, lint at baseline. Two mobile cells measured at 500px rather than ~390 due to a Chrome minimum-window-width floor. H2-era touch targets remain outstanding.*
 *Updated after the H2-era touch-target correction — `/workspace/people`, `/workspace/programs/[id]` and `/workspace/programs/new` raised to a 44px minimum; a wrap regression in the desktop people table was caught and fixed. Two 42px shared form inputs left as-is (clears WCAG AA). 234 checks, lint at baseline.*
+*Updated after the EX-M8 review — the finding was already resolved and had been mischaracterised; correction recorded in the friction register. A desktop table overflow introduced by the H3.2 address badge was found by direct measurement and fixed by stacking the badges. Audit gap noted: page-overflow checks do not catch inner scroll containers.*
