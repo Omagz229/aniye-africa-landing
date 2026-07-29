@@ -48,7 +48,23 @@ export default function AssessmentWizard() {
   // Offered back rather than silently restored — a surprise prefill is worse
   // than a restart. Dismissed once the visitor answers either way.
   const [dismissedResume, setDismissedResume] = useState(false);
-  const resumed = dismissedResume ? null : storedDraft;
+
+  /**
+   * Has *this* session touched the wizard?
+   *
+   * Without this the prompt reappeared mid-typing: the first keystroke
+   * autosaves, the store notifies, `useSyncExternalStore` returns the new
+   * draft, and the resume prompt replaced the wizard the visitor was actively
+   * filling in. A draft is only worth offering back if it was already there
+   * when they arrived.
+   *
+   * Set from event handlers rather than derived from `data`, so clearing every
+   * field again does not resurrect the prompt, and monotonic so it can never
+   * flip back.
+   */
+  const [touched, setTouched] = useState(false);
+
+  const resumed = dismissedResume || touched ? null : storedDraft;
 
   // Autosave every change once anything has actually been typed. Suspended
   // while a resume prompt is showing, so declining it cannot be overwritten
@@ -60,11 +76,12 @@ export default function AssessmentWizard() {
   }, [data, step, resumed]);
 
   function update(partial: Partial<AssessmentData>) {
+    setTouched(true);
     setData((prev) => ({ ...prev, ...partial }));
   }
 
-  function next() { setStep((s) => Math.min(s + 1, 3)); }
-  function back() { setStep((s) => Math.max(s - 1, 0)); }
+  function next() { setTouched(true); setStep((s) => Math.min(s + 1, 3)); }
+  function back() { setTouched(true); setStep((s) => Math.max(s - 1, 0)); }
 
   function submit() {
     try {

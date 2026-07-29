@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import StepHeader from './StepHeader';
 import { useRouter } from 'next/navigation';
 import type {
@@ -219,6 +219,26 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
   const [baseCurrency, setBaseCurrency] = useState('NGN');
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+  /**
+   * Step changes move focus to the new heading and are announced.
+   *
+   * Without this a keyboard or screen-reader user pressed Continue and focus
+   * stayed on a button that had just been replaced — the view changed silently.
+   * Focus is moved from the click handler rather than an effect, so it happens
+   * exactly when the user acts and nowhere else.
+   *
+   * Scoped to this form. EX-M11 names `AssessmentWizard`, `PersonForm` and
+   * `PeopleImport` as well, and none of those is addressed here.
+   */
+  const headingRef = useRef<HTMLDivElement>(null);
+
+  function goToStep(next: number) {
+    setBudgetError(null);
+    setStep(next);
+    // A macrotask, not rAF: this has to run *after* React has committed the new
+    // step, and rAF can fire before the commit lands.
+    setTimeout(() => headingRef.current?.focus(), 0);
+  }
   const [showGifts, setShowGifts] = useState(false);
   const [resumed, setResumed] = useState<RecognitionPolicy | null>(null);
   const isEdit = !!existingPolicy;
@@ -347,12 +367,18 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
         >
           &#8592; Back to recognition rules
         </button>
-        <StepHeader
-          eyebrow={isEdit ? 'Edit rule' : 'New rule'}
-          title={isEdit ? (form.name || 'Untitled rule') : 'Write a recognition rule'}
-          steps={STEPS}
-          current={step}
-        />
+        <div ref={headingRef} tabIndex={-1} className="focus:outline-none focus-visible:ring-2 focus-visible:ring-gold rounded">
+          <StepHeader
+            eyebrow={isEdit ? 'Edit rule' : 'New rule'}
+            title={isEdit ? (form.name || 'Untitled rule') : 'Write a recognition rule'}
+            steps={STEPS}
+            current={step}
+          />
+        </div>
+        {/* Announced on change; visually redundant with the step list above. */}
+        <p aria-live="polite" className="sr-only">
+          Step {step + 1} of {STEPS.length}: {STEPS[step]}
+        </p>
       </div>
 
       {step === 0 && (
@@ -588,6 +614,8 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
           <ReviewRow label="Delivery timing" value={form.preferredDeliveryWindow.trim() || undefined} />
           <ReviewRow label="Preferred gifts" value={form.preferredGiftCategories.join(', ') || undefined} />
           <ReviewRow label="Excluded gifts" value={form.excludedCategories.join(', ') || undefined} />
+          <ReviewRow label="Signature required" value={form.signatureRequired ? 'Yes — recipient signs on delivery' : 'No'} />
+          <ReviewRow label="Proof of delivery" value={form.proofRequired ? 'Yes — photo or document required' : 'No'} />
           <ReviewRow label="Reporting" value={form.reportingCadence === 'None' ? 'No reporting' : form.reportingCadence} />
           <p className="font-body text-xs text-stone/60 pt-1">
             A draft can be edited freely. Publishing makes this rule assignable to a relationship group.
@@ -600,7 +628,7 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
         {!isLast ? (
           <button
             type="button"
-            onClick={() => { setBudgetError(null); setStep(sx => Math.min(STEPS.length - 1, sx + 1)); }}
+            onClick={() => goToStep(Math.min(STEPS.length - 1, step + 1))}
             className="rounded-full bg-gold text-ink font-semibold text-sm px-6 py-3 hover:brightness-105 hover:shadow-md transition-all"
           >
             Continue &#8594;
@@ -627,7 +655,7 @@ export default function PolicyForm({ existingPolicy, onCancel }: Props) {
         {step > 0 && (
           <button
             type="button"
-            onClick={() => setStep(sx => Math.max(0, sx - 1))}
+            onClick={() => goToStep(Math.max(0, step - 1))}
             className="font-body text-sm text-stone hover:text-ink transition-colors inline-flex items-center min-h-[44px] py-2"
           >
             Back

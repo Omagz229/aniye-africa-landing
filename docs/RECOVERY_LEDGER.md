@@ -716,6 +716,51 @@ caused by my own instrumentation — a `setInterval(…, 0)` polling for an elem
 that does not exist on `/assessment` — not by the application. Recorded so the
 freeze is not later mistaken for a product defect.
 
+### ✅ Pre-pilot regression correction
+
+Three defects found reviewing the work above, all in code from that same pass.
+
+**Assessment same-session resume regression.** From empty storage, the first
+keystroke autosaved, the store notified, `useSyncExternalStore` returned the new
+draft, and — because `dismissedResume` was still `false` — **the resume prompt
+replaced the wizard the visitor was actively filling in**.
+
+Corrected with an explicit `touched` latch set from the event handlers, not
+derived from `data`. Deriving it would have let clearing every field resurrect
+the prompt mid-session; a latch cannot flip back. Set in handlers rather than an
+effect, so no new lint and no extra render. A draft is now offered only when it
+was already present on arrival.
+
+**PolicyForm Review was incomplete.** It rendered **9** rows against **11**
+configurable values — `signatureRequired` and `proofRequired` were omitted. Both
+added; Review is now 11 of 11. *(An earlier report said "eight fields", which was
+wrong on both counts — the count was 9 rendered and 11 configurable.)*
+
+**PolicyForm step accessibility.** Continue and Back changed the view silently:
+focus stayed on a button that had just been replaced. Now `goToStep` moves focus
+to the step heading, an `aria-live="polite"` region announces the change, and
+`aria-current="step"` marks the active step. Focus is moved on a macrotask, not
+`requestAnimationFrame` — rAF fired before React committed the new step and the
+focus call was lost, which the first attempt at this proved.
+
+**Scope.** `aria-current` went into the shared `StepHeader`, so `PersonForm` and
+`CampaignWizard` inherit it. **EX-M11 is not fixed** — it names
+`AssessmentWizard`, `PersonForm` and `PeopleImport`, and none of those has focus
+management. Only `PolicyForm` does.
+
+**Browser evidence, from genuinely empty storage, without pressing Continue or
+Start fresh:**
+
+| Step | Result |
+|---|---|
+| Entry, no draft | No prompt, wizard renders |
+| First keystroke | Draft written, **prompt did not appear**, still on the wizard |
+| Continued typing | No prompt |
+| Field cleared entirely | **No prompt** — the latch holds |
+| Return visit with a draft | Prompt shown; Continue restored the value and step |
+| Continue / Back in PolicyForm | Focus landed on the heading wrapper each time; live region read "Step 2 of 4: Which occasions?", "Step 3 of 4: How it is delivered", "Step 2 of 4: Which occasions?"; `aria-current` tracked |
+| Review | All **11** labels present; signature "Yes — recipient signs on delivery", proof "No" |
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1263,3 +1308,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H2-era touch-target correction — `/workspace/people`, `/workspace/programs/[id]` and `/workspace/programs/new` raised to a 44px minimum; a wrap regression in the desktop people table was caught and fixed. Two 42px shared form inputs left as-is (clears WCAG AA). 234 checks, lint at baseline.*
 *Updated after the EX-M8 review — the finding was already resolved and had been mischaracterised; correction recorded in the friction register. A desktop table overflow introduced by the H3.2 address badge was found by direct measurement and fixed by stacking the badges. Audit gap noted: page-overflow checks do not catch inner scroll containers.*
 *Updated after the pre-pilot experience corrections — EX-H1, EX-H3, EX-M5 and EX-M8 all closed. Assessment draft read through `useSyncExternalStore` with a null server snapshot; PolicyForm rebuilt into four guided steps; drawer first-frame accessibility moved from `inert` to CSS `visibility` in both shells. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*
+*Updated after the pre-pilot regression correction — assessment same-session resume prompt suppressed via an interaction latch; PolicyForm Review completed to 11 of 11 configurable values; PolicyForm step focus, live announcement and `aria-current` added. EX-M11 remains open. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*

@@ -37,7 +37,10 @@ export default function StepHeader({
             const done = index < current;
             const active = index === current;
             return (
-              <li key={step} className="flex items-center gap-2">
+              // `aria-current="step"` is the semantic marker for "you are here"
+              // in a sequence. Purely additive, and correct for every flow that
+              // uses this header.
+              <li key={step} aria-current={active ? 'step' : undefined} className="flex items-center gap-2">
                 <span
                   className={`font-body text-sm ${
                     active ? 'text-ink font-semibold' : done ? 'text-stone' : 'text-stone/45'
