@@ -44,6 +44,7 @@ import {
   OPERATIONS_KEY,
   OPERATIONS_QUARANTINE_KEY,
   emptyOperationsState,
+  isPlainRecord,
   migrateOperationsState,
   validateOperationsState,
 } from './types';
@@ -744,7 +745,33 @@ export function createLocalOperationsRepository(
       const state = require(workspaceId);
       if (!state.ok) return state;
 
-      const { decision, event } = write;
+      /**
+       * **Shape before contents.** The interface says this is a
+       * `CourierSelectionWrite`; the compiler is gone by the time a caller hands
+       * us `null`, an array or a bundle with no decision. Destructuring or
+       * reading `.momentId` first turns a bad submission into a thrown
+       * exception — which is not a refusal. It tells the operator nothing and
+       * leaves them unable to say whether anything was written.
+       */
+      if (!isPlainRecord(write)) {
+        return {
+          ok: false,
+          reason: 'That submission is not a record. Review the moment and arrange carriage again — nothing was recorded.',
+        };
+      }
+      const { decision, event } = write as Partial<CourierSelectionWrite>;
+      if (!isPlainRecord(decision)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable decision. Review the moment and arrange carriage again — nothing was recorded.',
+        };
+      }
+      if (!isPlainRecord(event)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable event. Review the moment and arrange carriage again — nothing was recorded.',
+        };
+      }
 
       if (decision.momentId !== event.momentId) {
         return {

@@ -23,6 +23,7 @@ import {
   DECISION_TYPES,
   EVENT_TYPES,
   OPERATIONS_KEY,
+  isPlainRecord,
   migrateOperationsState,
   validateOperationsState,
 } from '../lib/operations/types';
@@ -54,6 +55,7 @@ import {
   emptyCourierQuoteDraft,
   previewCourierSelection,
   validateCourierQuote,
+  verifyCourierSelection,
 } from '../lib/operations/courier-selection';
 import { titleFor } from '../lib/operations/routes';
 
@@ -997,6 +999,169 @@ check('46. A courier snapshot is a copy — later edits cannot rewrite it', () =
   c.countryCode = 'KE';
   assertEqual(snapshot.name, 'Courier c-copy', 'A snapshot followed a later rename.');
   assertEqual(snapshot.countryCode, 'NG', 'A snapshot followed a later country change.');
+});
+
+// ─── Part 8: malformed runtime containers (H3.5-D1) ──────────────────────────
+//
+// The boundary enforced exact keys **after** receiving a valid object. But
+// `extraKeys` reports no extras for `null`, `undefined` or a primitive —
+// correctly, since they have no keys — so a malformed container passed the
+// key check and threw on the property reads below it.
+//
+// **A thrown exception is not a refusal.** It returns no `StoreResult`, names
+// no recovery, and leaves the operator unable to say whether anything was
+// written. A repository must never depend on a TypeScript interface for runtime
+// safety: the compiler is gone by the time a caller hands it `null`.
+
+/** Submit through the repository, expect a named refusal, prove nothing moved. */
+function expectMalformedRefused(fx: Fx, write: unknown, what: string): void {
+  const before = fx.repo.load(WS);
+  assert(before.ok && before.value, 'State unreadable.');
+  const priorCouriers = JSON.stringify(before.value!.couriers);
+  const priorDecisions = JSON.stringify(before.value!.decisions);
+  const priorEvents = JSON.stringify(before.value!.events);
+  const priorWrites = fx.storage.writes.length;
+
+  let result: { ok: boolean; reason?: string };
+  try {
+    result = fx.repo.commitCourierSelection(WS, write as never, NOW);
+  } catch (error) {
+    throw new Error(`${what} threw instead of refusing: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  assert(!result.ok, `${what} was accepted.`);
+  assert(
+    (result.reason ?? '').toLowerCase().includes('nothing was recorded'),
+    `${what} was refused without the review-again recovery: "${result.reason}"`,
+  );
+
+  assertEqual(fx.storage.writes.length, priorWrites, `${what} still wrote to storage.`);
+  const after = fx.repo.load(WS);
+  assert(after.ok && after.value, 'State could not be re-read.');
+  assertEqual(JSON.stringify(after.value!.couriers), priorCouriers, `${what} changed the directory.`);
+  assertEqual(JSON.stringify(after.value!.decisions), priorDecisions, `${what} changed the decisions.`);
+  assertEqual(JSON.stringify(after.value!.events), priorEvents, `${what} changed the events.`);
+}
+
+/** Call the verifier directly, expect a named refusal, prove it did not throw. */
+function expectVerifierRefused(fx: Fx, write: unknown, what: string): void {
+  let result: { ok: boolean; reason?: string };
+  try {
+    result = verifyCourierSelection({
+      workspaceId: WS, moment: fx.moment, briefs: [fx.brief],
+      decisions: fx.decisions, couriers: fx.couriers, write: write as never,
+    });
+  } catch (error) {
+    throw new Error(`${what} threw instead of refusing: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  assert(!result.ok, `${what} was accepted by the verifier.`);
+  assert(
+    (result.reason ?? '').toLowerCase().includes('nothing was recorded'),
+    `${what} was refused without the review-again recovery: "${result.reason}"`,
+  );
+}
+
+check('47. A null, undefined or array write bundle is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  for (const [label, write] of [
+    ['A null bundle', null],
+    ['An undefined bundle', undefined],
+    ['An array bundle', []],
+    ['A string bundle', 'not a bundle'],
+    ['A numeric bundle', 42],
+    ['A boolean bundle', true],
+  ] as const) {
+    expectMalformedRefused(fx, write, label);
+    expectVerifierRefused(fx, write, label);
+  }
+});
+
+check('48. A missing or null Decision is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const b = goodBundle(fx);
+  for (const [label, decision] of [
+    ['A missing decision', undefined],
+    ['A null decision', null],
+    ['An array decision', []],
+    ['A string decision', 'decision'],
+  ] as const) {
+    expectMalformedRefused(fx, { ...b, decision }, label);
+    expectVerifierRefused(fx, { ...b, decision }, label);
+  }
+  // Absent entirely, not merely undefined.
+  expectMalformedRefused(fx, { event: b.event }, 'A bundle with no decision key');
+});
+
+check('49. A missing or null Event is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const b = goodBundle(fx);
+  for (const [label, event] of [
+    ['A missing event', undefined],
+    ['A null event', null],
+    ['An array event', []],
+    ['A numeric event', 7],
+  ] as const) {
+    expectMalformedRefused(fx, { ...b, event }, label);
+    expectVerifierRefused(fx, { ...b, event }, label);
+  }
+  expectMalformedRefused(fx, { decision: b.decision }, 'A bundle with no event key');
+});
+
+check('50. A malformed Decision.inputs container is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const b = goodBundle(fx);
+  for (const [label, inputs] of [
+    ['Null decision inputs', null],
+    ['Undefined decision inputs', undefined],
+    ['Array decision inputs', []],
+    ['String decision inputs', 'inputs'],
+    ['Numeric decision inputs', 0],
+  ] as const) {
+    const write = { ...b, decision: { ...b.decision, inputs } };
+    expectMalformedRefused(fx, write, label);
+    expectVerifierRefused(fx, write, label);
+  }
+});
+
+check('51. A malformed Event payload container is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const b = goodBundle(fx);
+  // These reach their own gate only because everything before them is honest —
+  // which is exactly the path that previously threw.
+  for (const [label, payload] of [
+    ['A null event payload', null],
+    ['An undefined event payload', undefined],
+    ['An array event payload', []],
+    ['A string event payload', 'payload'],
+  ] as const) {
+    const write = { ...b, event: { ...b.event, payload } };
+    expectMalformedRefused(fx, write, label);
+    expectVerifierRefused(fx, write, label);
+  }
+});
+
+check('52. `isPlainRecord` refuses everything that is not a plain record', () => {
+  for (const value of [null, undefined, [], 'text', 42, true, false, NaN, Symbol('x'), () => {}]) {
+    assert(!isPlainRecord(value), `isPlainRecord accepted ${String(value)}.`);
+  }
+  for (const value of [{}, { a: 1 }, Object.create(null) as object]) {
+    assert(isPlainRecord(value), `isPlainRecord refused a plain record: ${JSON.stringify(value)}.`);
+  }
+});
+
+check('53. An honest selection still commits in exactly one write', () => {
+  // The counterweight: every check above would pass against a boundary that
+  // refuses everything.
+  const fx = preparedWorkspace();
+  const before = fx.storage.writes.length;
+  const written = fx.repo.commitCourierSelection(WS, goodBundle(fx), NOW);
+  assert(written.ok, `An honest selection was refused: ${written.ok ? '' : written.reason}`);
+  assertEqual(fx.storage.writes.length - before, 1, 'The honest commit was not a single write.');
+
+  const state = fx.repo.load(WS);
+  assert(state.ok && state.value, 'State unreadable.');
+  assertEqual(state.value!.decisions.filter(d => d.decisionType === 'CourierSelection').length, 1, 'Wrong decision count.');
+  assertEqual(state.value!.events.filter(e => e.eventType === 'CourierSelected').length, 1, 'Wrong event count.');
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

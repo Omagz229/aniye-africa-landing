@@ -34,7 +34,7 @@ import type {
   OperationalEvent,
   VendorSnapshot,
 } from './types';
-import { OFFER_SOURCES } from './types';
+import { OFFER_SOURCES, isPlainRecord } from './types';
 import { couriersFor, exactCourierSnapshot, snapshotCourier } from './couriers';
 import { isIsoInstant } from './vendors';
 import type { IdFactory } from './generation';
@@ -613,8 +613,17 @@ function refuse(what: string): { ok: false; reason: string } {
 export function verifyCourierSelection(
   input: VerifyCourierSelectionInput,
 ): VerifyCourierSelectionResult {
-  const { workspaceId, moment, write } = input;
-  const { decision, event } = write;
+  const { workspaceId, moment } = input;
+
+  // ── 0. The submission itself must be a record before anything is read ──
+  //
+  // Callable directly, so it cannot assume the repository already checked.
+  if (!isPlainRecord(input.write)) {
+    return refuse('That submission is not a record.');
+  }
+  const { decision, event } = input.write as Partial<CourierSelectionBundle>;
+  if (!isPlainRecord(decision)) return refuse('That submission carries no readable decision.');
+  if (!isPlainRecord(event)) return refuse('That submission carries no readable event.');
 
   // ── 1. The Decision must be the kind of record this operation writes ──
   if (decision.decisionType !== 'CourierSelection') {
@@ -636,6 +645,18 @@ export function verifyCourierSelection(
     return refuse('That decision belongs to a different workspace or moment.');
   }
 
+  /**
+   * **The container before its contents.**
+   *
+   * `extraKeys` reports no extras for `null`, `undefined` or a primitive —
+   * correctly, since they have no keys — so an exact-key check alone lets a
+   * malformed container through to the property reads below, where it throws.
+   * A thrown exception is not a refusal: it tells the operator nothing and
+   * leaves them unable to say whether anything was written.
+   */
+  if (!isPlainRecord(decision.inputs)) {
+    return refuse('That decision records nothing readable.');
+  }
   const extraInputs = extraKeys(decision.inputs, DECISION_INPUT_KEYS);
   if (extraInputs.length > 0) {
     return refuse(`A courier selection cannot record ${extraInputs.join(', ')}.`);
@@ -753,11 +774,14 @@ export function verifyCourierSelection(
   if (event.source !== 'Platform') return refuse('A courier selection recorded here came through the platform.');
   if (event.actorId !== decision.actorId) return refuse('The decision and event name different actors.');
 
+  if (!isPlainRecord(event.payload)) {
+    return refuse('That event carries nothing readable.');
+  }
   const extraPayload = extraKeys(event.payload, EVENT_PAYLOAD_KEYS);
   if (extraPayload.length > 0) {
     return refuse(`A courier-selection event cannot carry ${extraPayload.join(', ')}.`);
   }
-  const payload = event.payload as Record<string, unknown>;
+  const payload = event.payload;
   if (
     payload.briefId !== inputs.briefId ||
     payload.briefRevision !== inputs.briefRevision ||

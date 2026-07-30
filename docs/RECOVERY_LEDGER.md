@@ -1484,6 +1484,104 @@ Full chain driven live: brief → item → vendor → carriage.
 **Still open:** the four sub-44px targets in the `OperationsShell` navigation
 drawer. Pre-existing H3.1 shell chrome, untouched.
 
+#### ✅ H3.5-D1 — malformed runtime containers
+
+**Acceptance defect, found reviewing H3.5 after it shipped. No schema change —
+`OperationsState` stays v5, Workspace stays v7.**
+
+The boundary enforced exact keys **after** receiving a valid object. It never
+established that it *had* one.
+
+> `extraKeys(null, allowed)` returns no extras — correctly, since `null` has no
+> keys — so a malformed container sailed through the key check and **threw** on
+> the property reads beneath it.
+>
+> **A thrown exception is not a refusal.** It returns no `StoreResult`, names no
+> recovery, and leaves the operator unable to say whether anything was written.
+> The whole point of a `StoreResult` boundary is that the caller always learns
+> the outcome; an exception is the one path that tells them nothing.
+
+Every case was **reproduced against the shipped code** before being fixed.
+
+| Submitted | Before |
+|---|---|
+| `write` = `null` / `undefined` / `[]` | **Threw** — `commitCourierSelection` destructured before checking |
+| Decision missing or `null` | **Threw** on `decision.momentId` |
+| Event missing or `null` | **Threw** on `event.momentId` |
+| `Decision.inputs` = `null` / `undefined` | **Threw** on `inputs.briefId` |
+| `Decision.inputs` = `[]` / a primitive | Refused, but only *incidentally* — an array has no `briefId`, so the comparison merely failed. Not a named refusal |
+| `Event.payload` = `null` / `undefined` | **Threw** on `payload.briefId`, once an otherwise-honest bundle reached that far |
+| `Event.payload` = `[]` | Refused incidentally, as above |
+
+#### The correction
+
+**`isPlainRecord` is exported from `lib/operations/types.ts`** and refuses
+`null`, `undefined`, arrays and primitives. The file's long-standing private
+`isPlainObject` is now an alias of it, so there is one implementation rather than
+two that could drift.
+
+**Shape before contents, in both places:**
+
+- `commitCourierSelection()` validates the **write bundle, Decision and Event**
+  are records before reading any property from them.
+- `verifyCourierSelection()` does the same at its own entry — it is callable
+  directly and cannot assume the repository already checked — and then requires
+  `Decision.inputs` and `Event.payload` to be plain records **before** the
+  extra-key checks or any property access.
+
+Every refusal uses the existing review-again recovery language, so a malformed
+submission reads like every other refusal rather than like a crash.
+
+> **TypeScript types were not weakened to accommodate malformed callers.** The
+> interfaces still say what an honest submission looks like; the boundary simply
+> stops believing them at runtime, which is what a boundary is for. The compiler
+> is gone by the time a caller hands the repository `null`.
+
+**Preserved unchanged:** the Courier model and directory behaviour, confirmed-brief
+coverage, `CourierSelection`/`CourierSelected`, the recomputed candidate set,
+carriage-cost and currency treatment, canonical timestamps, recursive exactness,
+stale-state revalidation, single-write atomicity, `OperationsState` v5, Workspace
+v7, the migration chain, and every route and screen.
+
+#### 7 new checks — couriers 46 → 53
+
+47 null/undefined/array/string/numeric/boolean bundles · 48 missing, null, array
+and string Decisions, and a bundle with no `decision` key at all · 49 the same
+for the Event · 50 malformed `Decision.inputs` containers · 51 malformed
+`Event.payload` containers, submitted on an **otherwise-honest bundle** so they
+reach their own gate — which is precisely the path that used to throw · 52
+`isPlainRecord` itself, against ten non-records and three records · 53 the
+counterweight: an honest selection still commits in exactly one write.
+
+Every refusal check asserts three things together: **it did not throw**, the
+reason carries the review-again recovery, and couriers, Decisions and Events are
+byte-identical afterwards with zero storage writes. Each case is exercised
+**twice** — once through `commitCourierSelection` and once directly against
+`verifyCourierSelection`.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **436/436 across eleven suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, vendors 84, **couriers 53** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly baseline |
+| `build` | Succeeds, **28 routes** — unchanged |
+| Routes | All 11 sampled return 200 |
+| Links | All 30 internal targets resolve to built routes |
+
+**No UI or routing change was required, and none was made** — `git diff app/` is
+empty. **The H3.5 browser evidence remains applicable**; no new browser run was
+performed or claimed.
+
+> ⚠️ **The same latent shape exists on the H3.3 and H3.4 boundaries.**
+> `commitItemSelection` and `commitVendorSelection` destructure their write
+> bundles and read `decision.inputs` and `event.payload` without a container
+> check, exactly as this one did. They were **not** changed here, because this
+> correction is scoped to H3.5 — but the gap is real, it is recorded now rather
+> than discovered later, and it should be closed by a Council-scoped correction
+> covering both.
+
 #### ⚠️ H3.6 is gated
 
 **U4 — the exception and QA taxonomy — binds at H3.6 and is unresolved.**
@@ -2051,3 +2149,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.4 vendor trust-boundary correction (H3.4-D1) — the builders produced the intended shapes but the repository did not enforce them at runtime, so a Vendor could carry `reliabilityScore`/`rating`/`capacity`/`sla`/`onboardingStatus`, a malformed email could reach `createVendor` directly, optional fields and timestamps went unchecked, a bundle whose shared instants were all the same unusable string satisfied the equality rule, non-string offer terms passed when duplicated consistently, a `finalDecision` could contradict its own evidence, and extra commercial fields could be attached to offers, `Decision.inputs`, considered entries or the Event payload. Vendors are now **rebuilt** from an exact eleven-field list rather than spread; timestamps must be canonical ISO instants, not merely equal; `finalDecision` is recomputed from a shared formatter; and exact keys are enforced on everything newly submitted while stored history keeps preserving unknown keys. 16 new refusal checks (vendors 58 → 74), each proving zero writes and byte-identical collections, plus two proving honest writes still commit. **373 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` stays **v4**, Workspace **v7**; the migration chain and existing records are untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.**
 *Updated after the remaining H3.4 runtime-shape correction (H3.4-D2) — D1 over-claimed on two counts, both corrected in its own entry above. `isIsoInstant()` accepted second precision, one- and two-digit fractions, and **impossible calendar dates**, because `Date.parse` normalizes rather than refuses; it now requires `YYYY-MM-DDTHH:mm:ss.sssZ` **and** an exact `toISOString()` round trip. Exactness was outer-level only, so extra keys inside `vendorSnapshot`, `itemSnapshot`, `price`, `quotedVendorCost` and `approvedBudget` survived whenever duplicated consistently; exact `Money`, `VendorSnapshot` and `CatalogItemSnapshot` validators are now applied recursively at every newly submitted location, compared against a projection rebuilt from live truth. `validateOperationsState()` now applies the shared `isVendorEmailShape()` rule, so a malformed stored address no longer reads as valid. Two superseded comparators deleted. One earlier assertion amended and declared. 10 new checks (vendors 74 → 84); **383 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` **v4**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.** Reporting correction: commit `9670fce` changed six files, not five.*
 *Updated after H3.5 (Courier directory and manual selection, per country) — `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record). Workspace unchanged at **v7**. Only a manual per-country directory and one recorded carriage cost exist: no rate APIs, tracking, optimization, scoring, ranking, routing, courier accounts or portals, and **U5 partner onboarding was again not invented**. Selection is shaped like H3.3 rather than H3.4 because courier alternatives are knowable — the considered set is recomputed, not typed in. Event named **`CourierSelected`**, a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. **A conflict is surfaced rather than resolved:** coverage is measured against confirmed briefs because `WorkspaceState.operatingCountries` are free-text names and no name-to-code mapping exists anywhere in the repository. No carriage ceiling was invented; zero is valid, negative is not, currency must match exactly. One builder defect caught by the suite (a deactivated courier passed the id-membership check). **429 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. Verified live at 1440px, 768px and 400px, including the v4 → v5 migration running in the browser; **real-device testing still not done**. ⚠️ **H3.6 is gated on unresolved U4** — the QA and exception taxonomy — and secure file storage becomes relevant there. System Atlas v3.9, Master Roadmap v1.6, Relationship Operations Atlas v1.6.*
+*Updated after the H3.5 courier runtime-boundary correction (H3.5-D1) — the boundary enforced exact keys only after receiving a valid object, and `extraKeys` reports no extras for `null`, so malformed containers passed the key check and **threw** on the property reads beneath it. A thrown exception is not a refusal: it returns no `StoreResult`, names no recovery, and leaves the operator unable to say whether anything was written. `isPlainRecord` is now exported from `lib/operations/types.ts` (the private `isPlainObject` became an alias of it), and both `commitCourierSelection()` and `verifyCourierSelection()` validate the write bundle, Decision, Event, `Decision.inputs` and `Event.payload` are plain records **before** reading any property. TypeScript types were not weakened. 7 new checks (couriers 46 → 53), each asserting no throw, the review-again recovery, zero writes and byte-identical collections, exercised through both the repository and the verifier directly. **436 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. No schema change — `OperationsState` **v5**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.5 browser evidence stands.** ⚠️ **The same latent shape exists on the H3.3 and H3.4 boundaries and was deliberately left out of scope — recorded for a Council-scoped correction.***

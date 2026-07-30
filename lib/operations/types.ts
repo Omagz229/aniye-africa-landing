@@ -662,9 +662,21 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
 
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+/**
+ * A plain record — **not** `null`, `undefined`, an array, or a primitive.
+ *
+ * Exported because runtime boundaries need it as much as structural validation
+ * does. A repository must never depend on a TypeScript interface for runtime
+ * safety: the compiler is gone by the time a caller hands it `null`, and an
+ * exception is not a refusal — it is a crash that tells the operator nothing and
+ * leaves them unable to say whether anything was written.
+ */
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/** The long-standing internal alias. One implementation, two names. */
+const isPlainObject = isPlainRecord;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
