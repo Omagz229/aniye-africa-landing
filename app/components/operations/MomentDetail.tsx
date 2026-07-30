@@ -9,6 +9,7 @@ import { browserOperationsRepository } from '@/lib/operations/local-store';
 import { buildCancellation } from '@/lib/operations/generation';
 import { findLiveSelectionDecision } from '@/lib/operations/selection';
 import { findLiveVendorSelection } from '@/lib/operations/vendor-selection';
+import { findLiveCourierSelection } from '@/lib/operations/courier-selection';
 
 export default function MomentDetail({ momentId }: { momentId: string }) {
   const [moment, setMoment] = useState<Moment | null>(null);
@@ -103,20 +104,24 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
    * → confirm one; brief but no item → choose one; item but no vendor → compare
    * quotes; vendor chosen → this is as far as the build goes.
    */
-  const nextAction: 'brief' | 'item' | 'vendor' | 'done' =
+  const courierSelection = findLiveCourierSelection(decisions, moment.id);
+  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'done' =
     !brief || brief.status !== 'Confirmed'
       ? 'brief'
       : !selection
         ? 'item'
         : !vendorSelection
           ? 'vendor'
-          : 'done';
+          : !courierSelection
+            ? 'courier'
+            : 'done';
 
   const NEXT: Record<typeof nextAction, { href: string; label: string; primary: boolean }> = {
     brief: { href: `/operations/moments/${moment.id}/brief`, label: 'Open the brief', primary: true },
     item: { href: `/operations/moments/${moment.id}/item`, label: 'Choose an item', primary: true },
     vendor: { href: `/operations/moments/${moment.id}/vendor`, label: 'Compare vendor offers', primary: true },
-    done: { href: `/operations/moments/${moment.id}/vendor`, label: 'View vendor selection', primary: false },
+    courier: { href: `/operations/moments/${moment.id}/courier`, label: 'Arrange carriage', primary: true },
+    done: { href: `/operations/moments/${moment.id}/courier`, label: 'View carriage', primary: false },
   };
   const next = NEXT[nextAction];
 
@@ -224,7 +229,9 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
                 ? 'The brief is confirmed. Choosing an item is the next step.'
                 : nextAction === 'vendor'
                   ? 'An item has been chosen. Recording vendor quotes and picking one is the next step.'
-                  : 'A vendor has been chosen. Choosing a courier is the next stage and is not built yet — nothing further can be done with this moment in this build.'}
+                  : nextAction === 'courier'
+                    ? 'A vendor has been chosen. Arranging who carries it is the next step.'
+                    : 'Item, vendor and courier are all chosen. Tracking the dispatch is the next stage and is not built yet — nothing further can be done with this moment in this build.'}
           </p>
         </div>
       )}
@@ -333,6 +340,7 @@ function humanEvent(type: string): string {
     case 'ExecutionBriefAddressOverridden': return 'Brief address corrected';
     case 'ItemSelected': return 'Item chosen';
     case 'VendorSelected': return 'Vendor chosen';
+    case 'CourierSelected': return 'Courier chosen';
     default: return type;
   }
 }

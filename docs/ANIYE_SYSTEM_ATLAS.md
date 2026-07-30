@@ -617,6 +617,36 @@ optional whole-day lead time and optional terms.
 
 ---
 
+### Courier
+
+Who carries the gift the last leg. **Implemented at H3.5** in `lib/operations/types.ts`, inside
+`OperationsState` — never in `WorkspaceState`, and never projected into any Workspace route.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` · `workspaceId` | string | — |
+| `name` | string | — |
+| `countryCode` | ISO-2 | **The one country this row serves.** Selection is per country |
+| `whatsapp` · `email` | string? | **At least one required** |
+| `isActive` | boolean | Deactivated, **never deleted** |
+| `note` | string? | Free text. Not a grade, not a score |
+| `createdAt` · `updatedAt` | ISO 8601 | — |
+
+> ⚠️ **No rate cards, tracking numbers, API credentials, service levels, zones, transit-time models,
+> scoring or automatic routing** — checkpoint milestone 7 excludes rate APIs, tracking integration
+> and optimization in terms. There is no courier account, portal or courier-facing route, and no
+> city field: city-level routing is optimization, and country is what selection turns on.
+
+**Selection records one carriage cost, plus the complete set of couriers who were available in that
+country.** Those alternatives are *knowable*, so they are recomputed rather than typed in — unlike
+vendor quotes. The delivery country comes from the live confirmed brief.
+
+> ⚠️ `quotedCourierCost` is an estimate of what the courier will charge **Aniyé**. No ceiling
+> relates it to the vendor cost or the approved budget: the budget governs what the recipient
+> receives (ADR-004), and relating carriage to it is a commercial decision U3 has not made.
+
+---
+
 ### Fulfillment
 
 Tracks delivery execution. The Fulfillment Object is the system of record. WhatsApp and other communication channels are execution tools only.
@@ -1418,7 +1448,7 @@ Both objects belong to the **Knowledge** domain (§3). ADR-010 keeps them out of
 | | WorkspaceState | OperationsState |
 |---|---------------|-----------------|
 | Owns | Configuration the customer edits | The record of what Aniyé did |
-| Schema | v7 | v4, versioned **independently** |
+| Schema | v7 | v5, versioned **independently** |
 | Storage key | `aniye_workspace` | `aniye_operations_v1` |
 | Growth | Bounded by organization size | Unbounded |
 | Mutability | Edited freely | Events append-only; Decisions immutable except supersession |
@@ -1490,7 +1520,7 @@ these is ever presented as an empty queue or as success.
 
 ## 15f. Execution Brief
 
-> ✅ **Implemented in H3.2** — `OperationsState` v2, carried forward at v4. Courier selection does not exist.
+> ✅ **Implemented in H3.2** — `OperationsState` v2, carried forward at v5.
 
 The operator's unit of work for one Moment: **who, where, how much, and what constraints apply.**
 Deliberately invisible to the customer — nothing here is projected into Workspace.
@@ -1580,11 +1610,11 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 > **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
 > capability*, and they are not the same thing. Sections describing something not yet built carry an
-> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v4**:
+> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v5**:
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, the minimum flat Catalog and manual item selection, **the manual Vendor directory, hand-entered VendorOffers and manual vendor selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, vendor accounts or portal, Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, the minimum flat Catalog and manual item selection, the manual Vendor directory, hand-entered VendorOffers and manual vendor selection, **the per-country Courier directory and manual courier selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, vendor or courier accounts and portals, courier rate APIs and tracking, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
 
 > **The authoritative roadmap is [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).** The horizon table below
 > is the thematic summary; `MASTER_ROADMAP.md` carries the canonical H3.1 … H3.8 milestone
@@ -1737,8 +1767,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.8 — Aniyé Africa — July 2026*
+*System Atlas v3.9 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.9: H3.5 — the per-country Courier directory and manual courier selection implemented. `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record); Workspace unchanged at **v7**. **§4 gains `Courier`** — it did not exist in this document before, so nothing was re-issued; it lives in `OperationsState` and is never projected into Workspace. §15d updated to v7/v5; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. No rate APIs, tracking, optimization, scoring, routing, courier account or portal was built; fulfilment tracking remains H3.6 and is gated on unresolved U4. ADR-010 remains the external-pilot gate*
 *v3.8: H3.4 — the manual Vendor directory, hand-entered VendorOffers and manual vendor selection implemented. `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record); Workspace schema unchanged at **v7**. **§4 gains `Vendor` and `VendorOffer`** — neither existed in this document before, so nothing was re-issued; both live in `OperationsState` and are never projected into Workspace. §15d updated to v7/v4; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Vendor Intelligence remains deferred to H4.4; no scoring, routing, API, portal, vendor account, courier, fulfilment or commerce was built. ADR-010 remains the external-pilot gate*
 *v3.7: H3.3 — minimum Catalog and manual item selection implemented. `OperationsState` **v3** (additive: `policyResolutionSnapshot.excludedCategories`, invented on no existing record); Workspace schema unchanged at **v7**. **§4 `Gift / Item` re-issued** — its pre-H3.3 field list is superseded, and none of `vendorId`, `intent`, `collectionIds`, `vendorCost`, `availableCountries`, `images` or `tags` survived; the implemented object has six fields and lives in `lib/catalog.ts`, never in `WorkspaceState`. §15d updated to v7/v3; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Catalog, Gift and Vendor Intelligence remain deferred to H4.2–H4.4, behind the pilot; ADR-010 remains the external-pilot gate*
 *v3.6: H3.2 — Execution Brief implemented. Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`). §4 Person marks the address implemented; new §15f defines the Execution Brief, the address gate, override and revision; §15d updated to v7/v2; §17 reading block restated; §18 marks ADR-011 implemented. `MOMENT_STATUSES` unchanged*

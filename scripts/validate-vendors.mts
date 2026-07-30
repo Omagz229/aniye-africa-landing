@@ -791,7 +791,8 @@ check('34. `VendorContacted` was not used, and no later milestone was pre-empted
   // Aniyé contacts nobody: an operator types up what they were already told.
   assert(!(EVENT_TYPES as readonly string[]).includes('VendorContacted'), 'VendorContacted was introduced.');
   assert(!(DECISION_TYPES as readonly string[]).includes('VendorSubstitution'), 'VendorSubstitution belongs to a later milestone.');
-  for (const t of ['CourierSelection', 'QAException', 'BudgetException']) {
+  // `CourierSelection` left this list at H3.5, the milestone that produces it.
+  for (const t of ['QAException', 'BudgetException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {
@@ -1115,8 +1116,11 @@ check('52. A single-offer comparison is allowed and recorded as such', () => {
 
 // ─── Part 7: schema and structure ────────────────────────────────────────────
 
-check('53. The operations schema is at v4, and v1 walks every rung to it', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 4, 'Operations schema is not at v4.');
+// H3.5 amended checks 34, 53 and 54: they pinned the literal version `4` and the
+// pre-H3.5 decision set, so a legitimate additive rung (v4 → v5, the courier
+// collection) failed them. What they test is unchanged and now version-agnostic.
+check('53. The operations schema is at or beyond v4, and v1 walks every rung to it', () => {
+  assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 4, 'Operations schema regressed below v4.');
   const v1 = {
     schemaVersion: 1, workspaceId: WS,
     moments: [{ id: 'm-old', sourceKey: 'k' }], decisions: [{ id: 'd-old' }], events: [{ id: 'e-old' }],
@@ -1127,7 +1131,7 @@ check('53. The operations schema is at v4, and v1 walks every rung to it', () =>
   assert(result.status === 'migrated', 'A v1 payload was not migrated.');
   if (result.status !== 'migrated') return;
   assertEqual(result.from, 1, 'Wrong source version reported.');
-  assertEqual(result.state.schemaVersion, 4, 'Migration did not reach v4.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current version.');
   assert(Array.isArray(result.state.executionBriefs), 'The v1 → v2 rung did not run.');
   assert(Array.isArray(result.state.vendors), 'The v3 → v4 rung did not add vendors.');
   assert(Array.isArray(result.state.vendorOffers), 'The v3 → v4 rung did not add offers.');
@@ -1152,7 +1156,7 @@ check('54. The v3 → v4 rung invents no vendors and touches no existing record'
   const result = migrateOperationsState(JSON.parse(before));
   assert(result.status === 'migrated', 'A v3 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 4, 'Migration did not reach v4.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current version.');
   assertEqual(result.state.vendors.length, 0, 'The migration invented vendors.');
   assertEqual(result.state.vendorOffers.length, 0, 'The migration invented offers.');
   assertEqual(JSON.stringify(result.state.moments), JSON.stringify(JSON.parse(before).moments), 'Moments were altered.');
@@ -1171,7 +1175,7 @@ check('55. A future schema version is refused, and reads never rewrite storage',
   const repo = createLocalOperationsRepository(storage);
   const loaded = repo.load(WS);
   assert(loaded.ok && loaded.value, 'A v3 payload was refused.');
-  assertEqual(loaded.value!.schemaVersion, 4, 'The read did not migrate in memory.');
+  assertEqual(loaded.value!.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'The read did not migrate in memory.');
   assertEqual(storage.writes.length, 0, 'Reading rewrote storage.');
 });
 

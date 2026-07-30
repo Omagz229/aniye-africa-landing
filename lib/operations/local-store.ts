@@ -18,10 +18,13 @@ import { CATALOG_ITEMS } from '../catalog';
 import { verifyItemSelection } from './selection';
 import { verifyVendorSelection } from './vendor-selection';
 import { canonicalVendor } from './vendors';
+import { canonicalCourier } from './couriers';
+import { verifyCourierSelection } from './courier-selection';
 import type {
   BriefWrite,
   ItemSelectionWrite,
   MomentBatch,
+  CourierSelectionWrite,
   OperationsRepository,
   StoreResult,
   VendorSelectionWrite,
@@ -33,6 +36,7 @@ import type {
   MomentStatus,
   OperationalEvent,
   OperationsState,
+  Courier,
   Vendor,
   VendorOffer,
 } from './types';
@@ -648,6 +652,147 @@ export function createLocalOperationsRepository(
       return { ok: true, value: decision };
     },
 
+    // ── Courier directory (H3.5) ──
+
+    listCouriers(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.couriers ?? [] };
+    },
+
+    findCourier(workspaceId, courierId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.couriers.find(c => c.id === courierId) ?? null };
+    },
+
+    createCourier(workspaceId, courier, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+
+      // Rebuilt, not spread — the same discipline vendors landed on at H3.4-D1,
+      // applied here from the first line rather than retrofitted.
+      const canonical = canonicalCourier(courier, workspaceId);
+      if (!canonical.ok) return canonical;
+
+      if (state.value.couriers.some(c => c.id === canonical.value.id)) {
+        return { ok: false, reason: 'That courier has already been added.' };
+      }
+      const written = commit({ ...state.value, couriers: [...state.value.couriers, canonical.value] }, now);
+      if (!written.ok) return written;
+      return { ok: true, value: canonical.value };
+    },
+
+    updateCourier(workspaceId, courier, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+      const existing = state.value.couriers.find(c => c.id === (courier as { id?: string }).id);
+      if (!existing) return { ok: false, reason: 'That courier is no longer in the directory.' };
+
+      const proposed = {
+        ...(courier as unknown as Record<string, unknown>),
+        id: existing.id,
+        workspaceId: existing.workspaceId,
+        isActive: existing.isActive,
+        createdAt: existing.createdAt,
+        updatedAt: now,
+      };
+      const canonical = canonicalCourier(proposed, workspaceId);
+      if (!canonical.ok) return canonical;
+      const updated: Courier = canonical.value;
+
+      const written = commit(
+        { ...state.value, couriers: state.value.couriers.map(c => (c.id === updated.id ? updated : c)) },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: updated };
+    },
+
+    setCourierActive(workspaceId, courierId, isActive, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+      const existing = state.value.couriers.find(c => c.id === courierId);
+      if (!existing) return { ok: false, reason: 'That courier is no longer in the directory.' };
+      if (existing.isActive === isActive) return { ok: true, value: existing };
+
+      const canonical = canonicalCourier({ ...existing, isActive, updatedAt: now }, workspaceId);
+      if (!canonical.ok) return canonical;
+      const updated: Courier = canonical.value;
+
+      const written = commit(
+        { ...state.value, couriers: state.value.couriers.map(c => (c.id === courierId ? updated : c)) },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: updated };
+    },
+
+    // ── Courier selection (H3.5) ──
+
+    findLiveCourierSelection(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      const found =
+        state.value?.decisions.find(
+          d => d.momentId === momentId && d.decisionType === 'CourierSelection' && d.status === 'Confirmed',
+        ) ?? null;
+      return { ok: true, value: found };
+    },
+
+    commitCourierSelection(workspaceId, write: CourierSelectionWrite, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+
+      const { decision, event } = write;
+
+      if (decision.momentId !== event.momentId) {
+        return {
+          ok: false,
+          reason: 'The decision and event refer to different moments. Review the moment and arrange carriage again — nothing was recorded.',
+        };
+      }
+
+      const moment = state.value.moments.find(m => m.id === decision.momentId);
+      if (!moment) {
+        return { ok: false, reason: 'That moment no longer exists. Review the queue — nothing was recorded.' };
+      }
+
+      /**
+       * **The trust boundary.** The Moment, the live brief, the live item and
+       * vendor Decisions, the delivery country and the couriers serving it are
+       * recomputed from re-read state and compared — nested shapes included.
+       */
+      const verified = verifyCourierSelection({
+        workspaceId,
+        moment,
+        briefs: state.value.executionBriefs,
+        decisions: state.value.decisions,
+        couriers: state.value.couriers,
+        write,
+      });
+      if (!verified.ok) return verified;
+
+      if (state.value.decisions.some(d => d.id === decision.id)) {
+        return { ok: false, reason: 'That decision has already been recorded.' };
+      }
+      if (state.value.events.some(e => e.id === event.id)) {
+        return { ok: false, reason: 'That event has already been recorded.' };
+      }
+
+      // One transaction, over a proposed state validated in full (ADR-006).
+      const written = commit(
+        {
+          ...state.value,
+          decisions: [...state.value.decisions, decision],
+          events: [...state.value.events, event],
+        },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: decision };
+    },
+
     validate(workspaceId) {
       const state = read(workspaceId);
       if (!state.ok) return state;
@@ -673,6 +818,8 @@ export type {
   BriefWrite,
   ItemSelectionWrite,
   VendorSelectionWrite,
+  CourierSelectionWrite,
   Vendor,
   VendorOffer,
+  Courier,
 };

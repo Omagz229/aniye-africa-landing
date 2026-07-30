@@ -16,6 +16,7 @@ import type {
   MomentStatus,
   OperationalEvent,
   OperationsState,
+  Courier,
   Vendor,
   VendorOffer,
 } from './types';
@@ -52,6 +53,18 @@ export interface ItemSelectionWrite {
  */
 export interface VendorSelectionWrite {
   offers: VendorOffer[];
+  decision: Decision;
+  event: OperationalEvent;
+}
+
+/**
+ * What one confirmed courier selection writes, atomically (H3.5).
+ *
+ * No separate record collection: unlike a vendor comparison, which had to
+ * persist several hand-entered quotes, this is one choice with one cost and the
+ * Decision carries all of it.
+ */
+export interface CourierSelectionWrite {
   decision: Decision;
   event: OperationalEvent;
 }
@@ -221,6 +234,46 @@ export interface OperationsRepository {
   commitVendorSelection(
     workspaceId: string,
     write: VendorSelectionWrite,
+    now: string,
+  ): StoreResult<Decision>;
+
+  // ── Courier directory (H3.5) ──
+  //
+  // Scoped **per country**: a courier row answers "who can carry this in NG?".
+  // Like vendors, directory maintenance is neither a Decision nor an Event.
+
+  listCouriers(workspaceId: string): StoreResult<Courier[]>;
+
+  findCourier(workspaceId: string, courierId: string): StoreResult<Courier | null>;
+
+  createCourier(workspaceId: string, courier: Courier, now: string): StoreResult<Courier>;
+
+  /** Identity, ownership, creation time and active state come from the stored record. */
+  updateCourier(workspaceId: string, courier: Courier, now: string): StoreResult<Courier>;
+
+  /** Deactivate or reactivate. **There is deliberately no delete.** */
+  setCourierActive(workspaceId: string, courierId: string, isActive: boolean, now: string): StoreResult<Courier>;
+
+  // ── Courier selection (H3.5) ──
+
+  /** The one live `CourierSelection` Decision for a Moment, or null. */
+  findLiveCourierSelection(workspaceId: string, momentId: string): StoreResult<Decision | null>;
+
+  /**
+   * Commit a courier selection **atomically** — the Decision and its Event land
+   * together or not at all.
+   *
+   * **Recomputes rather than trusts.** The Moment, the live brief, the live
+   * `ItemSelection` and `VendorSelection`, the delivery country and the couriers
+   * serving it are all re-read, and every piece of submitted evidence is
+   * compared against them — including nested shapes, which H3.4-D2 proved must
+   * be checked rather than assumed.
+   *
+   * The same honest limit as vendors: this cannot prove what a courier said.
+   */
+  commitCourierSelection(
+    workspaceId: string,
+    write: CourierSelectionWrite,
     now: string,
   ): StoreResult<Decision>;
 

@@ -156,6 +156,10 @@ export const DECISION_TYPES = [
   // `VendorSubstitution` is not added, for the same reason `ItemSubstitution`
   // was not: nothing downstream has consumed a vendor selection yet.
   'VendorSelection',
+  // H3.5 — who carries it, and what that leg costs. Chosen from the couriers
+  // that actually serve the delivery country, which is the whole reason the
+  // directory is scoped per country.
+  'CourierSelection',
 ] as const;
 export type DecisionType = (typeof DECISION_TYPES)[number];
 
@@ -213,6 +217,17 @@ export const EVENT_TYPES = [
   // outreach this build never performs — and the channel each quote arrived
   // through is already a `source` field on the offer, where it belongs.
   'VendorSelected',
+  // H3.5.
+  //
+  // ⚠️ **A deliberate departure from the checkpoint.** Part 2 row 9 and this
+  // Atlas's loop table both leave the Event column blank for courier selection,
+  // proposing a Decision and nothing else. That is recorded as a proposal, not
+  // a decision against — and by ADR-006's own test ("does it change the state of
+  // a Moment's execution?") assigning a carrier plainly does. Without it the
+  // Moment timeline would read "Item chosen · Vendor chosen · …nothing…" until
+  // dispatch, silently skipping a step that materially moved the job.
+  // Surfaced in the Recovery Ledger rather than made quietly.
+  'CourierSelected',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -439,6 +454,49 @@ export interface VendorOffer {
   terms?: string;
 }
 
+// ─── Courier ─────────────────────────────────────────────────────────────────
+
+/**
+ * Someone who carries the gift the last leg — **a row an operator typed**, like
+ * a Vendor, and for the same reasons.
+ *
+ * ⚠️ **Scoped to exactly one country.** That is the whole point of the
+ * directory: checkpoint milestone 7 is "a courier list *per country*", and
+ * selection offers only the couriers who serve where the brief is actually
+ * going. A courier operating in two countries is two rows, which is the
+ * smallest model that answers the question without inventing a coverage or
+ * routing scheme.
+ *
+ * ⚠️ **Deliberately absent, and not oversights:** rate cards, tracking numbers,
+ * API credentials, service levels, zones, transit-time models, scoring,
+ * optimization or automatic routing. Checkpoint milestone 7 excludes "rate APIs,
+ * tracking integration, optimization" in terms. There is **no city field**
+ * either — city-level routing is optimization, and country is what selection
+ * actually turns on.
+ */
+export interface Courier {
+  id: string;
+  workspaceId: string;
+  name: string;
+  /** ISO 3166-1 alpha-2, uppercase. The one country this row serves. */
+  countryCode: string;
+  /** At least one required — a courier nobody can reach cannot be booked. */
+  whatsapp?: string;
+  email?: string;
+  /** Deactivated rather than deleted, so past selections stay resolvable. */
+  isActive: boolean;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What a confirmed selection keeps about a courier. Copied, never referenced. */
+export interface CourierSnapshot {
+  courierId: string;
+  name: string;
+  countryCode: string;
+}
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
 /**
@@ -448,13 +506,18 @@ export interface VendorOffer {
  * **v3 (H3.3)** admits `policyResolutionSnapshot.excludedCategories` on newly
  * generated Moments. Additive, and it **adds nothing to existing records**.
  * **v4 (H3.4)** adds the `vendors` and `vendorOffers` collections. Additive.
+ * **v5 (H3.5)** adds the `couriers` collection. Additive.
+ *
+ * There is no `courierSelections` collection: unlike a vendor comparison, which
+ * had to persist several hand-entered quotes, a courier selection is one choice
+ * with one cost and the Decision carries all of it.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 4;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 5;
 
 /**
  * The storage *location*, not a version assertion.
  *
- * Deliberately unchanged at v4. ADR-010 and Atlas §15d name this key, and
+ * Deliberately unchanged at v5. ADR-010 and Atlas §15d name this key, and
  * moving it would orphan every operational record already written — the exact
  * history this module exists to protect. The version lives inside the payload.
  */
@@ -478,6 +541,8 @@ export interface OperationsState {
   /** H3.4, additive at operations schema v4. */
   vendors: Vendor[];
   vendorOffers: VendorOffer[];
+  /** H3.5, additive at operations schema v5. */
+  couriers: Courier[];
   createdAt: string;
   updatedAt: string;
 }
@@ -492,6 +557,7 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     executionBriefs: [],
     vendors: [],
     vendorOffers: [],
+    couriers: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -576,6 +642,17 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     };
   }
 
+  // v4 → v5: add the courier collection. Additive, and it **invents nothing** —
+  // a workspace that has never had a courier gets an empty array, not a
+  // fabricated directory. Everything earlier is carried through by the spread.
+  if ((working.schemaVersion as number) === 4) {
+    working = {
+      ...working,
+      couriers: Array.isArray(working.couriers) ? working.couriers : [],
+      schemaVersion: 5,
+    };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -632,7 +709,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
@@ -927,6 +1004,60 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     ) {
       return { ok: false, reason: `Offer "${offer.id}" has an invalid lead time.` };
     }
+  }
+
+  // ── Couriers (H3.5) ──
+  const courierIds = new Set<string>();
+  for (const [i, courier] of (raw.couriers as unknown[]).entries()) {
+    if (!isPlainObject(courier)) return { ok: false, reason: `Courier at index ${i} is not an object.` };
+    if (!isNonEmptyString(courier.id)) return { ok: false, reason: `Courier at index ${i} has no id.` };
+    if (courierIds.has(courier.id)) return { ok: false, reason: `Duplicate courier id "${courier.id}".` };
+    courierIds.add(courier.id);
+
+    if (courier.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Courier "${courier.id}" belongs to a different workspace.` };
+    }
+    for (const field of ['name', 'countryCode'] as const) {
+      if (!isNonEmptyString(courier[field]) || (courier[field] as string).trim().length === 0) {
+        return { ok: false, reason: `Courier "${courier.id}" is missing a ${field}.` };
+      }
+    }
+    if (!/^[A-Z]{2}$/.test(courier.countryCode as string)) {
+      return { ok: false, reason: `Courier "${courier.id}" has an invalid country code.` };
+    }
+    for (const field of ['whatsapp', 'email', 'note'] as const) {
+      if (courier[field] === undefined) continue;
+      if (typeof courier[field] !== 'string' || (courier[field] as string).trim().length === 0) {
+        return { ok: false, reason: `Courier "${courier.id}" has an unusable ${field}.` };
+      }
+    }
+    // The same shared shape rule the form and the write boundary apply.
+    if (courier.email !== undefined && !isVendorEmailShape(courier.email)) {
+      return { ok: false, reason: `Courier "${courier.id}" has a malformed email address.` };
+    }
+    if (courier.whatsapp === undefined && courier.email === undefined) {
+      return { ok: false, reason: `Courier "${courier.id}" has no way of being contacted.` };
+    }
+    if (typeof courier.isActive !== 'boolean') {
+      return { ok: false, reason: `Courier "${courier.id}" has no active state.` };
+    }
+    for (const field of ['createdAt', 'updatedAt'] as const) {
+      if (!isIsoInstant(courier[field])) {
+        return { ok: false, reason: `Courier "${courier.id}" has an unreadable ${field}.` };
+      }
+    }
+  }
+
+  // At most one live courier selection per Moment — the same rule item and
+  // vendor selection follow, and for the same reason.
+  const liveCourierByMoment = new Set<string>();
+  for (const decision of raw.decisions as Record<string, unknown>[]) {
+    if (decision.decisionType !== 'CourierSelection' || decision.status !== 'Confirmed') continue;
+    const momentId = decision.momentId as string;
+    if (liveCourierByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one live courier selection.` };
+    }
+    liveCourierByMoment.add(momentId);
   }
 
   // At most one live vendor selection per Moment — the same rule item selection

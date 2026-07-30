@@ -31,7 +31,8 @@
 | — | **H3.2 — Execution Brief** | ✅ **Complete** — schema v7, OperationsState v2 | H3.2 |
 | — | **H3.3 — Minimum Catalog + manual item selection** | ✅ **Complete** — OperationsState v3 | H3.3 |
 | — | **H3.4 — Vendor directory + hand-entered offers** | ✅ **Complete** — OperationsState v4 | H3.4 |
-| — | **H3.5 — Courier directory + manual selection** | ⬅️ **Next** — nothing structural gates it | — |
+| — | **H3.5 — Courier directory + manual selection** | ✅ **Complete** — OperationsState v5 | H3.5 |
+| — | **H3.6 — Fulfilment tracking** | ⚠️ **Next — gated on unresolved U4** (QA/exception taxonomy) | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1337,6 +1338,165 @@ performed or claimed.
 > changed five files. It changed **six** — the header miscounted while the path
 > list beneath it was correct.
 
+### ✅ H3.5 — Courier directory and manual selection, per country
+
+**The last cost in the picture**, and the first milestone whose completion test
+is about *coverage* rather than a single record.
+
+**What was built.** `lib/operations/couriers.ts` — draft validation, canonical
+rebuild, per-country lookup and coverage. `lib/operations/courier-selection.ts` —
+preview, builder and trust boundary. Two routes: `/operations/couriers` with the
+coverage panel, and `/operations/moments/[id]/courier`. Couriers joined the shell
+navigation and left the "not built yet" list, which now holds only Catalog and
+Fulfilment.
+
+**Deliberately not built** — checkpoint milestone 7 excludes rate APIs, tracking
+integration and optimization *in terms*, so: no rate cards, tracking numbers, API
+credentials, service levels, zones, transit-time models, scoring, ranking,
+automatic routing, courier accounts, portals or courier-facing routes. No
+fulfilment, proof of delivery, `RecognitionOrder`, customer charge or margin.
+
+#### The judgement calls, and why
+
+| Question | Answer |
+|---|---|
+| Event name | **`CourierSelected`** — see the declared departure below |
+| Shape | Like **H3.3**, not H3.4. Courier alternatives are *knowable* (the active couriers serving the country), so the considered set is **recomputed**, not typed in, and one cost is recorded rather than several. No `courierOffers` collection |
+| Country model | **One country per row.** A courier working in two countries is two rows — the smallest model that answers "who carries in NG?" without inventing coverage or routing. No city field: city routing is optimization |
+| Carriage ceiling | **None invented.** A quote above the vendor cost or the approved budget is allowed — the budget governs what the *recipient* receives (ADR-004), and relating carriage to it is a commercial decision **U3** has not made |
+| Zero carriage | **Allowed.** A courier absorbing a leg is a real quote. Negative is refused |
+| Where the country comes from | The **live confirmed brief**; item and vendor from their live Decisions. Never re-derived from Workspace |
+
+> ⚠️ **A declared departure from the checkpoint.** Part 2 row 9 and the Operations
+> Atlas loop table both leave the Event column **blank** for courier selection,
+> proposing a Decision and nothing else. H3.5 records **`CourierSelected`**
+> anyway.
+>
+> That blank is a proposal, not a decision against, and by ADR-006's own test —
+> *does it change the state of a Moment's execution?* — assigning a carrier
+> plainly does. Without it the Moment timeline would read "Item chosen · Vendor
+> chosen · …nothing…" until dispatch, silently skipping a step that materially
+> moved the job. **Recorded here rather than made quietly.**
+
+#### The named gap, and a conflict surfaced
+
+Milestone 7's completion test is *"a courier is selectable for every operating
+country, or the gap is named"*. The directory answers it: every country
+deliveries are going to, how many briefs are heading there, how many active
+couriers carry there — each gap named **with the country in it**, and an inline
+*Add one for NG* that prefills the country.
+
+> ⚠️ **Coverage is measured against confirmed briefs, not
+> `WorkspaceState.operatingCountries`.**
+>
+> Operating countries are **free-text names** captured in the assessment
+> (`"Nigeria"`). Every delivery country in Operations is **ISO 3166-1 alpha-2**
+> (`"NG"`). **No name-to-code mapping exists anywhere in this repository** —
+> confirmed by inspection of `lib/workspace.ts`, `lib/assignments.ts` and
+> `lib/people.ts`.
+>
+> Building one would mean guessing at spellings, languages and disputed names in
+> order to answer a question confirmed briefs already answer exactly — and briefs
+> are the better evidence besides: a country the organization *says* it operates
+> in but has never shipped to needs no courier, and one it ships to must have one
+> whether or not anyone listed it.
+>
+> **Surfaced, not resolved.** If the Council wants coverage measured against
+> declared operating countries, that needs a country model first, and an ADR.
+
+#### The trust boundary
+
+`verifyCourierSelection()` recomputes before the single atomic write: the Moment
+still ready and in this workspace, the live brief matching, the live
+`ItemSelection` **and** `VendorSelection` matching, the delivery country matching
+the brief, the courier still present, in-workspace, **active** and serving that
+country, the snapshot matching the live record exactly, the considered set
+matching the directory in order, the quote valid and in the item's currency, the
+channel and timestamps canonical, the summary recomputed, and the Event agreeing
+at one shared readable instant.
+
+Built with H3.4-D1 and H3.4-D2 already learned: exact keys at every level
+**including nested objects**, canonical ISO instants with a round trip, and a
+recomputed `finalDecision` — none of it retrofitted.
+
+> Same honest limit as vendors: this verifies everything Aniyé holds. It **cannot
+> prove what a courier said.**
+
+**One defect the suite caught before a human did:** the builder checked directory
+membership by id but never the passed courier's own `isActive` flag, so a
+deactivated *copy* of an active courier passed the id check. The repository would
+still have refused it, but the builder now refuses it too, with a clear message.
+
+#### Schema
+
+`OperationsState` **v4 → v5**: one additive rung adding `couriers`, inventing
+nothing and touching no Moment, brief, Decision, Event, vendor or offer. A v1
+payload still walks v1 → v2 → v3 → v4 → v5 one rung at a time, unknown future
+keys survive, future versions are refused, and reads never rewrite storage.
+Workspace unchanged at **v7**.
+
+#### Amendments to earlier suites — declared, not silent
+
+| Suite | Check | Change |
+|---|---|---|
+| briefs | 35 | `CourierSelection` removed from the "later milestone" list — H3.5 produces it |
+| selection | 42 | Same |
+| vendors | 34 | Same |
+| vendors | 53, 54, 55 | Pinned literal `4`; now assert `>= 4` or `CURRENT_OPERATIONS_SCHEMA_VERSION`, so the next rung will not break them |
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **429/429 across eleven suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, vendors 84, **couriers 46** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly baseline |
+| `build` | Succeeds, **28 routes** — two intentional additions |
+| Routes | All sampled return 200, including both new routes |
+| Links | Every internal `href` resolves to a built route |
+
+#### Browser evidence
+
+Full chain driven live: brief → item → vendor → carriage.
+
+| State | Result |
+|---|---|
+| Empty directory | One obvious action — *Add the first courier* |
+| Coverage gap | *"One country you are delivering to has no courier · NG · 1 brief · no active courier"*, with an inline fix |
+| Add via the gap | Country **prefilled to NG**; blank save named every field and wrote **0 couriers** |
+| Coverage complete | Flipped to *"Every country you are delivering to has a courier"* after two NG couriers |
+| Per-country scoping | A KE courier was added and correctly **absent** from the NG selection list |
+| Moment with no courier | *"No active courier carries in NG"* — the gap named with the country in it |
+| Draft entry | Choosing and pricing wrote **nothing**; primary disabled until both were set |
+| Confirmation | Stated it records the choice, the reason, the quote and **all 2 couriers available** |
+| Confirmed | **1** Decision, **1** Event, **1** write. Both NG couriers in the considered set; no `recommendation`, no `overrideReason` |
+| Duplicate refusal | *"A courier has already been chosen for this moment"* |
+| Stale courier | Deactivating the chosen courier mid-flow produced *"\"Swift Dispatch\" was deactivated while this was open… nothing was recorded"* — **0 selections** written |
+| Migration | The **v4 → v5 rung was observed running in the browser** against a v4 payload |
+| Overflow / targets | No page or inner-container horizontal scroll; no H3.5 control under 44px |
+
+**Widths actually measured** (`window.innerWidth`): **1440px**, **768px**,
+**400px**. No width was simulated by toggling classes.
+
+> **Real-device testing was not performed and is not claimed.** It remains a
+> pre-pilot **[P]** item (H4.0).
+
+**Still open:** the four sub-44px targets in the `OperationsShell` navigation
+drawer. Pre-existing H3.1 shell chrome, untouched.
+
+#### ⚠️ H3.6 is gated
+
+**U4 — the exception and QA taxonomy — binds at H3.6 and is unresolved.**
+Operations Atlas §9 records that `QAException` survives only as a proposed
+Decision name: *"No taxonomy survives. It is first needed at delivery
+confirmation."* H3.6 **is** delivery confirmation. **Raise an ADR before building
+the proof and dispute paths.**
+
+**Secure file storage also becomes relevant.** ADR-010 lists it among the pilot
+prerequisites specifically *"before proof of delivery exists"* — which is H3.6's
+outcome. Whether a browser-storage prototype may hold proof at all is a Council
+decision, not an implementation assumption.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1890,3 +2050,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.4 (Vendor directory, hand-entered offers and manual vendor selection) — `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record). Workspace schema unchanged at **v7**. Only a manual directory and hand-entered offers exist: no scoring, ranking, routing, APIs, vendor accounts, portal, courier, fulfilment or commerce, and **U5 partner onboarding was not invented**. Event named **`VendorSelected`**, not the checkpoint's `VendorContacted` — Aniyé contacts nobody. The chosen item is read from the live `ItemSelection` Decision, never re-read from the catalog; delivery context comes from the current confirmed brief. Zero-cost quotes allowed, negative refused, no invented rule that a quote sit below catalog price. `verifyVendorSelection()` recomputes every claim before one atomic write. Four earlier checks amended and declared. **357 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. Verified live at 1440px, 768px and 500px; **the 500px floor is the window manager's, and real-device testing is still not done**. System Atlas v3.8, Master Roadmap v1.5, Relationship Operations Atlas v1.5.*
 *Updated after the H3.4 vendor trust-boundary correction (H3.4-D1) — the builders produced the intended shapes but the repository did not enforce them at runtime, so a Vendor could carry `reliabilityScore`/`rating`/`capacity`/`sla`/`onboardingStatus`, a malformed email could reach `createVendor` directly, optional fields and timestamps went unchecked, a bundle whose shared instants were all the same unusable string satisfied the equality rule, non-string offer terms passed when duplicated consistently, a `finalDecision` could contradict its own evidence, and extra commercial fields could be attached to offers, `Decision.inputs`, considered entries or the Event payload. Vendors are now **rebuilt** from an exact eleven-field list rather than spread; timestamps must be canonical ISO instants, not merely equal; `finalDecision` is recomputed from a shared formatter; and exact keys are enforced on everything newly submitted while stored history keeps preserving unknown keys. 16 new refusal checks (vendors 58 → 74), each proving zero writes and byte-identical collections, plus two proving honest writes still commit. **373 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` stays **v4**, Workspace **v7**; the migration chain and existing records are untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.**
 *Updated after the remaining H3.4 runtime-shape correction (H3.4-D2) — D1 over-claimed on two counts, both corrected in its own entry above. `isIsoInstant()` accepted second precision, one- and two-digit fractions, and **impossible calendar dates**, because `Date.parse` normalizes rather than refuses; it now requires `YYYY-MM-DDTHH:mm:ss.sssZ` **and** an exact `toISOString()` round trip. Exactness was outer-level only, so extra keys inside `vendorSnapshot`, `itemSnapshot`, `price`, `quotedVendorCost` and `approvedBudget` survived whenever duplicated consistently; exact `Money`, `VendorSnapshot` and `CatalogItemSnapshot` validators are now applied recursively at every newly submitted location, compared against a projection rebuilt from live truth. `validateOperationsState()` now applies the shared `isVendorEmailShape()` rule, so a malformed stored address no longer reads as valid. Two superseded comparators deleted. One earlier assertion amended and declared. 10 new checks (vendors 74 → 84); **383 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` **v4**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.** Reporting correction: commit `9670fce` changed six files, not five.*
+*Updated after H3.5 (Courier directory and manual selection, per country) — `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record). Workspace unchanged at **v7**. Only a manual per-country directory and one recorded carriage cost exist: no rate APIs, tracking, optimization, scoring, ranking, routing, courier accounts or portals, and **U5 partner onboarding was again not invented**. Selection is shaped like H3.3 rather than H3.4 because courier alternatives are knowable — the considered set is recomputed, not typed in. Event named **`CourierSelected`**, a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. **A conflict is surfaced rather than resolved:** coverage is measured against confirmed briefs because `WorkspaceState.operatingCountries` are free-text names and no name-to-code mapping exists anywhere in the repository. No carriage ceiling was invented; zero is valid, negative is not, currency must match exactly. One builder defect caught by the suite (a deactivated courier passed the id-membership check). **429 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. Verified live at 1440px, 768px and 400px, including the v4 → v5 migration running in the browser; **real-device testing still not done**. ⚠️ **H3.6 is gated on unresolved U4** — the QA and exception taxonomy — and secure file storage becomes relevant there. System Atlas v3.9, Master Roadmap v1.6, Relationship Operations Atlas v1.6.*

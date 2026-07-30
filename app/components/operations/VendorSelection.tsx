@@ -252,9 +252,13 @@ export default function VendorSelectionPanel({ momentId }: { momentId: string })
           </p>
           <p className="font-body text-xs text-cream/70 mt-2 leading-snug">“{preview.confirmed.reason}”</p>
           <p className="font-body text-xs text-cream/50 mt-3 leading-snug">
-            This is what the vendor quoted Aniyé, not what anyone has paid. Choosing a courier is the
-            next stage and is not built yet.
+            This is what the vendor quoted Aniyé, not what anyone has paid.
           </p>
+          {/* The one obvious next step once a vendor is chosen (H3.5). */}
+          <Link href={`/operations/moments/${moment.id}/courier`}
+            className="mt-3 inline-flex items-center rounded-full bg-gold text-ink px-5 font-body text-sm font-semibold hover:brightness-105 transition-all min-h-[44px]">
+            Arrange carriage →
+          </Link>
         </div>
       )}
 

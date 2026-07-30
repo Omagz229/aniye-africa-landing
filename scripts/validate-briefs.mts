@@ -780,7 +780,8 @@ check('35. The new Decision and Event types are declared, and no more', () => {
   // list at H3.3, which is the milestone that produces it; the rest have not.
   // `ItemSelection` left this list at H3.3 and `VendorSelection` at H3.4 — each
   // at the milestone that produces it. The rest have not been built.
-  for (const t of ['CourierSelection', 'QAException']) {
+  // `CourierSelection` left this list at H3.5, the milestone that produces it.
+  for (const t of ['QAException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {

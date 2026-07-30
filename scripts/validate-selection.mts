@@ -824,7 +824,8 @@ check('42. H3.3 adds exactly one decision type and one event type, and no more',
   // Substitution presupposes something downstream that consumed a selection.
   assert(!(DECISION_TYPES as readonly string[]).includes('ItemSubstitution'), 'ItemSubstitution belongs to a later milestone.');
   // `VendorSelection` left this list at H3.4, the milestone that produces it.
-  for (const t of ['CourierSelection', 'QAException', 'BudgetException']) {
+  // `CourierSelection` left this list at H3.5, the milestone that produces it.
+  for (const t of ['QAException', 'BudgetException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   for (const t of ['ItemPrepared', 'VendorContacted', 'Dispatched', 'Delivered', 'MomentClosed']) {
