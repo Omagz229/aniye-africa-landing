@@ -1401,8 +1401,28 @@ couriers carry there — each gap named **with the country in it**, and an inlin
 > in but has never shipped to needs no courier, and one it ships to must have one
 > whether or not anyone listed it.
 >
-> **Surfaced, not resolved.** If the Council wants coverage measured against
-> declared operating countries, that needs a country model first, and an ADR.
+> **Surfaced, not resolved** *— as it stood at H3.5 completion.* If the Council
+> wants coverage measured against declared operating countries, that needs a
+> country model first, and an ADR.
+
+> ✅ **Subsequently resolved — governance closure of 2026-07-30.** The paragraph
+> above is preserved as the account of what was true when H3.5 landed. It is no
+> longer the current position.
+>
+> The Council **accepted the implemented operational authority** and rewrote the
+> completion test to:
+>
+> *"A courier is selectable for every country represented by a current confirmed
+> Execution Brief, or the gap is named."*
+>
+> **Current confirmed Execution Briefs are the accepted operational coverage
+> authority.** `operatingCountries` remains free-text assessment and marketing
+> data and is **not** operational country authority — no normalization, no
+> name-to-code mapping, no canonical country collection, **no Workspace v8**. A
+> country model, if ever wanted, takes its own milestone and architecture review.
+>
+> See the *H3.5 → H3.6 governance decision closure* entry below, and
+> [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md).
 
 #### The trust boundary
 
@@ -1730,6 +1750,56 @@ Not implemented in this documentation task.
 | `OperationsState` | **v5** — v6 planned, **not landed** |
 | Must land before H3.6 | H3.3/H3.4 container correction, then the v5 → v6 snapshot migration |
 | Still deferred | Actual proof-file storage · OPS-U4b adjudication |
+
+### ✅ H3.5 → H3.6 governance documentation D1 — 2026-07-30
+
+**Documentation only.** No code, schema, migration, validation script, route or
+UI changed. A follow-up to the governance closure above, correcting statements
+that the closure left contradicting it.
+
+**The problem.** The closure recorded the country-coverage decision in the
+roadmap's *decided* section and in ADR-012 — but several **current-state**
+passages elsewhere still described the same question as open, and two ADR
+implementation rows had gone stale during H3.3 – H3.5.
+
+| # | Corrected |
+|---|---|
+| 1 | `MASTER_ROADMAP.md` described H3.5 as *"per operating country"* in the status row and the milestone table. Now distinguishes **the directory is country-scoped** from **coverage authority is the countries on current confirmed Execution Briefs** |
+| 2 | The roadmap's H3.5 narrative still ended *"Surfaced rather than resolved"*. Replaced with the Council resolution and the exact accepted completion test |
+| 3 | `RELATIONSHIP_OPERATIONS_ATLAS.md` §3 repeated the same unresolved wording. Replaced, and confirmed Execution Briefs stated as the accepted authority. Atlas bumped **v1.7 → v1.8** |
+| 4 | This ledger's H3.5 entry read as though the authority were still open. **Preserved as the historical account** and explicitly qualified with the later decision |
+| 5 | `docs/adr/README.md` claimed ADR-006 applied to *"Moment generation only"* and that `OperationsState` was *"now v2"*. Both stale — see below |
+
+**The original checkpoint wording is preserved wherever it is quoted**, marked as
+historical provenance rather than deleted. The rewritten test is stated
+immediately after it, so no reader meets the old wording without the new.
+
+#### ADR implementation table — corrected
+
+| ADR | Was | Now |
+|---|---|---|
+| **ADR-006** | *"Decisions and Events exist for Moment generation only"* | Applies **through H3.5** — Moment generation, brief confirmation and address override, item selection, vendor selection, courier selection. **Still partly implemented**: the fulfilment lifecycle is accepted (ADR-012) and not built |
+| **ADR-010** | *"`OperationsState` v1 (now v2)"* | **Introduced v1**; current is **v5** |
+| **ADR-011** | *"`OperationsState` v2"* | **Landed at v2**; current is **v5** |
+| **ADR-012** | — | **Accepted, not implemented.** H3.6 has not begun |
+
+#### Deliberately left alone
+
+- **Dated historical footers** — Master Roadmap v1.6, System Atlas v3.9, and this
+  ledger's dated H3.4/H3.5 lines. They record what was true when written, and the
+  current registers already carry the qualification. Rewriting them would
+  falsify the record.
+- **The milestone-count discrepancy.** The roadmap's *other* "Surfaced rather
+  than resolved" — the 37-versus-31 counting-granularity question — is a
+  **different and genuinely open** matter. Untouched.
+
+#### State after this correction
+
+**H3.5 remains complete. H3.6 has not begun.** Workspace **v7**;
+`OperationsState` **v5**, with v6 planned and not landed. Both pending
+corrections — the H3.3/H3.4 malformed-container fix and the policy-snapshot
+v5 → v6 migration — remain **unimplemented** and must land, in that order,
+before H3.6.
 
 ### ⛔ The hard gate before an external pilot
 
@@ -2287,3 +2357,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.5 (Courier directory and manual selection, per country) — `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record). Workspace unchanged at **v7**. Only a manual per-country directory and one recorded carriage cost exist: no rate APIs, tracking, optimization, scoring, ranking, routing, courier accounts or portals, and **U5 partner onboarding was again not invented**. Selection is shaped like H3.3 rather than H3.4 because courier alternatives are knowable — the considered set is recomputed, not typed in. Event named **`CourierSelected`**, a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. **A conflict is surfaced rather than resolved:** coverage is measured against confirmed briefs because `WorkspaceState.operatingCountries` are free-text names and no name-to-code mapping exists anywhere in the repository. No carriage ceiling was invented; zero is valid, negative is not, currency must match exactly. One builder defect caught by the suite (a deactivated courier passed the id-membership check). **429 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. Verified live at 1440px, 768px and 400px, including the v4 → v5 migration running in the browser; **real-device testing still not done**. ⚠️ **H3.6 is gated on unresolved U4** — the QA and exception taxonomy — and secure file storage becomes relevant there. System Atlas v3.9, Master Roadmap v1.6, Relationship Operations Atlas v1.6.*
 *Updated after the H3.5 courier runtime-boundary correction (H3.5-D1) — the boundary enforced exact keys only after receiving a valid object, and `extraKeys` reports no extras for `null`, so malformed containers passed the key check and **threw** on the property reads beneath it. A thrown exception is not a refusal: it returns no `StoreResult`, names no recovery, and leaves the operator unable to say whether anything was written. `isPlainRecord` is now exported from `lib/operations/types.ts` (the private `isPlainObject` became an alias of it), and both `commitCourierSelection()` and `verifyCourierSelection()` validate the write bundle, Decision, Event, `Decision.inputs` and `Event.payload` are plain records **before** reading any property. TypeScript types were not weakened. 7 new checks (couriers 46 → 53), each asserting no throw, the review-again recovery, zero writes and byte-identical collections, exercised through both the repository and the verifier directly. **436 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. No schema change — `OperationsState` **v5**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.5 browser evidence stands.** ⚠️ **The same latent shape exists on the H3.3 and H3.4 boundaries and was deliberately left out of scope — recorded for a Council-scoped correction.***
 *Updated after the H3.5 → H3.6 governance decision closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** H3.5's completion test rewritten to name confirmed Execution Briefs as the operational country authority; `operatingCountries` stays a free-text assessment field and no Workspace v8 is added. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) accepted** — one Fulfilment per Moment, no persisted draft, exactly three states, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only, and **proof recorded as metadata with no file stored**; `Returned`, `Escalation`, `QAException`, disputes, webhooks and tracking all excluded. The former Operations `U4` is split — **OPS-U4a resolved**, **OPS-U4b deferred** with a five-point trigger, since a single-operator prototype has no second party to adjudicate with. Unresolved identifiers are now source-scoped (`CP-Un`, `OPS-Un`, `LEDGER-Cn`) after two documents were found using bare `U4` and bare `U5` for different questions; **nothing was renumbered**. The policy-snapshot defect is accepted at **four** missing delivery fields, not three. The H3.3/H3.4 malformed-container correction is recorded as pending and must land **before** the v5 → v6 migration. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5.** System Atlas v3.10, Master Roadmap v1.7, Relationship Operations Atlas v1.7, ADR-012 accepted.*
+*Updated after the H3.5 → H3.6 governance documentation correction D1 (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** Current-state passages that still described the country-coverage question as open have been reconciled with the governance closure: the Master Roadmap no longer calls H3.5 "per operating country" and no longer ends its H3.5 narrative "surfaced rather than resolved"; the Operations Atlas §3 named-gap section records the Council resolution and the exact accepted completion test, and is bumped **v1.7 → v1.8**; this ledger's H3.5 entry is **preserved as a historical account and explicitly qualified** with the later decision. **Current confirmed Execution Briefs are the accepted operational coverage authority**; `operatingCountries` remains free-text assessment and marketing data. `docs/adr/README.md` corrected — ADR-006 now applies through H3.5 and remains partly implemented; ADR-010 introduced `OperationsState` v1 with current **v5**; ADR-011 landed at v2 with current **v5**; ADR-012 accepted and not implemented. Dated historical footers and the separate, still-open milestone-count discrepancy were deliberately left intact. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5** — v6 planned, not landed. Relationship Operations Atlas v1.8.*

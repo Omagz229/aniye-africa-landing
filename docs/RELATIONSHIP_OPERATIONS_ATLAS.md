@@ -298,14 +298,24 @@ one cost is recorded. There is no `courierOffers` collection.
 Decisions. None of it is re-derived from Workspace — a customer editing an address afterwards must
 not silently change who was asked to carry what.
 
-> **The named gap.** Milestone 7's completion test — *"a courier is selectable for every operating
-> country, or the gap is named"* — is answered by a coverage view over **confirmed briefs**:
-> each delivery country, how many briefs are heading there, and how many active couriers carry there.
+> **The named gap.** Milestone 7's completion test originally read *"a courier is selectable for
+> every operating country, or the gap is named"* — preserved here as the historical wording.
 >
-> ⚠️ **Not `WorkspaceState.operatingCountries`, and that is deliberate.** Those are free-text names
-> from the assessment (`"Nigeria"`); delivery countries are ISO-2 (`"NG"`); and **no name-to-code
-> mapping exists in this repository**. Briefs answer the question exactly, and are the better
-> evidence besides. Surfaced rather than resolved.
+> ✅ **Council resolved it on 2026-07-30.** The completion test now reads:
+>
+> *"A courier is selectable for every country represented by a current confirmed Execution Brief, or
+> the gap is named."*
+>
+> **Current confirmed Execution Briefs are the accepted operational coverage authority.** The
+> directory answers it with a coverage view over those briefs: each delivery country, how many briefs
+> are heading there, and how many active couriers carry there.
+>
+> ⚠️ **Not `WorkspaceState.operatingCountries`, and that is settled, not merely deliberate.** Those
+> are free-text names from the assessment (`"Nigeria"`); delivery countries are ISO-2 (`"NG"`); and
+> **no name-to-code mapping exists in this repository**. Briefs answer the question exactly, and are
+> the better evidence besides. `operatingCountries` **remains free-text assessment and marketing
+> data and is not operational country authority** — no normalization, no mapping, no canonical
+> country collection, no Workspace v8.
 
 **No carriage ceiling was invented.** A quote above the vendor cost or the approved budget is
 allowed — the budget governs what the *recipient* receives (ADR-004), and relating carriage to it is
@@ -696,7 +706,8 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v1.7 — Aniyé Africa — 30 July 2026*
+*Relationship Operations Atlas v1.8 — Aniyé Africa — 30 July 2026*
+*v1.8: **Governance documentation correction (D1) — documentation only.** §3's courier named-gap section no longer describes the country-coverage question as "surfaced rather than resolved": it records the **Council resolution of 2026-07-30**, quotes the accepted completion test verbatim, and states that **current confirmed Execution Briefs are the accepted operational coverage authority**. The original checkpoint wording is preserved as historical provenance. `operatingCountries` remains free-text assessment and marketing data and is **not** operational country authority. The dated v1.6 footer is left intact as a historical record. No code, schema, migration, validation, route or UI changed; `OperationsState` remains **v5** and H3.6 has **not** begun.*
 *v1.7: **Governance decision closure before H3.6 — documentation only; no code, schema, migration or validation changed.** §9 identifiers are now **source-scoped** — `OPS-Un` here, `CP-Un` for checkpoint open questions, `LEDGER-Cn` for ledger conflicts — because bare `U4` and bare `U5` each meant two different questions across this Atlas and the Master Roadmap. **Nothing was renumbered**; the collision is documented in §9. `OPS-U4` is split: **`OPS-U4a`** (Fulfilment lifecycle and proof recording) is **resolved by [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)**; **`OPS-U4b`** (QA, adjudication and disputes) is **deferred** with a five-point trigger, because a single-operator internal prototype has no second party to adjudicate with. §3 records ADR-012 as re-issuing the Atlas §4 `Fulfilment` draft; §6 narrows the loop table to `Redelivery` as the only fulfilment Decision and marks `ProofReceived` metadata-only; the customer-sees table records that **"confirmation + curated proof" is future architecture**, not delivered by H3.6. H3.6 has **not** begun; `OperationsState` remains **v5**.*
 *v1.6: **H3.5 — courier directory and manual selection implemented.** §3 gains the `Courier` definition — ten fields, scoped to **one country**, with no rate cards, tracking, service levels, zones, scoring or routing, all excluded in terms by checkpoint milestone 7. §3 records why selection is shaped like H3.3 rather than H3.4 (courier alternatives are knowable, vendor quotes are not), that the delivery country comes from the live brief, that no carriage ceiling was invented, and how the completion test's *named gap* is answered — **against confirmed briefs, not `operatingCountries`**, because those are free-text names with no code mapping in the repository. §5 gains the carriage step and the five-state next action. §6 marks the courier step done and records **`CourierSelected`** — a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. Persistence restated as Workspace v7 / `OperationsState` **v5**.*
 *v1.5: **H3.4 — vendor directory, hand-entered offers and manual vendor selection implemented.** §3 gains the `Vendor` and `VendorOffer` definitions — six fields and no scores, and Atlas §4 never defined either, so nothing was re-issued. §3 records that vendors are deactivated rather than deleted, that directory maintenance is neither a Decision nor an Event, that `quotedVendorCost` is an estimate of what a vendor will charge Aniyé and is never derived from the catalog price, that zero is a valid quote and negative is not, and that delivery context and the chosen item come from **different** sources on purpose. §4 restates the recording rule with the three-quote case. §5 gains the vendor step and the four-state next action. §6 marks the vendor step done and fixes the Event name as **`VendorSelected`**, not the checkpoint's `VendorContacted` — Aniyé contacts nobody. §7 **withdraws the claim that no Operations route has ever had a live visual check**; a real-device pass remains genuinely outstanding. Persistence restated as Workspace v7 / `OperationsState` **v4**.*

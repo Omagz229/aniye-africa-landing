@@ -22,7 +22,7 @@
 |---|---|
 | **Workspace schema** | **v7** — `lib/migrations.ts` |
 | **`OperationsState` schema** | **v5** — `lib/operations/types.ts`, versioned independently (ADR-010) |
-| **Last completed milestone** | **H3.5** — Courier directory + manual selection, per operating country |
+| **Last completed milestone** | **H3.5** — Courier directory + manual selection. **Directory scoped per country; coverage authority is the countries on current confirmed Execution Briefs** |
 | **Next milestone** | **H3.6** — Fulfilment tracking. **Governance resolved (ADR-012); not begun; two corrections pending** |
 | **Milestones** | **23 of 37 complete** — see *Milestone count* |
 | **Blocking H3.6** | ✅ **Governance resolved** — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), 2026-07-30. ⚠️ **Two corrections must land first** — see *Before H3.6 may begin* |
@@ -114,7 +114,7 @@ to a delivered, costed, closed recognition. Everything not on this path is defer
 | **H3.2** | **Execution Brief** — an operator-facing brief per Moment: recipient, address, budget, constraints; the address gate, operator override and governed revision | 4 | H3.1 · ADR-011 / schema v7 | **[R]** | ✅ **Complete** |
 | **H3.3** | **Minimum Catalog + manual item selection** — a flat item list filtered by budget and excluded categories; operator selects one | 5 | H3.2 · `OperationsState` v3 | **[R]** | ✅ **Complete** |
 | **H3.4** | **Vendor directory, hand-entered offers + manual selection** | 6 | H3.3 · `OperationsState` v4 | **[R]** | ✅ **Complete** |
-| **H3.5** | **Courier directory + manual selection** — per operating country | 7 | H3.4 · `OperationsState` v5 | **[R]** | ✅ **Complete** |
+| **H3.5** | **Courier directory + manual selection** — a **country-scoped** directory; coverage measured against the countries on current confirmed Execution Briefs | 7 | H3.4 · `OperationsState` v5 | **[R]** | ✅ **Complete** |
 | **H3.6** | **Fulfilment tracking** — dispatch → delivered → proof, with failure and redelivery paths | 8 | H3.5 · **ADR-012** · two pending corrections | **[R]** | ⬅️ **Next — not begun** |
 | **H3.7** | **Recognition Order + commercial tracking** — budget, estimates, actuals, derived margin | 9 | H3.6 | **[R]** | ⬜ |
 | **H3.8** | **Confirmation + Memory** — the Moment closes; a Memory record enters the relationship timeline | 10 | H3.7 | **[R]** | ⬜ |
@@ -227,20 +227,33 @@ hand-entered quotes because nothing in the system knows what a vendor will say. 
 **recomputed** rather than typed in, and one cost is recorded rather than several. There is no
 `courierOffers` collection.
 
-**The completion test, made answerable.** Checkpoint milestone 7 asks that *"a courier is selectable
-for every operating country, or the gap is named"*. The directory shows every country deliveries are
-going to, how many briefs are heading there, and how many active couriers carry there — naming each
-gap with the country in it and offering to fix it inline.
+**The completion test, made answerable.** Checkpoint milestone 7 originally asked that *"a courier is
+selectable for every operating country, or the gap is named"* — preserved here as the historical
+wording.
 
-> ⚠️ **Coverage is measured against confirmed briefs, not `WorkspaceState.operatingCountries`.**
+> ✅ **Council resolved this on 2026-07-30.** The completion test now reads:
+>
+> *"A courier is selectable for every country represented by a current confirmed Execution Brief, or
+> the gap is named."*
+
+The directory shows every country deliveries are going to, how many briefs are heading there, and how
+many active couriers carry there — naming each gap with the country in it and offering to fix it
+inline.
+
+> ✅ **Coverage is measured against confirmed briefs, not `WorkspaceState.operatingCountries` —
+> accepted by Council, 2026-07-30.**
+>
 > Operating countries are free-text names captured in the assessment (`"Nigeria"`); every delivery
 > country in Operations is ISO 3166-1 alpha-2 (`"NG"`); and **no name-to-code mapping exists
 > anywhere in this repository**. Inventing one would mean guessing at spellings, languages and
 > disputed names to answer a question the briefs already answer exactly. Confirmed briefs are also
 > the better evidence: a country the organization *says* it operates in but has never shipped to
-> needs no courier, and one it ships to must have one whether or not anyone listed it. **Surfaced
-> rather than resolved** — if the Council wants coverage measured against declared operating
-> countries, that needs a country model first.
+> needs no courier, and one it ships to must have one whether or not anyone listed it.
+>
+> **`operatingCountries` remains free-text assessment and marketing data and is not operational
+> country authority.** No normalization, no name-to-code mapping, no canonical country collection,
+> **no Workspace v8**. A country model, if ever wanted, takes its own milestone and its own
+> architecture review.
 
 **No carriage ceiling was invented.** A courier cost above the vendor quote or above the approved
 budget is allowed: the budget governs what the *recipient* receives (ADR-004), and relating carriage
