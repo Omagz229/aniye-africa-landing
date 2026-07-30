@@ -1122,6 +1122,106 @@ quotes → choose the second → confirm.
 **Still open:** the four sub-44px targets in the `OperationsShell` navigation
 drawer (40px links, 32px close). Pre-existing H3.1 shell chrome, untouched.
 
+### ✅ H3.4-D1 — the vendor runtime shape and trust boundary
+
+**Acceptance defect, found reviewing H3.4 after it shipped. No schema change —
+`OperationsState` stays v4, Workspace stays v7.**
+
+The builders produced the intended shapes. The **repository did not enforce
+them**, and TypeScript cannot: it checks no excess property on a value that has
+already been widened, and it checks nothing at all once the code is running.
+
+Every example below was **reproduced against the shipped code** before being
+fixed — not inferred from reading it.
+
+| Passed before | Why it mattered |
+|---|---|
+| A `Vendor` carrying `reliabilityScore`, `rating`, `capacity`, `sla`, `onboardingStatus` or a price list | **H4.4 arriving inside H3.4.** A scorecard in the directory is exactly the intelligence this milestone exists to defer until there is evidence for it |
+| A malformed email reaching `createVendor` directly | The email shape was checked in the form only, so any caller bypassing the form could store an address nobody could write to |
+| Non-string `whatsapp`, `email` or `note` | A vendor "contactable" at `42` |
+| Unreadable `createdAt` / `updatedAt` | A record whose timestamps cannot be compared is not evidence |
+| A bundle whose Decision, Event **and** offer timestamps were all the same unusable string | The shared-instant rule tested **equality**, and three copies of `"banana"` agree with each other perfectly |
+| Non-string offer `terms`, duplicated consistently in the offer and the considered set | The comparison was offer-against-itself, so a consistent lie passed |
+| A `finalDecision` naming the wrong vendor, the wrong amount, or blank | The headline every casual reader believes, contradicting the evidence beneath it |
+| Extra fields on `VendorOffer`, `Decision.inputs`, considered entries or the Event payload | `customerCharge`, `margin`, `revenue`, `catalogCost`, `score`, `rank`, `recommendation` — reading, years later, as though H3.4 had decided something it explicitly did not. **U3 is unresolved until H3.7** |
+
+#### The correction
+
+**Vendors are rebuilt, not spread.** `canonicalVendor()` validates the exact
+eleven-field list and **constructs a fresh record from it**, so nothing
+undeclared can reach persisted state through `createVendor`, `updateVendor` or
+`setVendorActive`. It enforces required strings, the two-letter country code,
+present-but-wrong optionals, the form's own email shape, at least one contact
+method, and canonical ISO instants — with **no ordering rule** invented between
+`createdAt` and `updatedAt`.
+
+Spreading an untrusted object into persisted state means every field anyone ever
+attaches to it survives into the audit record. Rebuilding from a fixed list means
+only what this milestone declared can arrive.
+
+**Timestamps must be readable, not merely equal.** `isIsoInstant()` requires
+exactly what `toISOString()` emits — `Date.parse` alone accepts `"2026"`,
+`"August 1 2026"` and locale strings. Applied to the Decision's `createdAt` and
+`confirmedAt`, the Event's `occurredAt` and `recordedAt`, and every offer's
+`recordedAt` and `quotedAt`. The shared-instant rule is unchanged, and `quotedAt`
+stays independently valid and **may precede** `recordedAt` — the vendor spoke
+before the operator typed it up, which is the normal case.
+
+**`finalDecision` is recomputed, not compared.** `vendorFinalDecision()` is now
+shared by the builder and the boundary, so the summary is regenerated from the
+selected vendor snapshot and quoted cost and must match exactly.
+
+**Exact keys on everything newly submitted** — `VendorOffer` (16),
+`Decision.inputs` (11), considered-offer entries (8), and the Event payload
+(exactly 5 identifiers). Applied to the **bundle being written only**, never to
+stored history: unknown keys must still survive migration, so they are preserved
+on read and refused at the door.
+
+Structural validation was strengthened to match, so a payload that reached
+storage another way still cannot be read as valid.
+
+**Preserved unchanged:** live-brief and live-`ItemSelection` authority, immutable
+item and vendor snapshots, exact currency matching, zero-cost quotes, the
+complete ordered considered set, `HumanOperator`/`Confirmed` semantics, no
+recommendation or override reason, single-write atomicity, append-only history,
+duplicate refusal, no hard delete, and the edit protections on id, workspace,
+`createdAt` and active state. The v1 → v2 → v3 → v4 chain is untouched, reads
+still never rewrite storage, and **no existing record was retrofitted**.
+
+**Still not claimed:** the repository verifies everything Aniyé holds. It cannot
+prove what a vendor said.
+
+#### 16 new refusal checks — vendors 58 → 74
+
+Checks 59–74. Each proves the write is refused **and** that vendors, offers,
+decisions and events are byte-identical afterwards with zero storage writes:
+intelligence fields on create (59) and on edit (60); malformed email at the
+repository (61); non-string optionals (62); unreadable timestamps (63);
+unreachable vendor (64); malformed fields on read (65); shared unreadable
+timestamps (66); unreadable `quotedAt`, and a valid one preceding `recordedAt`
+(67); non-string and blank terms duplicated in both places (68); altered, blank
+and contradictory `finalDecision` (69); extra `Decision.inputs` (70); extra
+offer and considered-offer fields (71); extra Event payload fields (72).
+
+**73 and 74 are the counterweight**: an honest create, edit, deactivation and
+selection still commit, and a rebuilt vendor carries exactly the declared field
+list. A validator that refuses everything would otherwise pass every check above.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **373/373 across ten suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, **vendors 74** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly baseline |
+| `build` | Succeeds, **26 routes** — unchanged |
+| Routes | All 13 sampled return 200 |
+| Links | Every internal `href` resolves to a built route |
+
+**No UI or route change was required, and none was made** — `git diff app/` is
+empty. **The H3.4 browser evidence recorded above remains applicable**, and no
+new browser run was performed or claimed.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1673,3 +1773,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.3 (Minimum Catalog + manual item selection) — `OperationsState` **v3** (additive; newly generated Moments snapshot `policyResolutionSnapshot.excludedCategories`, and the rung writes nothing into any existing record). Workspace schema unchanged at **v7**. A pre-H3.3 record **blocks** item selection with a named recovery rather than assuming an empty exclusion list, because a policy is edited in place at the same version and equivalence is not provable. Event named `ItemSelected`, not the checkpoint's `ItemPrepared`; `ItemSubstitution` not added. Three defects found and fixed — an aliased `Money` snapshot, missing workspace-id checks on Decisions and Events, and a false "not resolved / not recorded" panel before a brief exists. Four H3.2 checks amended and declared. **281 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. Verified live at 400px, 768px and 1200px; **1440px was not reachable and real-device testing is still not done**. System Atlas v3.7, Master Roadmap v1.4, Relationship Operations Atlas v1.4.*
 *Updated after the H3.3 repository trust-boundary correction (H3.3-D1) — `commitItemSelection()` verified the brief id and revision and then trusted the rest of the submitted Decision, so a structurally valid bundle could alter the budget, exclusions, candidate set, selected snapshot or Event payload and still commit; a stale catalog was invisible to it. `verifyItemSelection()` now recomputes every claim from re-read state, the live brief's immutable snapshot and the current catalog, and refuses any mismatch without writing. Approved-budget `Money` is now defensively copied when building the Decision. Catalog injection added to the local repository so staleness is testable without touching the production seed. 18 new repository-level checks (selection 47 → 65); **299 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. No schema change — `OperationsState` stays **v3**, Workspace stays **v7**.*
 *Updated after H3.4 (Vendor directory, hand-entered offers and manual vendor selection) — `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record). Workspace schema unchanged at **v7**. Only a manual directory and hand-entered offers exist: no scoring, ranking, routing, APIs, vendor accounts, portal, courier, fulfilment or commerce, and **U5 partner onboarding was not invented**. Event named **`VendorSelected`**, not the checkpoint's `VendorContacted` — Aniyé contacts nobody. The chosen item is read from the live `ItemSelection` Decision, never re-read from the catalog; delivery context comes from the current confirmed brief. Zero-cost quotes allowed, negative refused, no invented rule that a quote sit below catalog price. `verifyVendorSelection()` recomputes every claim before one atomic write. Four earlier checks amended and declared. **357 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. Verified live at 1440px, 768px and 500px; **the 500px floor is the window manager's, and real-device testing is still not done**. System Atlas v3.8, Master Roadmap v1.5, Relationship Operations Atlas v1.5.*
+*Updated after the H3.4 vendor trust-boundary correction (H3.4-D1) — the builders produced the intended shapes but the repository did not enforce them at runtime, so a Vendor could carry `reliabilityScore`/`rating`/`capacity`/`sla`/`onboardingStatus`, a malformed email could reach `createVendor` directly, optional fields and timestamps went unchecked, a bundle whose shared instants were all the same unusable string satisfied the equality rule, non-string offer terms passed when duplicated consistently, a `finalDecision` could contradict its own evidence, and extra commercial fields could be attached to offers, `Decision.inputs`, considered entries or the Event payload. Vendors are now **rebuilt** from an exact eleven-field list rather than spread; timestamps must be canonical ISO instants, not merely equal; `finalDecision` is recomputed from a shared formatter; and exact keys are enforced on everything newly submitted while stored history keeps preserving unknown keys. 16 new refusal checks (vendors 58 → 74), each proving zero writes and byte-identical collections, plus two proving honest writes still commit. **373 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` stays **v4**, Workspace **v7**; the migration chain and existing records are untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.**

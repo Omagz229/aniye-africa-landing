@@ -10,6 +10,7 @@
 
 import type { Money } from '../money';
 import { isValidMoney } from '../money';
+import { isIsoInstant } from './vendors';
 import type { CatalogItemSnapshot } from '../catalog';
 import type { DeliveryAddress, RelationshipType } from '../workspace';
 
@@ -843,16 +844,28 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (!/^[A-Z]{2}$/.test(vendor.countryCode as string)) {
       return { ok: false, reason: `Vendor "${vendor.id}" has an invalid country code.` };
     }
+    // Present-but-wrong is refused; absent is fine. Checked here as well as at
+    // the write path, so a payload that reached storage another way still
+    // cannot be read as valid.
+    for (const field of ['whatsapp', 'email', 'note'] as const) {
+      if (vendor[field] === undefined) continue;
+      if (typeof vendor[field] !== 'string' || (vendor[field] as string).trim().length === 0) {
+        return { ok: false, reason: `Vendor "${vendor.id}" has an unusable ${field}.` };
+      }
+    }
     // A vendor nobody can reach is not a vendor. Enforced in the persistence
     // layer as well as the form, so it cannot be bypassed by a caller.
-    const reachable =
-      (isNonEmptyString(vendor.whatsapp) && (vendor.whatsapp as string).trim().length > 0) ||
-      (isNonEmptyString(vendor.email) && (vendor.email as string).trim().length > 0);
+    const reachable = vendor.whatsapp !== undefined || vendor.email !== undefined;
     if (!reachable) {
       return { ok: false, reason: `Vendor "${vendor.id}" has no way of being contacted.` };
     }
     if (typeof vendor.isActive !== 'boolean') {
       return { ok: false, reason: `Vendor "${vendor.id}" has no active state.` };
+    }
+    for (const field of ['createdAt', 'updatedAt'] as const) {
+      if (!isIsoInstant(vendor[field])) {
+        return { ok: false, reason: `Vendor "${vendor.id}" has an unreadable ${field}.` };
+      }
     }
   }
 
@@ -893,8 +906,11 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (!isPlainObject(offer.vendorSnapshot) || !isPlainObject(offer.itemSnapshot)) {
       return { ok: false, reason: `Offer "${offer.id}" is missing a vendor or item snapshot.` };
     }
-    if (!isNonEmptyString(offer.quotedAt) || !isNonEmptyString(offer.recordedAt)) {
-      return { ok: false, reason: `Offer "${offer.id}" is missing a timestamp.` };
+    if (!isIsoInstant(offer.quotedAt) || !isIsoInstant(offer.recordedAt)) {
+      return { ok: false, reason: `Offer "${offer.id}" has an unreadable timestamp.` };
+    }
+    if (offer.terms !== undefined && (typeof offer.terms !== 'string' || offer.terms.trim().length === 0)) {
+      return { ok: false, reason: `Offer "${offer.id}" has unusable terms.` };
     }
     if (
       offer.leadTimeDays !== undefined &&

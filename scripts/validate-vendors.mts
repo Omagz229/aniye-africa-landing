@@ -46,9 +46,12 @@ import { buildMomentBatch } from '../lib/operations/generation';
 import { buildBriefConfirmation } from '../lib/operations/briefs';
 import { buildItemSelection } from '../lib/operations/selection';
 import {
+  VENDOR_KEYS,
   applyVendorEdit,
   buildVendor,
+  canonicalVendor,
   filterVendors,
+  isIsoInstant,
   snapshotVendor,
   sortVendors,
   validateVendorDraft,
@@ -60,6 +63,7 @@ import {
   emptyOfferDraft,
   previewVendorSelection,
   validateOfferDraft,
+  vendorFinalDecision,
 } from '../lib/operations/vendor-selection';
 import type { NormalizedOffer } from '../lib/operations/vendor-selection';
 import { titleFor } from '../lib/operations/routes';
@@ -1218,6 +1222,288 @@ check('58. A vendor snapshot is a copy — later edits cannot rewrite it', () =>
   v.city = 'Elsewhere';
   assertEqual(snapshot.name, 'Vendor v-copy', 'A snapshot followed a later rename.');
   assertEqual(snapshot.city, 'Lagos', 'A snapshot followed a later move.');
+});
+
+// ─── Part 8: runtime shape enforcement (H3.4-D1) ─────────────────────────────
+//
+// The builders produce the intended shapes; these prove the **repository**
+// enforces them at runtime against callers that never used a builder.
+// TypeScript checks no excess property on a widened value, and nothing at all
+// once the code is running.
+
+/** Assert a vendor write is refused and that storage did not move. */
+function expectVendorRefused(fx: Fx, vendor: unknown, what: string, mode: 'create' | 'update' = 'create'): void {
+  const before = fx.repo.load(WS);
+  assert(before.ok && before.value, 'State unreadable.');
+  const prior = JSON.stringify(before.value!.vendors);
+  const priorWrites = fx.storage.writes.length;
+
+  const written = mode === 'create'
+    ? fx.repo.createVendor(WS, vendor as Vendor, NOW)
+    : fx.repo.updateVendor(WS, vendor as Vendor, LATER);
+  assert(!written.ok, `${what} was accepted.`);
+
+  assertEqual(fx.storage.writes.length, priorWrites, `${what} still wrote to storage.`);
+  const after = fx.repo.load(WS);
+  assert(after.ok && after.value, 'State could not be re-read.');
+  assertEqual(JSON.stringify(after.value!.vendors), prior, `${what} changed the directory.`);
+}
+
+const INTELLIGENCE_FIELDS = {
+  reliabilityScore: 0.97, rating: 5, capacity: 100, sla: '24h', onboardingStatus: 'Approved',
+};
+
+check('59. A vendor carrying intelligence fields is refused, and writes nothing', () => {
+  const fx = preparedWorkspace();
+  for (const [field, value] of Object.entries(INTELLIGENCE_FIELDS)) {
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), [field]: value }, `A vendor carrying ${field}`);
+  }
+  // All of them at once, for good measure.
+  expectVendorRefused(fx, { ...vendorRecord('v-new'), ...INTELLIGENCE_FIELDS }, 'A vendor carrying a whole scorecard');
+  // And a price list, which is the other thing H4.4 will eventually want.
+  expectVendorRefused(fx, { ...vendorRecord('v-new'), priceList: [{ item: 'x', price: 1 }] }, 'A vendor carrying a price list');
+});
+
+check('60. A vendor edit cannot smuggle undeclared fields in', () => {
+  const fx = preparedWorkspace();
+  const stored = fx.repo.findVendor(WS, 'v1');
+  assert(stored.ok && stored.value, 'Vendor missing.');
+  expectVendorRefused(fx, { ...stored.value!, ...INTELLIGENCE_FIELDS }, 'An edit adding a scorecard', 'update');
+  expectVendorRefused(fx, { ...stored.value!, preferred: true }, 'An edit adding preferred status', 'update');
+});
+
+check('61. A malformed email reaching createVendor directly is refused', () => {
+  const fx = preparedWorkspace();
+  for (const email of ['not-an-address', 'missing@tld', '@nobody.example', 'two@@at.example']) {
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), whatsapp: undefined, email }, `The email "${email}"`);
+  }
+  // The shape check is the same one the form applies — enforced at the boundary.
+  const good = { ...vendorRecord('v-new'), whatsapp: undefined, email: 'orders@vendor.example' };
+  assert(fx.repo.createVendor(WS, good as Vendor, NOW).ok, 'A well-formed email was refused.');
+});
+
+check('62. Non-string optional vendor fields are refused', () => {
+  const fx = preparedWorkspace();
+  for (const [field, value] of [
+    ['note', 42], ['note', ''], ['note', {}],
+    ['whatsapp', 12345], ['whatsapp', '   '],
+    ['email', ['a@b.example']],
+  ] as const) {
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), [field]: value }, `A ${field} of ${JSON.stringify(value)}`);
+  }
+});
+
+check('63. Unreadable vendor timestamps are refused', () => {
+  const fx = preparedWorkspace();
+  for (const bad of ['banana', '2026', 'August 1 2026', '2026-08-01', 1_700_000_000, null, '']) {
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), createdAt: bad }, `A createdAt of ${JSON.stringify(bad)}`);
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), updatedAt: bad }, `An updatedAt of ${JSON.stringify(bad)}`);
+  }
+  // Canonical instants, with and without milliseconds, are accepted.
+  assert(isIsoInstant('2026-08-01T00:00:00.000Z'), 'A canonical instant was rejected.');
+  assert(isIsoInstant('2026-08-01T00:00:00Z'), 'A second-precision instant was rejected.');
+  assert(!isIsoInstant('2026-08-01T00:00:00+01:00'), 'A non-UTC offset was accepted.');
+});
+
+check('64. A vendor with no contact method is refused at the repository', () => {
+  const fx = preparedWorkspace();
+  expectVendorRefused(fx, { ...vendorRecord('v-new'), whatsapp: undefined, email: undefined }, 'An unreachable vendor');
+});
+
+check('65. Structural validation refuses malformed vendor fields on read', () => {
+  const fx = preparedWorkspace();
+  const state = fx.repo.load(WS);
+  assert(state.ok && state.value, 'State unreadable.');
+  const base = state.value!;
+  for (const [patch, label] of [
+    [{ note: 7 }, 'a numeric note'],
+    [{ whatsapp: '' }, 'a blank whatsapp'],
+    [{ createdAt: 'banana' }, 'an unreadable createdAt'],
+    [{ updatedAt: '2026-08-01' }, 'a date-only updatedAt'],
+  ] as const) {
+    const broken = JSON.parse(JSON.stringify(base)) as OperationsState;
+    Object.assign(broken.vendors[0], patch);
+    assert(!validateOperationsState(broken, WS).ok, `Validation accepted ${label}.`);
+  }
+});
+
+check('66. Shared timestamps must be readable, not merely equal', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  // The named defect: every shared instant is the same unusable string, so the
+  // equality checks all agree and tell nobody anything.
+  for (const bad of ['banana', '', '2026-08-01', 'later']) {
+    const stamped = {
+      offers: bundle.offers.map(o => ({ ...o, recordedAt: bad })),
+      decision: { ...bundle.decision, createdAt: bad, confirmedAt: bad },
+      event: { ...bundle.event, occurredAt: bad, recordedAt: bad },
+    };
+    expectRefused(fx, stamped as unknown as Bundle, `Shared timestamps of ${JSON.stringify(bad)}`);
+  }
+});
+
+check('67. An unreadable quotedAt is refused, and a valid one may precede recordedAt', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const bad of ['banana', '2026-07-28', '', 42]) {
+    expectRefused(fx, {
+      ...bundle,
+      offers: bundle.offers.map((o, i) => (i === 0 ? { ...o, quotedAt: bad as string } : o)),
+      decision: {
+        ...bundle.decision,
+        inputs: {
+          ...bundle.decision.inputs,
+          consideredOffers: (bundle.decision.inputs as { consideredOffers: Record<string, unknown>[] })
+            .consideredOffers.map((c, i) => (i === 0 ? { ...c, quotedAt: bad } : c)),
+        },
+      },
+    }, `A quotedAt of ${JSON.stringify(bad)}`);
+  }
+  // QUOTED precedes NOW, and the honest bundle commits — the quote came first.
+  assert(QUOTED < NOW, 'The fixture does not exercise a quote preceding its recording.');
+  assert(fx.repo.commitVendorSelection(WS, threeOfferBundle(fx), NOW).ok, 'A quote preceding recording was refused.');
+});
+
+check('68. Non-string or blank terms are refused in both the offer and the considered set', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  const considered = (bundle.decision.inputs as { consideredOffers: Record<string, unknown>[] }).consideredOffers;
+
+  // Consistently duplicated in both places, which is what made this pass before.
+  for (const bad of [42, '', '   ', {}, null] as const) {
+    expectRefused(fx, {
+      ...bundle,
+      offers: bundle.offers.map((o, i) => (i === 0 ? { ...o, terms: bad as string } : o)),
+      decision: {
+        ...bundle.decision,
+        inputs: {
+          ...bundle.decision.inputs,
+          consideredOffers: considered.map((c, i) => (i === 0 ? { ...c, terms: bad } : c)),
+        },
+      },
+    }, `Terms of ${JSON.stringify(bad)}`);
+  }
+});
+
+check('69. An altered, blank or contradictory finalDecision is refused', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [text, label] of [
+    ['', 'A blank summary'],
+    ['   ', 'A whitespace summary'],
+    ['Vendor v1 — NGN 34,000.00 quoted', 'A summary naming the wrong vendor'],
+    ['Vendor v2 — NGN 1.00 quoted', 'A summary stating the wrong amount'],
+    ['Vendor v2 — NGN 31,500.50 paid', 'A summary claiming the amount was paid'],
+    ['Vendor v2', 'A summary omitting the amount'],
+  ] as const) {
+    expectRefused(fx, { ...bundle, decision: { ...bundle.decision, finalDecision: text } }, label);
+  }
+  // The honest summary is exactly what the shared formatter produces.
+  const selected = bundle.offers[1];
+  assertEqual(
+    bundle.decision.finalDecision,
+    vendorFinalDecision(selected.vendorSnapshot, selected.quotedVendorCost),
+    'The builder and the boundary disagree about the summary.',
+  );
+});
+
+check('70. Extra Decision.inputs fields are refused', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const patch of [
+    { customerCharge: { amountMinor: 6_000_000, currency: 'NGN' } },
+    { margin: { amountMinor: 2_000_000, currency: 'NGN' } },
+    { revenue: 1234 },
+    { catalogDerivedCost: { amountMinor: 3_800_000, currency: 'NGN' } },
+    { recommendedVendorId: 'v1' },
+    { vendorScores: { v1: 0.9, v2: 0.7 } },
+    { ranking: ['v2', 'v1', 'v3'] },
+  ]) {
+    expectRefused(fx, withInputs(bundle, patch), `Decision inputs carrying ${Object.keys(patch)[0]}`);
+  }
+});
+
+check('71. Extra VendorOffer and considered-offer fields are refused', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  const considered = (bundle.decision.inputs as { consideredOffers: Record<string, unknown>[] }).consideredOffers;
+
+  for (const patch of [{ margin: 100 }, { customerCharge: 500 }, { score: 9 }, { rank: 1 }, { catalogPrice: 3_800_000 }]) {
+    expectRefused(fx, {
+      ...bundle,
+      offers: bundle.offers.map((o, i) => (i === 0 ? { ...o, ...patch } : o)),
+    }, `A quote carrying ${Object.keys(patch)[0]}`);
+
+    expectRefused(fx, withInputs(bundle, {
+      consideredOffers: considered.map((c, i) => (i === 0 ? { ...c, ...patch } : c)),
+    }), `A recorded quote carrying ${Object.keys(patch)[0]}`);
+  }
+});
+
+check('72. Extra VendorSelected event payload fields are refused', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  const p = bundle.event.payload as Record<string, unknown>;
+  for (const patch of [
+    { consideredOffers: [1, 2, 3] },
+    { quotedVendorCost: { amountMinor: 3_150_050, currency: 'NGN' } },
+    { selectedVendor: { vendorId: 'v2', name: 'Vendor v2', countryCode: 'NG', city: 'Lagos' } },
+    { margin: 1 },
+    { reason: 'Cheapest' },
+  ]) {
+    expectRefused(fx, { ...bundle, event: { ...bundle.event, payload: { ...p, ...patch } } },
+      `An event payload carrying ${Object.keys(patch)[0]}`);
+  }
+  // Exactly five identifiers, and no more.
+  assertEqual(Object.keys(p).sort().join(','),
+    'briefId,briefRevision,itemSelectionDecisionId,selectedOfferId,selectedVendorId',
+    'The event payload is not the five identifiers.');
+});
+
+check('73. Honest vendor writes and an honest selection still commit', () => {
+  // A validator that refuses everything would pass every check above.
+  const fx = preparedWorkspace();
+
+  const created = fx.repo.createVendor(WS, vendorRecord('v-honest'), NOW);
+  assert(created.ok, `An honest vendor was refused: ${created.ok ? '' : created.reason}`);
+
+  const stored = fx.repo.findVendor(WS, 'v-honest');
+  assert(stored.ok && stored.value, 'Vendor missing.');
+  const edit = validateVendorDraft({ ...GOOD_DRAFT, name: 'Renamed Honestly', city: 'Ibadan' });
+  assert(edit.ok, 'Draft invalid.');
+  if (!edit.ok) return;
+  const updated = fx.repo.updateVendor(WS, applyVendorEdit(stored.value!, edit.value, LATER), LATER);
+  assert(updated.ok, `An honest edit was refused: ${updated.ok ? '' : updated.reason}`);
+  if (updated.ok) {
+    assertEqual(updated.value.name, 'Renamed Honestly', 'The edit did not apply.');
+    assertEqual(updated.value.createdAt, T0, 'The edit rewrote createdAt.');
+  }
+
+  assert(fx.repo.setVendorActive(WS, 'v-honest', false, LATER).ok, 'An honest deactivation was refused.');
+
+  const before = fx.storage.writes.length;
+  const written = fx.repo.commitVendorSelection(WS, threeOfferBundle(fx), NOW);
+  assert(written.ok, `An honest selection was refused: ${written.ok ? '' : written.reason}`);
+  assertEqual(fx.storage.writes.length - before, 1, 'The honest commit was not a single write.');
+});
+
+check('74. A canonical vendor is rebuilt, not spread', () => {
+  const smuggled = { ...vendorRecord('v-x'), reliabilityScore: 0.9 };
+  const result = canonicalVendor(smuggled, WS);
+  assert(!result.ok, 'A smuggled field survived canonicalisation.');
+
+  const clean = canonicalVendor(vendorRecord('v-y'), WS);
+  assert(clean.ok, 'A clean vendor failed canonicalisation.');
+  if (!clean.ok) return;
+  assertEqual(
+    Object.keys(clean.value).sort().join(','),
+    'city,countryCode,createdAt,id,isActive,name,note,updatedAt,whatsapp,workspaceId',
+    'The rebuilt vendor has an unexpected field list.',
+  );
+  // Every key it does have is one H3.4 declared.
+  for (const k of Object.keys(clean.value)) {
+    assert((VENDOR_KEYS as readonly string[]).includes(k), `Rebuilt vendor carries an undeclared "${k}".`);
+  }
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

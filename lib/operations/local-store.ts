@@ -17,6 +17,7 @@ import type { CatalogItem } from '../catalog';
 import { CATALOG_ITEMS } from '../catalog';
 import { verifyItemSelection } from './selection';
 import { verifyVendorSelection } from './vendor-selection';
+import { canonicalVendor } from './vendors';
 import type {
   BriefWrite,
   ItemSelectionWrite,
@@ -484,31 +485,44 @@ export function createLocalOperationsRepository(
     createVendor(workspaceId, vendor, now) {
       const state = require(workspaceId);
       if (!state.ok) return state;
-      if (vendor.workspaceId !== workspaceId) {
-        return { ok: false, reason: 'That vendor belongs to a different workspace. Nothing was saved.' };
-      }
-      if (state.value.vendors.some(v => v.id === vendor.id)) {
+
+      /**
+       * **Rebuilt, not spread.** `canonicalVendor` validates the exact H3.4
+       * field list and constructs a fresh record from it, so a caller cannot
+       * store a `reliabilityScore`, `rating`, `capacity`, `sla` or
+       * `onboardingStatus` by handing us an object that satisfies the `Vendor`
+       * interface at compile time — TypeScript checks no excess property on a
+       * widened value, and nothing at all at runtime. Vendor *Intelligence* is
+       * H4.4, and this is what keeps it there.
+       */
+      const canonical = canonicalVendor(vendor, workspaceId);
+      if (!canonical.ok) return canonical;
+
+      if (state.value.vendors.some(v => v.id === canonical.value.id)) {
         return { ok: false, reason: 'That vendor has already been added.' };
       }
-      const written = commit({ ...state.value, vendors: [...state.value.vendors, vendor] }, now);
+      const written = commit({ ...state.value, vendors: [...state.value.vendors, canonical.value] }, now);
       if (!written.ok) return written;
-      return { ok: true, value: vendor };
+      return { ok: true, value: canonical.value };
     },
 
     updateVendor(workspaceId, vendor, now) {
       const state = require(workspaceId);
       if (!state.ok) return state;
-      const existing = state.value.vendors.find(v => v.id === vendor.id);
+      const existing = state.value.vendors.find(v => v.id === (vendor as { id?: string }).id);
       if (!existing) return { ok: false, reason: 'That vendor is no longer in the directory.' };
-      if (vendor.workspaceId !== workspaceId) {
-        return { ok: false, reason: 'That vendor belongs to a different workspace. Nothing was saved.' };
-      }
 
-      // Identity, ownership, creation time and active state are carried from
-      // the stored record, never from the submission. An edit form must not be
-      // able to reassign a vendor or resurrect a deactivated one.
-      const updated: Vendor = {
-        ...vendor,
+      /**
+       * Identity, ownership, creation time and active state are taken from the
+       * **stored** record, never from the submission — an edit form must not be
+       * able to reassign a vendor, rewrite when it was added, or resurrect a
+       * deactivated one. Only `setVendorActive` changes active state.
+       *
+       * The result is then rebuilt through `canonicalVendor`, so an edit cannot
+       * smuggle undeclared fields in either.
+       */
+      const proposed = {
+        ...(vendor as unknown as Record<string, unknown>),
         id: existing.id,
         workspaceId: existing.workspaceId,
         isActive: existing.isActive,
@@ -516,8 +530,12 @@ export function createLocalOperationsRepository(
         updatedAt: now,
       };
 
+      const canonical = canonicalVendor(proposed, workspaceId);
+      if (!canonical.ok) return canonical;
+      const updated: Vendor = canonical.value;
+
       const written = commit(
-        { ...state.value, vendors: state.value.vendors.map(v => (v.id === vendor.id ? updated : v)) },
+        { ...state.value, vendors: state.value.vendors.map(v => (v.id === updated.id ? updated : v)) },
         now,
       );
       if (!written.ok) return written;
@@ -532,7 +550,9 @@ export function createLocalOperationsRepository(
       if (existing.isActive === isActive) {
         return { ok: true, value: existing };
       }
-      const updated: Vendor = { ...existing, isActive, updatedAt: now };
+      const canonical = canonicalVendor({ ...existing, isActive, updatedAt: now }, workspaceId);
+      if (!canonical.ok) return canonical;
+      const updated: Vendor = canonical.value;
       const written = commit(
         { ...state.value, vendors: state.value.vendors.map(v => (v.id === vendorId ? updated : v)) },
         now,

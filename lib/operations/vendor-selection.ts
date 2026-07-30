@@ -34,7 +34,7 @@ import type {
   VendorSnapshot,
 } from './types';
 import { OFFER_SOURCES } from './types';
-import { activeVendors, sameVendorSnapshot, snapshotVendor } from './vendors';
+import { activeVendors, isIsoInstant, sameVendorSnapshot, snapshotVendor } from './vendors';
 import type { IdFactory } from './generation';
 
 // ─── Reading the item selection ──────────────────────────────────────────────
@@ -519,7 +519,7 @@ export function buildVendorSelection(
     },
     // Display only. This is an estimate of what the vendor will charge Aniyé —
     // not a paid cost, not the customer's charge, and not a RecognitionOrder.
-    finalDecision: `${selected.vendorSnapshot.name} — ${formatMoney(selected.quotedVendorCost)} quoted`,
+    finalDecision: vendorFinalDecision(selected.vendorSnapshot, selected.quotedVendorCost),
     reason,
     createdAt: now,
     confirmedAt: now,
@@ -547,6 +547,19 @@ export function buildVendorSelection(
   };
 
   return { ok: true, value: { offers, decision, event } };
+}
+
+/**
+ * The one-line summary a `VendorSelection` shows.
+ *
+ * Shared by the builder and the trust boundary **on purpose**: the verifier
+ * recomputes this string and compares it, so a bundle cannot carry display text
+ * that contradicts the vendor or the quote it claims to summarise. A record
+ * whose headline disagrees with its own evidence is worse than one with no
+ * headline — every casual reader believes the headline.
+ */
+export function vendorFinalDecision(vendor: VendorSnapshot, quoted: Money): string {
+  return `${vendor.name} — ${formatMoney(quoted)} quoted`;
 }
 
 /** One offer as it appears inside the Decision — complete, and self-contained. */
@@ -592,6 +605,54 @@ function summariseOffer(offer: VendorOffer): ConsideredOffer {
  * channel, its quoted time and who recorded it: the evidence is attributable,
  * not proven.
  */
+/**
+ * The exact field lists a newly submitted vendor selection may carry.
+ *
+ * Applied to the **bundle being written**, never to stored history — a payload
+ * written by a later build must still survive a read, which is why unknown keys
+ * are preserved by migration but refused at the door.
+ *
+ * These lists are what stop commercial vocabulary arriving early. H3.4 records
+ * an *estimate of what a vendor will charge Aniyé* and nothing else: a
+ * `customerCharge`, `margin`, `revenue`, `catalogCost`, `score`, `rank` or
+ * `recommendation` smuggled into a Decision would read, years later, as though
+ * this milestone had decided something it explicitly did not. U3 — whether Aniyé
+ * is merchant of record or agent — is unresolved until H3.7.
+ */
+const OFFER_KEYS = [
+  'id', 'workspaceId', 'momentId', 'briefId', 'briefRevision',
+  'itemSelectionDecisionId', 'selectedItemId', 'itemSnapshot',
+  'vendorId', 'vendorSnapshot', 'quotedVendorCost', 'source',
+  'quotedAt', 'recordedAt', 'leadTimeDays', 'terms',
+] as const;
+
+const DECISION_INPUT_KEYS = [
+  'briefId', 'briefRevision', 'itemSelectionDecisionId', 'selectedItemId',
+  'selectedItem', 'approvedBudget', 'consideredOffers',
+  'selectedOfferId', 'selectedVendorId', 'selectedVendor', 'selectedQuotedVendorCost',
+] as const;
+
+const CONSIDERED_KEYS = [
+  'offerId', 'vendorId', 'vendor', 'quotedVendorCost', 'source',
+  'quotedAt', 'leadTimeDays', 'terms',
+] as const;
+
+/** Deliberately five identifiers. The evidence lives on the Decision and offers. */
+const EVENT_PAYLOAD_KEYS = [
+  'briefId', 'briefRevision', 'itemSelectionDecisionId', 'selectedOfferId', 'selectedVendorId',
+] as const;
+
+function extraKeys(value: unknown, allowed: readonly string[]): string[] {
+  if (typeof value !== 'object' || value === null) return [];
+  const permitted = new Set(allowed);
+  return Object.keys(value as Record<string, unknown>).filter(k => !permitted.has(k));
+}
+
+/** `undefined` counts as absent; a present value must be usable text. */
+function optionalTextValid(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && value.trim().length > 0);
+}
+
 export interface VerifyVendorSelectionInput {
   workspaceId: string;
   moment: Moment;
@@ -641,6 +702,11 @@ export function verifyVendorSelection(
     return refuse('That decision belongs to a different workspace or moment.');
   }
 
+  const extraInputs = extraKeys(decision.inputs, DECISION_INPUT_KEYS);
+  if (extraInputs.length > 0) {
+    return refuse(`A vendor selection cannot record ${extraInputs.join(', ')}.`);
+  }
+
   // ── 2. The Moment must still be executable ──
   if (moment.status === 'Cancelled') return refuse('That moment has been cancelled.');
   if (moment.status !== 'ReadyForExecution') return refuse('That moment is no longer ready for execution.');
@@ -688,6 +754,10 @@ export function verifyVendorSelection(
   const vendorIds = new Set<string>();
 
   for (const offer of offers) {
+    const extraOffer = extraKeys(offer, OFFER_KEYS);
+    if (extraOffer.length > 0) {
+      return refuse(`A quote cannot record ${extraOffer.join(', ')}.`);
+    }
     if (!offer.id || offerIds.has(offer.id)) return refuse('Two quotes share an identifier.');
     offerIds.add(offer.id);
     if (vendorIds.has(offer.vendorId)) return refuse('The same vendor was recorded twice.');
@@ -726,11 +796,19 @@ export function verifyVendorSelection(
     if (!(OFFER_SOURCES as readonly string[]).includes(offer.source)) {
       return refuse('A quote records an unknown channel.');
     }
-    if (!offer.quotedAt || Number.isNaN(Date.parse(offer.quotedAt))) {
+    // `quotedAt` is independently valid and may precede `recordedAt` — the
+    // vendor spoke before the operator typed it up, which is the normal case.
+    if (!isIsoInstant(offer.quotedAt)) {
       return refuse('A quote has no readable quoted time.');
+    }
+    if (!isIsoInstant(offer.recordedAt)) {
+      return refuse('A quote has an unreadable recorded time.');
     }
     if (offer.recordedAt !== decision.confirmedAt) {
       return refuse('A quote was recorded at a different instant from the decision.');
+    }
+    if (!optionalTextValid(offer.terms)) {
+      return refuse('A quote has unusable terms.');
     }
     if (
       offer.leadTimeDays !== undefined &&
@@ -749,6 +827,10 @@ export function verifyVendorSelection(
   for (const [i, entry] of considered.entries()) {
     const want = expected[i];
     if (typeof entry !== 'object' || entry === null) return refuse('A recorded quote is unreadable.');
+    const extraConsidered = extraKeys(entry, CONSIDERED_KEYS);
+    if (extraConsidered.length > 0) {
+      return refuse(`A recorded quote cannot carry ${extraConsidered.join(', ')}.`);
+    }
     const got = entry as Partial<ConsideredOffer>;
     if (
       got.offerId !== want.offerId ||
@@ -776,6 +858,11 @@ export function verifyVendorSelection(
   if (!sameMoney(inputs.selectedQuotedVendorCost, selected.quotedVendorCost)) {
     return refuse('The recorded chosen quote does not match its offer.');
   }
+  // Recomputed from the same formatter the builder uses, so the headline cannot
+  // contradict — or omit — the evidence beneath it.
+  if (decision.finalDecision !== vendorFinalDecision(selected.vendorSnapshot, selected.quotedVendorCost)) {
+    return refuse('The recorded summary does not describe the chosen vendor and quote.');
+  }
 
   // ── 9. The Event must describe the same occurrence ──
   if (event.eventType !== 'VendorSelected') return refuse('That event does not record a vendor selection.');
@@ -785,6 +872,11 @@ export function verifyVendorSelection(
   if (event.actorType !== 'Operator') return refuse('A vendor selection is an operator action.');
   if (event.source !== 'Platform') return refuse('A vendor selection recorded here came through the platform.');
   if (event.actorId !== decision.actorId) return refuse('The decision and event name different actors.');
+
+  const extraPayload = extraKeys(event.payload, EVENT_PAYLOAD_KEYS);
+  if (extraPayload.length > 0) {
+    return refuse(`A vendor-selection event cannot carry ${extraPayload.join(', ')}.`);
+  }
 
   const payload = event.payload as Record<string, unknown>;
   if (
@@ -797,7 +889,19 @@ export function verifyVendorSelection(
     return refuse('The event and the decision disagree about what was chosen.');
   }
 
-  // One transaction, therefore one instant.
+  // One transaction, therefore one instant — and that instant must be
+  // **readable**. Equality alone is not enough: three timestamps that are all
+  // the same unusable string agree with each other and tell nobody anything.
+  for (const [value, what] of [
+    [decision.createdAt, 'the decision was created'],
+    [decision.confirmedAt, 'the decision was confirmed'],
+    [event.occurredAt, 'the event occurred'],
+    [event.recordedAt, 'the event was recorded'],
+  ] as const) {
+    if (!isIsoInstant(value)) {
+      return refuse(`There is no readable record of when ${what}.`);
+    }
+  }
   if (decision.createdAt !== decision.confirmedAt) {
     return refuse('The decision was created and confirmed at different times.');
   }
