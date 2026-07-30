@@ -190,6 +190,16 @@ export function assessPerson(personId: string, context: GenerationContext): Pers
          * reach through into a written snapshot.
          */
         excludedCategories: [...(resolved.policy.excludedCategories ?? [])],
+        /**
+         * Pre-H3.6 policy-snapshot correction — these four are customer promises
+         * in exactly the same sense as the budget and exclusions above. Capture
+         * the resolved policy values now; a later in-place policy edit cannot be
+         * allowed to rewrite what governed this Moment.
+         */
+        deliveryRequirement: resolved.policy.deliveryRequirement,
+        preferredDeliveryWindow: resolved.policy.preferredDeliveryWindow,
+        signatureRequired: resolved.policy.signatureRequired,
+        proofRequired: resolved.policy.proofRequired,
         resolvedAt: context.now,
       };
     }

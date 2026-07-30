@@ -179,22 +179,27 @@ export function loadLiveContext(programId: string, deps: ConfirmationDeps): Live
  * make every confirmation report a spurious change and train operators to click
  * through the warning — which is worse than no warning at all.
  *
- * **Includes** who is pending, each person's outcome and issue codes, and the
- * resolved policy identity, version, scope and exact Money. A budget moving by
- * one minor unit is a material change.
+ * **Includes** who is pending, each person's outcome and issue codes, the
+ * resolved policy identity, version, scope and exact Money, and the four
+ * delivery promises captured by OperationsState v6. A budget moving by one
+ * minor unit or any delivery promise changing is material.
  */
 export function fingerprintPreview(preview: PreparationPreview): string {
   const line = (a: PersonAssessment): string => {
     const r = a.resolution;
     const resolution = r
-      ? [
+      ? JSON.stringify([
           r.policyAssignmentId,
           r.policyId,
           `v${r.policyVersion}`,
           r.resolvedCountryScope,
           r.occasionType,
           `${r.approvedRecognitionBudget.amountMinor}${r.approvedRecognitionBudget.currency}`,
-        ].join('~')
+          r.deliveryRequirement,
+          r.preferredDeliveryWindow,
+          r.signatureRequired,
+          r.proofRequired,
+        ])
       : 'none';
     // Issue codes only — messages carry names and wording that may be reworded
     // without the operational meaning changing.

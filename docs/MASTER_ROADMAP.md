@@ -21,11 +21,11 @@
 | | Value |
 |---|---|
 | **Workspace schema** | **v7** — `lib/migrations.ts` |
-| **`OperationsState` schema** | **v5** — `lib/operations/types.ts`, versioned independently (ADR-010) |
+| **`OperationsState` schema** | **v6** — `lib/operations/types.ts`, versioned independently (ADR-010) |
 | **Last completed milestone** | **H3.5** — Courier directory + manual selection. **Directory scoped per country; coverage authority is the countries on current confirmed Execution Briefs** |
-| **Next milestone** | **H3.6** — Fulfilment tracking. **Governance resolved (ADR-012); not begun; one correction pending** |
+| **Next milestone** | **H3.6** — Fulfilment tracking. **Governance and both prerequisite corrections resolved; not begun** |
 | **Milestones** | **23 of 37 complete** — see *Milestone count* |
-| **Blocking H3.6** | ✅ **Governance resolved** — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), 2026-07-30. ✅ **H3.3/H3.4-D1 complete.** ⚠️ **The policy-snapshot v5 → v6 migration remains** — see *Before H3.6 may begin* |
+| **Blocking H3.6** | ✅ **No remaining prerequisite blocker.** ADR-012 accepted; H3.3/H3.4-D1 complete; policy-snapshot `v5 → v6` complete — see *Before H3.6 may begin* |
 | **Outstanding** | ⚠️ **Live responsive testing on real devices** — still never performed. Browser verification at emulated widths is not a substitute; it is a pre-pilot **[P]** item (H4.0) |
 | **Blocking the pilot (H4.1)** | ⛔ Production backend, authentication, multi-tenancy, secure file storage (ADR-010). **This gate does not bind on any H3 milestone** |
 
@@ -115,7 +115,7 @@ to a delivered, costed, closed recognition. Everything not on this path is defer
 | **H3.3** | **Minimum Catalog + manual item selection** — a flat item list filtered by budget and excluded categories; operator selects one | 5 | H3.2 · `OperationsState` v3 | **[R]** | ✅ **Complete** |
 | **H3.4** | **Vendor directory, hand-entered offers + manual selection** | 6 | H3.3 · `OperationsState` v4 | **[R]** | ✅ **Complete** |
 | **H3.5** | **Courier directory + manual selection** — a **country-scoped** directory; coverage measured against the countries on current confirmed Execution Briefs | 7 | H3.4 · `OperationsState` v5 | **[R]** | ✅ **Complete** |
-| **H3.6** | **Fulfilment tracking** — dispatch → delivered → proof, with failure and redelivery paths | 8 | H3.5 · **ADR-012** · two pending corrections | **[R]** | ⬅️ **Next — not begun** |
+| **H3.6** | **Fulfilment tracking** — dispatch → delivered → proof, with failure and redelivery paths | 8 | H3.5 · **ADR-012** · both prerequisite corrections complete | **[R]** | ⬅️ **Next — not begun** |
 | **H3.7** | **Recognition Order + commercial tracking** — budget, estimates, actuals, derived margin | 9 | H3.6 | **[R]** | ⬜ |
 | **H3.8** | **Confirmation + Memory** — the Moment closes; a Memory record enters the relationship timeline | 10 | H3.7 | **[R]** | ⬜ |
 
@@ -488,16 +488,16 @@ was accepted on 2026-07-30: three Fulfilment states, one Fulfilment per Moment, 
 `Redelivery` as the only Decision, and **proof recorded as metadata with no file stored**. It
 resolves **OPS-U4a** and defers **OPS-U4b** with a recorded trigger.
 
-**The first of two prerequisite corrections is complete.** The second remains, preserving the
-accepted order:
+**Both prerequisite corrections are complete**, in the accepted order:
 
 | # | Correction | Status | Schema | Why first |
 |---|---|---|---|---|
 | 1 | **H3.3/H3.4 malformed-container correction** | ✅ **Complete — H3.3/H3.4-D1** | None | Both repository and direct-verifier boundaries now refuse malformed bundles, Decisions, Events, nested inputs/payloads and H3.4 offer containers without throwing or writing |
-| 2 | **Policy-resolution snapshot `v5 → v6`** | ⬜ **Next — not begun** | `OperationsState` **v6** | H3.6 cannot know whether proof was even required. Every Moment generated before it lands is permanently unable to answer |
+| 2 | **Policy-resolution snapshot `v5 → v6`** | ✅ **Complete — pre-H3.6 snapshot correction** | `OperationsState` **v6** | Newly generated Moments capture all four delivery promises; existing records are not backfilled and preserve absence as unknown |
 
-> ⚠️ **`OperationsState` is v5.** v6 is **planned and not landed**. No document may report it as
-> implemented until the migration ships.
+> ✅ **`OperationsState` is v6.** The `v5 → v6` rung is a pure version bump over existing records:
+> it invents no delivery requirement, window, signature promise or proof promise. H3.6 must still
+> refuse legacy absence with a named recovery; it may not re-resolve the current policy.
 
 **Still deferred, and not H3.6's to decide:** `QAException`, dispute adjudication, what the customer
 is told about an exception (**OPS-U4b**); `Returned` and `Escalation`; courier webhooks and tracking
@@ -525,7 +525,8 @@ A future country model requires **its own milestone and its own architecture rev
 
 ---
 
-*Master Roadmap v1.8 — Aniyé Africa — 30 July 2026*
+*Master Roadmap v1.9 — Aniyé Africa — 30 July 2026*
+*v1.9: **Pre-H3.6 policy-resolution snapshot correction complete.** `OperationsState` **v5 → v6** is a pure additive version rung: existing Moments, Decisions, Events and copied brief snapshots are not rewritten or backfilled. Newly generated Moments capture the resolved policy's `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired`; all four are optional only as one legacy-compatible group, so absence remains "not recorded" while partial or malformed presence is refused. Confirmation-time fingerprints treat every delivery promise as material. Operations validation **50 → 54**; **454 checks across eleven suites**; typecheck clean; lint unchanged at **47 problems (26 errors, 21 warnings)**; build succeeds with **28 routes**. No UI or route changed, so no browser run was performed. **H3.6 has not begun**; ADR-012 remains accepted and not implemented; Workspace remains **v7**.*
 *v1.8: **H3.3/H3.4-D1 malformed runtime-container correction complete.** `commitItemSelection()` / `verifyItemSelection()` and `commitVendorSelection()` / `verifyVendorSelection()` now apply the existing `isPlainRecord` runtime boundary before destructuring or property access; H3.4 additionally requires `offers` to be an array and every submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both repository and direct-verifier paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 problems (26 errors, 21 warnings)**; build succeeds with **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the separate policy-snapshot **v5 → v6** migration is now the only remaining prerequisite.*
 *v1.7: **H3.5 → H3.6 governance decision closure — documentation only. No code, schema, migration, validation, route or UI changed.** H3.5's completion test is **rewritten** to "a courier is selectable for every country represented by a current confirmed Execution Brief, or the gap is named" — `operatingCountries` remains a free-text assessment field and is **not** operational country authority; no normalization, mapping, country collection or Workspace v8. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) accepted** — three Fulfilment states, one per Moment, no persisted draft, `Redelivery` the only Decision, **proof recorded as metadata with no file stored**; it resolves **OPS-U4a** and defers **OPS-U4b**. Unresolved identifiers are now **source-scoped** (`CP-Un`, `OPS-Un`, `LEDGER-Cn`) because bare `U4` and bare `U5` each meant two different questions; **nothing was renumbered**. Two corrections must land before H3.6: the **H3.3/H3.4 malformed-container correction** (no schema change) and the **policy-snapshot `v5 → v6` migration** for four missing delivery fields. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5** — v6 is planned, not landed. Actual proof-file storage and adjudication remain deferred.*
 *v1.6: **H3.5 — Courier directory and manual selection complete.** `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record). Workspace unchanged at **v7**. **429 checks across eleven suites** (verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, vendors 84, couriers 46); typecheck clean; build **28 routes** (two intentional additions); lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.5 baseline. Milestone count **23 of 37**; H3 is **5 of 8**. H3.6 is next **and is gated on unresolved U4** — the QA and exception taxonomy, first needed at delivery confirmation. Only a manual per-country directory and one recorded carriage cost exist; no rate APIs, tracking, optimization, scoring or routing. Event named **`CourierSelected`** — a **declared departure** from the checkpoint, which proposes no Event for this step. Coverage is measured against confirmed briefs because `operatingCountries` are free-text names with no code mapping in the repository — surfaced, not resolved. Verified live at 1440px, 768px and 400px. ADR-010 remains the external-pilot gate; real-device testing remains outstanding.*
@@ -536,4 +537,4 @@ A future country model requires **its own milestone and its own architecture rev
 *v1.1: Council corrections. H0 restated as an approved retrospective label for real completed work. H4 renamed **Learn** and renumbered — pre-pilot [P] set becomes H4.0, pilot H4.1, intelligence H4.2–H4.5. **All external connectors moved to H5.4 — Integrations**; the intermediate H4.4/H4.5 placement is removed entirely. Milestone count published (37/19) with the 31/15 discrepancy surfaced rather than resolved. Every unresolved item classified by what it blocks. **The claim that the ADR-010 gate binds from H3.4 is withdrawn** — no governing document establishes it; the gate binds at the pilot and at any grant of external access.*
 *v1.0: Created by the governance reconciliation (R6) under Council decisions of 2026-07-28.*
 *Supersedes the H3 sequences in `RECOVERY_LEDGER.md` §0 and §10 for roadmap reporting.*
-*Basis: Workspace schema v7, `OperationsState` v5, System Atlas v3.10, ADR-001 … ADR-012.*
+*Basis: Workspace schema v7, `OperationsState` v6, System Atlas v3.11, ADR-001 … ADR-012.*

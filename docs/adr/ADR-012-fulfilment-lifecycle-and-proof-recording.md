@@ -7,6 +7,10 @@
 
 > Accepted by Council on 2026-07-30. This record resolves **OPS-U4a** and explicitly defers
 > **OPS-U4b**.
+>
+> **Implementation note, 2026-07-30:** the separate policy-resolution snapshot prerequisite has
+> landed at `OperationsState` **v6**. It adds no Fulfilment and does not implement this ADR; H3.6
+> remains not begun.
 
 ## Context
 
@@ -196,9 +200,11 @@ cannot yet happen.
 **Persistence.** A `fulfilments` collection is additive to `OperationsState`. New Decision and Event
 types are required — `Redelivery` as a Decision; `Dispatched`, `DeliveryFailed`, `Delivered` and
 `ProofReceived` as Events. The exact schema rung is fixed by the milestone that implements it, **not
-by this record**, and `OperationsState` remains **v5** until then.
+by this record**. At acceptance `OperationsState` was **v5**; the separate prerequisite snapshot
+correction subsequently moved it to **v6** without adding a Fulfilment.
 
-**Ordering with other pending work.** Two corrections must land **before** H3.6 implementation:
+**Ordering with prerequisite work.** At acceptance, two corrections were required **before** H3.6
+implementation. Both have since landed, in this order:
 
 1. The **H3.3/H3.4 malformed-container correction** — verified, independent, no schema change.
 2. The **policy-resolution snapshot `v5 → v6` migration** — four missing delivery fields, without

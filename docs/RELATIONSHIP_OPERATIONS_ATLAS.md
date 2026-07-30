@@ -33,7 +33,7 @@ exist to defend it — the first as a product and routing boundary, the second a
 | Scope | One organization | Across all organizations |
 | Route tree | `/workspace/*` | `/operations/*` |
 | Shell | `WorkspaceShell` | `OperationsShell` — shares nothing |
-| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v5** |
+| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v6** |
 | Nature of records | Configuration, edited freely | Operational history, accumulating |
 | Growth | Bounded by organization size | Unbounded |
 | Vocabulary | "recognition program", "upcoming recognition" | "campaign", "job", "brief" |
@@ -136,6 +136,13 @@ Carries `recipientSnapshot`, `relationshipGroupSnapshot`, an optional `policyRes
 truth for data the customer keeps editing. The snapshot answers *why this Moment received this
 budget* — and must keep answering it after the policy is edited, republished or archived, which is
 why it captures the policy **version** rather than a reference.
+
+**OperationsState v6 captures all four delivery promises** from the resolved policy:
+`deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired`.
+Every pre-v6 Moment lacks all four, and that absence means **"not recorded when this Moment was
+prepared"** — never `Standard`, an empty window, or `false`. The v5 → v6 migration backfills
+nothing; partial or malformed presence is refused. H3.6 must name and recover from legacy absence
+rather than infer the current policy.
 
 #### Decision
 
@@ -706,7 +713,8 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v1.8 — Aniyé Africa — 30 July 2026*
+*Relationship Operations Atlas v1.9 — Aniyé Africa — 30 July 2026*
+*v1.9: **Pre-H3.6 policy-resolution snapshot correction implemented.** Persistence is now `OperationsState` **v6**. Newly generated Moment snapshots capture the resolved policy's four delivery promises; existing Moments and copied brief snapshots are not backfilled, and absence remains unknown rather than becoming a default. Partial or malformed delivery context is structurally refused, and confirmation revalidation treats each promise as material. H3.6 has not begun; no Fulfilment, lifecycle type, Event, Decision, route or UI was added.*
 *v1.8: **Governance documentation correction (D1) — documentation only.** §3's courier named-gap section no longer describes the country-coverage question as "surfaced rather than resolved": it records the **Council resolution of 2026-07-30**, quotes the accepted completion test verbatim, and states that **current confirmed Execution Briefs are the accepted operational coverage authority**. The original checkpoint wording is preserved as historical provenance. `operatingCountries` remains free-text assessment and marketing data and is **not** operational country authority. The dated v1.6 footer is left intact as a historical record. No code, schema, migration, validation, route or UI changed; `OperationsState` remains **v5** and H3.6 has **not** begun.*
 *v1.7: **Governance decision closure before H3.6 — documentation only; no code, schema, migration or validation changed.** §9 identifiers are now **source-scoped** — `OPS-Un` here, `CP-Un` for checkpoint open questions, `LEDGER-Cn` for ledger conflicts — because bare `U4` and bare `U5` each meant two different questions across this Atlas and the Master Roadmap. **Nothing was renumbered**; the collision is documented in §9. `OPS-U4` is split: **`OPS-U4a`** (Fulfilment lifecycle and proof recording) is **resolved by [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)**; **`OPS-U4b`** (QA, adjudication and disputes) is **deferred** with a five-point trigger, because a single-operator internal prototype has no second party to adjudicate with. §3 records ADR-012 as re-issuing the Atlas §4 `Fulfilment` draft; §6 narrows the loop table to `Redelivery` as the only fulfilment Decision and marks `ProofReceived` metadata-only; the customer-sees table records that **"confirmation + curated proof" is future architecture**, not delivered by H3.6. H3.6 has **not** begun; `OperationsState` remains **v5**.*
 *v1.6: **H3.5 — courier directory and manual selection implemented.** §3 gains the `Courier` definition — ten fields, scoped to **one country**, with no rate cards, tracking, service levels, zones, scoring or routing, all excluded in terms by checkpoint milestone 7. §3 records why selection is shaped like H3.3 rather than H3.4 (courier alternatives are knowable, vendor quotes are not), that the delivery country comes from the live brief, that no carriage ceiling was invented, and how the completion test's *named gap* is answered — **against confirmed briefs, not `operatingCountries`**, because those are free-text names with no code mapping in the repository. §5 gains the carriage step and the five-state next action. §6 marks the courier step done and records **`CourierSelected`** — a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. Persistence restated as Workspace v7 / `OperationsState` **v5**.*
@@ -716,5 +724,5 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 *v1.2: H3.2 — the Execution Brief moves from accepted to **implemented**. §3 gains its definition, the address gate, override and revision rules; §6 marks the brief step done; Decision and Event type lists extended; persistence restated as Workspace v7 / OperationsState v2.*
 *v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
 *v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
-*Basis: Workspace schema v7, `OperationsState` v5, System Atlas v3.10, ADR-001 … ADR-012.*
+*Basis: Workspace schema v7, `OperationsState` v6, System Atlas v3.11, ADR-001 … ADR-012.*
 *Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection · H3.4 vendor directory, offers and selection · H3.5 courier directory and selection. Everything from fulfilment onward is accepted architecture only.*

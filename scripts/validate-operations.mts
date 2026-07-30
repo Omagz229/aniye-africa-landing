@@ -25,9 +25,10 @@ import {
   OPERATIONS_QUARANTINE_KEY,
   campaignSourceKey,
   emptyOperationsState,
+  migrateOperationsState,
   validateOperationsState,
 } from '../lib/operations/types';
-import type { OperationsState } from '../lib/operations/types';
+import type { OperationsState, PolicyResolutionSnapshot } from '../lib/operations/types';
 import { createLocalOperationsRepository } from '../lib/operations/local-store';
 import type { GenerationContext } from '../lib/operations/generation';
 import { assessPerson, buildCancellation, buildMomentBatch, previewPreparation } from '../lib/operations/generation';
@@ -68,6 +69,15 @@ function createMemoryStorage(seed: Record<string, string> = {}) {
     setItem: (key: string, value: string): void => { data.set(key, value); },
     keys: (): string[] => [...data.keys()],
   };
+}
+
+function withoutDeliveryContext(snapshot: PolicyResolutionSnapshot): PolicyResolutionSnapshot {
+  const legacy = { ...snapshot };
+  delete legacy.deliveryRequirement;
+  delete legacy.preferredDeliveryWindow;
+  delete legacy.signatureRequired;
+  delete legacy.proofRequired;
+  return legacy;
 }
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -333,9 +343,18 @@ check('13. A missing occasion rule creates NeedsReview', () => {
 
 // ─── Part 3: snapshots ───────────────────────────────────────────────────────
 
-check('14. Successful resolution snapshots assignment, policy version, rule and Money', () => {
+check('14. Successful resolution snapshots assignment, policy version, rule, Money and delivery promises', () => {
   const people = [person({ id: 'p1', country: 'KE' })];
-  const assessment = assessPerson('p1', context(people));
+  const kenyaPolicy: RecognitionPolicy = {
+    ...POLICIES[1],
+    deliveryRequirement: 'HandDelivered',
+    preferredDeliveryWindow: 'Two business days before the occasion',
+    signatureRequired: true,
+    proofRequired: true,
+  };
+  const assessment = assessPerson('p1', context(people, {
+    policies: [POLICIES[0], kenyaPolicy],
+  }));
   const snapshot = assessment.resolution;
   assert(snapshot, 'No resolution snapshot.');
 
@@ -347,6 +366,14 @@ check('14. Successful resolution snapshots assignment, policy version, rule and 
   assertEqual(snapshot.occasionType, 'Birthday', 'The occasion was not captured.');
   assertEqual(snapshot.approvedRecognitionBudget.amountMinor, 2_000_000, 'The budget is wrong.');
   assertEqual(snapshot.approvedRecognitionBudget.currency, 'KES', 'The currency is wrong.');
+  assertEqual(snapshot.deliveryRequirement, 'HandDelivered', 'The delivery requirement was not captured.');
+  assertEqual(
+    snapshot.preferredDeliveryWindow,
+    'Two business days before the occasion',
+    'The delivery window was not captured.',
+  );
+  assertEqual(snapshot.signatureRequired, true, 'The signature promise was not captured.');
+  assertEqual(snapshot.proofRequired, true, 'The proof promise was not captured.');
   assertEqual(snapshot.resolvedAt, NOW, 'The resolution timestamp was not captured.');
 });
 
@@ -1051,6 +1078,126 @@ check('50. No partial records survive a refused confirmation', () => {
   assertEqual(state.value!.moments.length, 0, 'Partial Moments survived.');
   assertEqual(state.value!.decisions.length, 0, 'Partial Decisions survived.');
   assertEqual(state.value!.events.length, 0, 'Partial Events survived.');
+});
+
+// ─── Part 9: policy delivery snapshot (OperationsState v6) ──────────────────
+
+check('51. The v5 → v6 migration is a pure bump and does not backfill delivery promises', () => {
+  const batch = buildMomentBatch(context([person({ id: 'p-legacy', country: 'NG' })]), ids);
+  const current = batch.moments[0];
+  const legacySnapshot = withoutDeliveryContext(current.policyResolutionSnapshot!);
+  const legacyMoment = { ...current, policyResolutionSnapshot: legacySnapshot };
+  const v5 = {
+    ...emptyOperationsState(WS, NOW),
+    schemaVersion: 5,
+    moments: [legacyMoment],
+    decisions: batch.decisions,
+    events: batch.events,
+    aFutureKey: { kept: true },
+  };
+  const beforeMoments = JSON.stringify(v5.moments);
+  const beforeDecisions = JSON.stringify(v5.decisions);
+  const beforeEvents = JSON.stringify(v5.events);
+
+  const result = migrateOperationsState(JSON.parse(JSON.stringify(v5)));
+  assert(result.status === 'migrated', 'A v5 payload was not migrated.');
+  if (result.status !== 'migrated') return;
+  assertEqual(result.state.schemaVersion, 6, 'The migration did not reach v6.');
+  assertEqual(JSON.stringify(result.state.moments), beforeMoments, 'The migration rewrote a legacy Moment.');
+  assertEqual(JSON.stringify(result.state.decisions), beforeDecisions, 'The migration rewrote Decisions.');
+  assertEqual(JSON.stringify(result.state.events), beforeEvents, 'The migration rewrote Events.');
+  assert(
+    !('deliveryRequirement' in result.state.moments[0].policyResolutionSnapshot!),
+    'The migration invented a delivery requirement.',
+  );
+  assert(
+    !('preferredDeliveryWindow' in result.state.moments[0].policyResolutionSnapshot!),
+    'The migration invented a delivery window.',
+  );
+  assert(
+    !('signatureRequired' in result.state.moments[0].policyResolutionSnapshot!),
+    'The migration invented a signature promise.',
+  );
+  assert(
+    !('proofRequired' in result.state.moments[0].policyResolutionSnapshot!),
+    'The migration invented a proof promise.',
+  );
+  assert(
+    (result.state as unknown as Record<string, unknown>).aFutureKey !== undefined,
+    'The migration dropped an unknown key.',
+  );
+  assertEqual(validateOperationsState(result.state, WS).ok, true, 'A migrated legacy Moment was rejected.');
+});
+
+check('52. A newly generated Moment captures all four delivery promises exactly', () => {
+  const governed: RecognitionPolicy = {
+    ...POLICIES[0],
+    deliveryRequirement: 'Courier',
+    preferredDeliveryWindow: '',
+    signatureRequired: false,
+    proofRequired: true,
+  };
+  const batch = buildMomentBatch(context([person({ id: 'p-new', country: 'NG' })], {
+    policies: [governed, POLICIES[1]],
+  }), ids);
+  const snapshot = batch.moments[0].policyResolutionSnapshot;
+  assert(snapshot, 'The new Moment has no policy snapshot.');
+  assertEqual(snapshot.deliveryRequirement, 'Courier', 'The generated Moment has the wrong delivery requirement.');
+  assertEqual(snapshot.preferredDeliveryWindow, '', 'An intentionally empty delivery window was not preserved.');
+  assertEqual(snapshot.signatureRequired, false, 'A false signature promise was not preserved.');
+  assertEqual(snapshot.proofRequired, true, 'A true proof promise was not preserved.');
+});
+
+check('53. Legacy absence is valid, but partial or malformed delivery context is refused', () => {
+  const batch = buildMomentBatch(context([person({ id: 'p-shape', country: 'NG' })]), ids);
+  const moment = batch.moments[0];
+  const legacySnapshot = withoutDeliveryContext(moment.policyResolutionSnapshot!);
+  const legacyState: OperationsState = {
+    ...emptyOperationsState(WS, NOW),
+    moments: [{ ...moment, policyResolutionSnapshot: legacySnapshot }],
+  };
+  assertEqual(validateOperationsState(legacyState, WS).ok, true, 'A legitimate pre-v6 snapshot was quarantined.');
+
+  const partial: OperationsState = {
+    ...emptyOperationsState(WS, NOW),
+    moments: [{
+      ...moment,
+      policyResolutionSnapshot: { ...legacySnapshot, proofRequired: false },
+    }],
+  };
+  assertEqual(validateOperationsState(partial, WS).ok, false, 'A partial delivery snapshot was accepted.');
+
+  const malformed: OperationsState = {
+    ...emptyOperationsState(WS, NOW),
+    moments: [{
+      ...moment,
+      policyResolutionSnapshot: {
+        ...moment.policyResolutionSnapshot!,
+        deliveryRequirement: 'Teleport',
+      } as never,
+    }],
+  };
+  assertEqual(validateOperationsState(malformed, WS).ok, false, 'An invalid delivery requirement was accepted.');
+});
+
+check('54. Every delivery promise is material at confirmation time', () => {
+  const changes: Array<[keyof RecognitionPolicy, unknown]> = [
+    ['deliveryRequirement', 'Courier'],
+    ['preferredDeliveryWindow', 'One day before the occasion'],
+    ['signatureRequired', true],
+    ['proofRequired', true],
+  ];
+
+  for (const [field, value] of changes) {
+    const { workspace, repo, deps } = liveHarness([person({ id: `p-${field}`, country: 'NG' })]);
+    const { fingerprint } = previewNow(deps);
+    workspace.recognitionPolicies = workspace.recognitionPolicies.map(candidate =>
+      candidate.id === 'policy-global' ? { ...candidate, [field]: value } : candidate
+    );
+    const result = confirmNow(deps, fingerprint);
+    assertEqual(result.status, 'changed', `A ${String(field)} change slipped through confirmation.`);
+    assertNothingWritten(repo);
+  }
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

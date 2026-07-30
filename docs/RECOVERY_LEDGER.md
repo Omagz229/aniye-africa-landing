@@ -33,7 +33,8 @@
 | — | **H3.4 — Vendor directory + hand-entered offers** | ✅ **Complete** — OperationsState v4 | H3.4 |
 | — | **H3.5 — Courier directory + manual selection** | ✅ **Complete** — OperationsState v5 | H3.5 |
 | — | **H3.3/H3.4-D1 — malformed runtime-container correction** | ✅ **Complete** — no schema change | H3.3/H3.4-D1 |
-| — | **H3.6 — Fulfilment tracking** | ⬜ **Not begun.** Governance resolved by **ADR-012**; policy-snapshot v5 → v6 remains first | — |
+| — | **Pre-H3.6 — policy-resolution delivery snapshot** | ✅ **Complete** — OperationsState v6 | Snapshot v6 |
+| — | **H3.6 — Fulfilment tracking** | ⬜ **Not begun.** Governance and both prerequisite corrections resolved | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1853,6 +1854,48 @@ relevant evidence.
 | Must land before H3.6 | **Policy-resolution snapshot v5 → v6** — the only remaining prerequisite |
 | Still deferred | Actual proof-file storage · OPS-U4b adjudication |
 
+### ✅ Pre-H3.6 — policy-resolution delivery snapshot — 2026-07-30
+
+**Structural correctness correction. `OperationsState` v5 → v6.** This is the
+second and final prerequisite ordered by the H3.5 → H3.6 governance decision.
+It does not begin H3.6 and adds no Fulfilment, Decision, Event, route or UI.
+
+#### What changed
+
+- Newly resolved `PolicyResolutionSnapshot` records all four customer delivery
+  promises: `deliveryRequirement`, `preferredDeliveryWindow`,
+  `signatureRequired` and `proofRequired`.
+- The v5 → v6 migration is a **pure version bump**. It does not walk or rewrite
+  Moments, Decisions, Events or copied Execution Brief snapshots, and it
+  preserves unknown keys.
+- Existing snapshots keep all four fields absent. Absence means **"not recorded
+  when this Moment was prepared"** — never `Standard`, an empty window or
+  `false`.
+- The four fields form one optional legacy-compatible group. Structural
+  validation accepts all four absent or all four well-typed; partial or malformed
+  presence is refused.
+- Confirmation-time fingerprints include every delivery promise, so an in-place
+  policy edit after preview writes nothing and requires a fresh confirmation.
+
+#### Proof
+
+Four focused checks cover the pure migration, exact capture, legacy-versus-malformed
+shape handling and confirmation-time materiality. Operations validation rises
+**50 → 54**; all eleven suites pass **454/454 checks**. Typecheck is clean. Lint is
+unchanged at **47 problems — 26 errors, 21 warnings**. The production build succeeds
+with **28 routes**. No browser run was performed because there is no UI change.
+
+#### State after this correction
+
+| | |
+|---|---|
+| H3.5 | ✅ **Complete** |
+| H3.6 | ⬜ **Not begun.** Governance and prerequisites resolved |
+| Workspace schema | **v7** |
+| `OperationsState` | **v6** |
+| Remaining prerequisite before H3.6 | **None** |
+| Still deferred | Actual proof-file storage · OPS-U4b adjudication |
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -2411,3 +2454,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.5 → H3.6 governance decision closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** H3.5's completion test rewritten to name confirmed Execution Briefs as the operational country authority; `operatingCountries` stays a free-text assessment field and no Workspace v8 is added. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) accepted** — one Fulfilment per Moment, no persisted draft, exactly three states, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only, and **proof recorded as metadata with no file stored**; `Returned`, `Escalation`, `QAException`, disputes, webhooks and tracking all excluded. The former Operations `U4` is split — **OPS-U4a resolved**, **OPS-U4b deferred** with a five-point trigger, since a single-operator prototype has no second party to adjudicate with. Unresolved identifiers are now source-scoped (`CP-Un`, `OPS-Un`, `LEDGER-Cn`) after two documents were found using bare `U4` and bare `U5` for different questions; **nothing was renumbered**. The policy-snapshot defect is accepted at **four** missing delivery fields, not three. The H3.3/H3.4 malformed-container correction is recorded as pending and must land **before** the v5 → v6 migration. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5.** System Atlas v3.10, Master Roadmap v1.7, Relationship Operations Atlas v1.7, ADR-012 accepted.*
 *Updated after the H3.5 → H3.6 governance documentation correction D1 (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** Current-state passages that still described the country-coverage question as open have been reconciled with the governance closure: the Master Roadmap no longer calls H3.5 "per operating country" and no longer ends its H3.5 narrative "surfaced rather than resolved"; the Operations Atlas §3 named-gap section records the Council resolution and the exact accepted completion test, and is bumped **v1.7 → v1.8**; this ledger's H3.5 entry is **preserved as a historical account and explicitly qualified** with the later decision. **Current confirmed Execution Briefs are the accepted operational coverage authority**; `operatingCountries` remains free-text assessment and marketing data. `docs/adr/README.md` corrected — ADR-006 now applies through H3.5 and remains partly implemented; ADR-010 introduced `OperationsState` v1 with current **v5**; ADR-011 landed at v2 with current **v5**; ADR-012 accepted and not implemented. Dated historical footers and the separate, still-open milestone-count discrepancy were deliberately left intact. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5** — v6 planned, not landed. Relationship Operations Atlas v1.8.*
 *Updated after H3.3/H3.4-D1 (malformed runtime-container correction) — the two older selection boundaries now apply the exported `isPlainRecord` pattern before destructuring or property access, matching H3.5-D1. Item and vendor repository commits and direct verifiers refuse malformed write bundles, Decisions, Events, `Decision.inputs` and `Event.payload`; H3.4 also requires `offers` to be an array and every newly submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the policy-snapshot **v5 → v6** migration is the only remaining prerequisite.*
+*Updated after the pre-H3.6 policy-resolution delivery snapshot correction — `OperationsState` **v6** captures `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired` on newly generated Moments. The v5 → v6 migration is a pure version bump: existing records are not backfilled, legacy absence remains unknown, and partial or malformed delivery context is refused. Confirmation revalidation treats every delivery promise as material. Operations validation **50 → 54**; **454 checks across eleven suites**; typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI or route changed, so no browser run was performed. Workspace remains **v7**; H3.6 has not begun; both prerequisites are now complete. System Atlas v3.11, Master Roadmap v1.9, Relationship Operations Atlas v1.9.*

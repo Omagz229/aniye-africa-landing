@@ -12,7 +12,7 @@ import type { Money } from '../money';
 import { isValidMoney } from '../money';
 import { isIsoInstant, isVendorEmailShape } from './vendors';
 import type { CatalogItemSnapshot } from '../catalog';
-import type { DeliveryAddress, RelationshipType } from '../workspace';
+import type { DeliveryAddress, DeliveryRequirement, RelationshipType } from '../workspace';
 
 // ─── Moment ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +82,20 @@ export interface PolicyResolutionSnapshot {
    * explanation and a recovery, rather than being filtered against a guess.
    */
   excludedCategories?: string[];
+  /**
+   * The delivery promises that governed this Moment, captured at generation —
+   * **OperationsState v6, and deliberately optional as one complete group.**
+   *
+   * Every pre-v6 Moment lacks all four. Their absence means "not recorded when
+   * this Moment was prepared"; it must never be read as `Standard`, an empty
+   * window, or `false`. A later fulfilment step must name the missing context
+   * and require recovery rather than re-resolving a policy that may have been
+   * edited in place at the same id and version.
+   */
+  deliveryRequirement?: DeliveryRequirement;
+  preferredDeliveryWindow?: string;
+  signatureRequired?: boolean;
+  proofRequired?: boolean;
   resolvedAt: string;
 }
 
@@ -507,12 +521,14 @@ export interface CourierSnapshot {
  * generated Moments. Additive, and it **adds nothing to existing records**.
  * **v4 (H3.4)** adds the `vendors` and `vendorOffers` collections. Additive.
  * **v5 (H3.5)** adds the `couriers` collection. Additive.
+ * **v6 (pre-H3.6 correction)** admits the four policy delivery promises on
+ * newly generated Moments. Additive, and it **adds nothing to existing records**.
  *
  * There is no `courierSelections` collection: unlike a vendor comparison, which
  * had to persist several hand-entered quotes, a courier selection is one choice
  * with one cost and the Decision carries all of it.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 5;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 6;
 
 /**
  * The storage *location*, not a version assertion.
@@ -653,6 +669,17 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     };
   }
 
+  // v5 → v6: admit the four delivery promises on policy snapshots generated
+  // from here on. **A pure version bump — no Moment or copied brief snapshot is
+  // touched.**
+  //
+  // Backfilling would invent customer promises. A missing `proofRequired`, for
+  // example, means nobody recorded whether proof was required; writing `false`
+  // would silently turn that unknown into permission to proceed without it.
+  if ((working.schemaVersion as number) === 5) {
+    working = { ...working, schemaVersion: 6 };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -695,6 +722,37 @@ function excludedCategoriesValid(snapshot: unknown): boolean {
   const excluded = snapshot.excludedCategories;
   if (excluded === undefined) return true;
   return Array.isArray(excluded) && excluded.every(c => typeof c === 'string');
+}
+
+const SNAPSHOT_DELIVERY_REQUIREMENTS = [
+  'Standard',
+  'Courier',
+  'HandDelivered',
+  'Digital',
+] as const satisfies readonly DeliveryRequirement[];
+
+/**
+ * A legacy snapshot has none of the delivery context; a v6 snapshot has all of
+ * it. Partial presence is malformed rather than a third, ambiguous state.
+ */
+function deliveryContextValid(snapshot: unknown): boolean {
+  if (!isPlainObject(snapshot)) return true;
+
+  const values = [
+    snapshot.deliveryRequirement,
+    snapshot.preferredDeliveryWindow,
+    snapshot.signatureRequired,
+    snapshot.proofRequired,
+  ];
+  if (values.every(value => value === undefined)) return true;
+
+  return (
+    typeof snapshot.deliveryRequirement === 'string' &&
+    (SNAPSHOT_DELIVERY_REQUIREMENTS as readonly string[]).includes(snapshot.deliveryRequirement) &&
+    typeof snapshot.preferredDeliveryWindow === 'string' &&
+    typeof snapshot.signatureRequired === 'boolean' &&
+    typeof snapshot.proofRequired === 'boolean'
+  );
 }
 
 /**
@@ -765,6 +823,9 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     }
     if (!excludedCategoriesValid(moment.policyResolutionSnapshot)) {
       return { ok: false, reason: `Moment "${moment.id}" has a malformed excluded-category snapshot.` };
+    }
+    if (!deliveryContextValid(moment.policyResolutionSnapshot)) {
+      return { ok: false, reason: `Moment "${moment.id}" has a malformed delivery-context snapshot.` };
     }
   }
 
@@ -864,6 +925,9 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     }
     if (!excludedCategoriesValid(brief.policyResolutionSnapshot)) {
       return { ok: false, reason: `Brief "${brief.id}" has a malformed excluded-category snapshot.` };
+    }
+    if (!deliveryContextValid(brief.policyResolutionSnapshot)) {
+      return { ok: false, reason: `Brief "${brief.id}" has a malformed delivery-context snapshot.` };
     }
 
     // ADR-011 — the confirmation gate, enforced at the persistence layer and

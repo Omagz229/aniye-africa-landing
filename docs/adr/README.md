@@ -47,7 +47,7 @@ itself is the authority.
 > **Schema versions here are stated as of this revision.** Where an ADR *introduced* or *landed at* a
 > version, that is said explicitly and the **current** version is given alongside it — a row reading
 > "now vN" goes stale the moment the next rung ships, which is how ADR-010's row came to claim v2
-> while the chain had reached v5. Current: **Workspace v7 · `OperationsState` v5**.
+> while the chain had reached v5. Current: **Workspace v7 · `OperationsState` v6**.
 
 | ADR | Implemented |
 |-----|-------------|
@@ -59,9 +59,9 @@ itself is the authority.
 | ADR-007 | ⚠️ Partly — Money implemented, schema v5. `RecognitionOrder` deferred to H3.7 |
 | ADR-008 | ✅ Yes — schema v5 |
 | ADR-009 | ✅ Yes — no code change was required |
-| ADR-010 | ✅ Yes — H3.1, **introduced `OperationsState` v1**. Current `OperationsState` is **v5** |
-| ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v5** |
-| ADR-012 | ⬜ **No — accepted, not implemented.** H3.6 has not begun. Current `OperationsState` is **v5**; v6 is planned and **not landed** |
+| ADR-010 | ✅ Yes — H3.1, **introduced `OperationsState` v1**. Current `OperationsState` is **v6** |
+| ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v6** |
+| ADR-012 | ⬜ **No — accepted, not implemented.** H3.6 has not begun. The separate policy-snapshot prerequisite is complete at current `OperationsState` **v6** |
 
 ---
 

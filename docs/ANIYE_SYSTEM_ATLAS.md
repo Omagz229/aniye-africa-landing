@@ -528,7 +528,7 @@ A single recognized instance — one person, one occasion, one execution.
 | `sourceKey` | string | Deterministic logical identity — `campaign::workspace::program::person::occasion`. What makes repeat preparation idempotent |
 | `recipientSnapshot` | object | Name, email, phone, country, role. **A subset, not the whole Person** |
 | `relationshipGroupSnapshot` | object | Group id, display name, Relationship Type, numeric Level |
-| `policyResolutionSnapshot` | object? | Assignment id, policy id, name, **version**, country scope, occasion, approved budget as canonical `Money`, resolved timestamp. Required when `ReadyForExecution` |
+| `policyResolutionSnapshot` | object? | Assignment id, policy id, name, **version**, country scope, occasion, approved budget as canonical `Money`, excluded categories, and the four delivery promises (`deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired`, `proofRequired`), resolved timestamp. Required when `ReadyForExecution`; delivery fields are absent only on legacy pre-v6 records |
 | `issues` | array | Named blockers, each with the Workspace page that fixes it |
 | `createdAt` / `updatedAt` | ISO timestamp | — |
 | `cancelledAt` | ISO timestamp? | — |
@@ -674,7 +674,8 @@ history is the **historical truth**. `Redelivery` is the only Decision the lifec
 
 ⚠️ **`MOMENT_STATUSES` is not expanded.** Fulfilment state belongs to the Fulfilment (Atlas §15e).
 
-⚠️ **Accepted, not implemented.** H3.6 has not begun; `OperationsState` remains **v5**.
+⚠️ **Accepted, not implemented.** H3.6 has not begun. Its prerequisite policy-snapshot correction
+has landed at `OperationsState` **v6**; that correction does not implement a Fulfilment.
 
 ---
 
@@ -1459,7 +1460,7 @@ Both objects belong to the **Knowledge** domain (§3). ADR-010 keeps them out of
 | | WorkspaceState | OperationsState |
 |---|---------------|-----------------|
 | Owns | Configuration the customer edits | The record of what Aniyé did |
-| Schema | v7 | v5, versioned **independently** |
+| Schema | v7 | v6, versioned **independently** |
 | Storage key | `aniye_workspace` | `aniye_operations_v1` |
 | Growth | Bounded by organization size | Unbounded |
 | Mutability | Edited freely | Events append-only; Decisions immutable except supersession |
@@ -1487,7 +1488,7 @@ One person, one occasion, one execution. Generated from an Active Campaign's fro
 | `sourceKey` | Deterministic logical identity — `campaign::workspace::program::person::occasion`. What makes repeat preparation idempotent |
 | `recipientSnapshot` | Name, email, phone, country, role. **A subset, not the whole Person** |
 | `relationshipGroupSnapshot` | Group id, display name, Relationship Type, numeric Level |
-| `policyResolutionSnapshot` | Assignment id, policy id, name, **version**, country scope, occasion, approved budget as canonical Money, resolved timestamp |
+| `policyResolutionSnapshot` | Assignment id, policy id, name, **version**, country scope, occasion, approved budget as canonical Money, excluded categories, and the four delivery promises. The delivery fields are absent only on legacy pre-v6 records and are never defaulted |
 | `issues` | Named, each with the Workspace page that fixes it |
 | `status` | `NeedsReview` · `ReadyForExecution` · `Cancelled` |
 
@@ -1621,7 +1622,7 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 > **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
 > capability*, and they are not the same thing. Sections describing something not yet built carry an
-> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v5**:
+> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v6**:
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
@@ -1673,7 +1674,7 @@ Full records for ADR-004 onward live in [`adr/`](adr/). Accepted decisions are b
 | **ADR-009** | Policy lifecycle stays three states | Accepted 2026-07-27 | **Yes** — no code change was required |
 | **ADR-010** | Operational records live outside `WorkspaceState` | Accepted 2026-07-27 | **Yes** — H3.1, `OperationsState` v1 (§15d) |
 | **ADR-011** | Recipient address is customer-owned; operator overrides are per-brief | Accepted 2026-07-28 | **Yes** — H3.2, Workspace schema v7 + `OperationsState` v2 (§15f) |
-| **ADR-012** | Fulfilment lifecycle and the proof-receipt boundary | Accepted 2026-07-30 | ⬜ **No** — H3.6 not begun; `OperationsState` remains v5 (§4 *Fulfillment*) |
+| **ADR-012** | Fulfilment lifecycle and the proof-receipt boundary | Accepted 2026-07-30 | ⬜ **No** — H3.6 not begun. The separate policy-snapshot prerequisite has landed at `OperationsState` v6 (§4 *Fulfillment*) |
 
 #### ⚠️ ADR-003 — retired
 
@@ -1779,8 +1780,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.10 — Aniyé Africa — July 2026*
+*System Atlas v3.11 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.11: **Pre-H3.6 policy-resolution snapshot correction implemented.** `OperationsState` **v6** admits `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired` on newly generated Moment snapshots. The `v5 → v6` rung is a pure version bump: no existing Moment or copied Execution Brief snapshot is backfilled, and absence remains "not recorded", never a default. Partial or malformed delivery context is refused. Confirmation revalidation treats all four promises as material. Workspace remains **v7**; H3.6 and ADR-012's Fulfilment remain **not implemented**.*
 *v3.10: **H3.5 → H3.6 governance decision closure — documentation only.** No code, schema, migration, validation, route or UI changed. **§4 `Fulfillment` is re-issued by [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)** — the draft status enum is superseded by exactly three states (`Dispatched` · `DeliveryFailed` · `Delivered`), `proofUrl` and `trackingUrl` are superseded, and proof is recorded as **metadata only with no file stored**. One Fulfilment per Moment, created only on confirmed dispatch; `Redelivery` is the only Decision; `MOMENT_STATUSES` unchanged at three. §18 registers ADR-012 as **accepted and not implemented**. §17 records secure file storage for proof among the not-implemented set. **H3.6 has not begun**; Workspace remains **v7** and `OperationsState` remains **v5** — v6 is planned, not landed*
 *v3.9: H3.5 — the per-country Courier directory and manual courier selection implemented. `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record); Workspace unchanged at **v7**. **§4 gains `Courier`** — it did not exist in this document before, so nothing was re-issued; it lives in `OperationsState` and is never projected into Workspace. §15d updated to v7/v5; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. No rate APIs, tracking, optimization, scoring, routing, courier account or portal was built; fulfilment tracking remains H3.6 and is gated on unresolved U4. ADR-010 remains the external-pilot gate*
 *v3.8: H3.4 — the manual Vendor directory, hand-entered VendorOffers and manual vendor selection implemented. `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record); Workspace schema unchanged at **v7**. **§4 gains `Vendor` and `VendorOffer`** — neither existed in this document before, so nothing was re-issued; both live in `OperationsState` and are never projected into Workspace. §15d updated to v7/v4; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Vendor Intelligence remains deferred to H4.4; no scoring, routing, API, portal, vendor account, courier, fulfilment or commerce was built. ADR-010 remains the external-pilot gate*
