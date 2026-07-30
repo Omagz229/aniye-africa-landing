@@ -1,8 +1,9 @@
 # ADR-012 — Fulfilment lifecycle and the proof-receipt boundary
 
-**Status: Accepted**
+**Status: Accepted · Implemented at H3.6**
 **Date drafted:** 2026-07-30
 **Date accepted:** 2026-07-30 — Council
+**Date implemented:** 2026-07-30 — H3.6, `OperationsState` **v7**
 **Full analysis:** [H3.5 → H3.6 Governance Checkpoint](../H3_5_H3_6_GOVERNANCE_CHECKPOINT.md) · historical context in [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md) Part 2 rows 10–11 and Part 3 milestone 8
 
 > Accepted by Council on 2026-07-30. This record resolves **OPS-U4a** and explicitly defers
@@ -211,6 +212,45 @@ implementation. Both have since landed, in this order:
    which H3.6 cannot know whether proof was even required.
 
 **Interface honesty.** The operator surface must state that proof files are not retained.
+
+## Implementation record — H3.6, 2026-07-30
+
+> **This section records what was built. It does not amend the decision above**, every condition of
+> which was met without variance. `OperationsState` is now **v7** — the additive `fulfilments` rung.
+
+| Council condition | Where it is held |
+|---|---|
+| One Fulfilment per Moment | `validateOperationsState` refuses a second; `commitInitialDispatch` refuses a duplicate |
+| No persisted `Pending` or draft | There is no `Pending` status, and no write path creates a Fulfilment before confirmed dispatch |
+| Created only on confirmed dispatch | `commitInitialDispatch` is the sole creator |
+| Exactly three statuses | `FULFILMENT_STATUSES` |
+| No Decision invented where no judgement occurred | `DECISION_TYPES` gains **only** `Redelivery` |
+| Proof receipt is metadata only | `PROOF_PAYLOAD_KEYS` exact-key check, on the payload **and** on the Event itself |
+| `MOMENT_STATUSES` not expanded | Unchanged at three, and pinned by validation |
+| Nothing recorded until confirmation; one atomic transaction each | Five named repository transitions, each a single `commit()` over a fully validated proposed state |
+
+**Two things the implementation added**, both narrower than the decision rather than wider:
+
+- **Replay-consistency validation.** `replayFulfilment()` derives status and attempt from a
+  Fulfilment's Events in persisted order, and structural validation refuses any stored record that
+  disagrees with its own replay. §6 asserted that current state is a projection; this makes the
+  assertion enforceable rather than conventional.
+- **Redelivery Decisions counted against redelivery dispatches.** A `Redelivery` Decision with no
+  matching second dispatch — or a second dispatch with no Decision — is refused.
+
+**One judgement §7 left open.** It lists *channel* among proof metadata but does not say whether the
+other lifecycle Events carry one. `Dispatched`, `DeliveryFailed` and `Delivered` are recorded as
+`Platform`; only `ProofReceived` accepts any `EVENT_SOURCES` value, because proof genuinely arrives
+through a channel while the other three are confirmed in the interface. This is the smallest reading
+of §7 and adds no surface.
+
+**Not built, as required:** `QAException`, disputes, adjudication (**OPS-U4b**), `Returned`,
+`Escalation`, tracking numbers, tracking URLs, courier webhooks, carrier APIs, external-party
+submission, and any storage of proof content.
+
+⚠️ **No browser verification was performed.** The operator surfaces are covered by automated checks
+and static review only, so the interface-honesty condition is held in the source and has **not** been
+observed running.
 
 ## Relationship to earlier decisions
 

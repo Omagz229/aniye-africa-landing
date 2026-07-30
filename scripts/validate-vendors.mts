@@ -796,7 +796,9 @@ check('34. `VendorContacted` was not used, and no later milestone was pre-empted
   for (const t of ['QAException', 'BudgetException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
-  for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {
+  // The fulfilment Events left this list at H3.6, the milestone that produces
+  // them. `MomentClosed` belongs to H3.8 and has not been built.
+  for (const t of ['MomentClosed', 'Returned', 'Escalation']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   assertEqual(OFFER_SOURCES.length, 4, 'OFFER_SOURCES changed length.');

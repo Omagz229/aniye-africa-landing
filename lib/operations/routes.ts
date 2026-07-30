@@ -19,10 +19,12 @@ export function titleFor(pathname: string): string {
   if (/^\/operations\/moments\/[^/]+\/item$/.test(pathname)) return 'Choose an item';
   if (/^\/operations\/moments\/[^/]+\/vendor$/.test(pathname)) return 'Vendor offers';
   if (/^\/operations\/moments\/[^/]+\/courier$/.test(pathname)) return 'Arrange carriage';
+  if (/^\/operations\/moments\/[^/]+\/fulfilment$/.test(pathname)) return 'Fulfilment';
   if (/^\/operations\/moments\/[^/]+$/.test(pathname)) return 'Moment';
   if (pathname.startsWith('/operations/moments')) return 'Moments';
   if (pathname.startsWith('/operations/briefs')) return 'Briefs';
   if (pathname.startsWith('/operations/vendors')) return 'Vendors';
   if (pathname.startsWith('/operations/couriers')) return 'Couriers';
+  if (pathname.startsWith('/operations/fulfilments')) return 'Fulfilments';
   return 'Command';
 }

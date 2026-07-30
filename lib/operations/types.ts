@@ -174,6 +174,15 @@ export const DECISION_TYPES = [
   // that actually serve the delivery country, which is the whole reason the
   // directory is scoped per country.
   'CourierSelection',
+  // H3.6 — ADR-012, and **the only Decision the fulfilment lifecycle records.**
+  //
+  // Dispatching and delivering are occurrences, not judgements: there were no
+  // alternatives, so a "reason" field on them could only ever be filler.
+  // Choosing to try again after a failed attempt *is* a judgement — the operator
+  // could redeliver, cancel, or escalate outside the system — and why they chose
+  // to try again matters months later. So it carries a required human reason,
+  // exactly as every other Decision does.
+  'Redelivery',
 ] as const;
 export type DecisionType = (typeof DECISION_TYPES)[number];
 
@@ -242,6 +251,18 @@ export const EVENT_TYPES = [
   // dispatch, silently skipping a step that materially moved the job.
   // Surfaced in the Recovery Ledger rather than made quietly.
   'CourierSelected',
+  // H3.6 — the fulfilment lifecycle (ADR-012). Four Events, three states: the
+  // extra Event is `ProofReceived`, which records an occurrence *after*
+  // `Delivered` without changing the Fulfilment's status.
+  //
+  // ⚠️ `Returned`, `Escalation` and `QAException` are deliberately absent.
+  // `Returned` describes an outcome nothing in H3.6 can act on; escalation has
+  // no target because there is no role model (OPS-U1); and the exception and
+  // adjudication taxonomy is OPS-U4b, deferred.
+  'Dispatched',
+  'DeliveryFailed',
+  'Delivered',
+  'ProofReceived',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -511,6 +532,72 @@ export interface CourierSnapshot {
   countryCode: string;
 }
 
+// ─── Fulfilment ──────────────────────────────────────────────────────────────
+
+/**
+ * Exactly three, fixed by ADR-012.
+ *
+ * ⚠️ `Pending`, `Confirmed`, `Failed` and `Returned` from the Atlas §4 draft are
+ * **not** implemented and must not be added. A Moment with carriage arranged but
+ * nothing dispatched simply has no Fulfilment — the absence states that plainly,
+ * and persisting a `Pending` row would record an intention nobody confirmed.
+ */
+export const FULFILMENT_STATUSES = ['Dispatched', 'DeliveryFailed', 'Delivered'] as const;
+export type FulfilmentStatus = (typeof FULFILMENT_STATUSES)[number];
+
+/**
+ * What kind of proof arrived. **Not the proof itself** — see `Fulfilment`.
+ *
+ * A closed set, and deliberately not inferred from anything: `signatureRequired`
+ * does not imply a `Signature` proof kind, and comparing what arrived against
+ * what the policy promised is QA adjudication, which is OPS-U4b and deferred.
+ */
+export const PROOF_KINDS = ['Photo', 'Document', 'Signature'] as const;
+export type ProofKind = (typeof PROOF_KINDS)[number];
+
+/**
+ * What Aniyé is doing about getting one Moment's gift to its recipient — H3.6,
+ * implementing ADR-012.
+ *
+ * **One per Moment, created only when initial dispatch is confirmed.** There is
+ * no draft and no `Pending`.
+ *
+ * ⚠️ **This record holds current state. The ordered Event history is the
+ * historical truth.** A Fulfilment that failed twice and was redelivered twice
+ * reads `Dispatched` at attempt 3, and its Events read
+ * `Dispatched · DeliveryFailed · Dispatched · DeliveryFailed · Dispatched`.
+ * Nothing is mutated to produce that record: the status and attempt here are a
+ * projection of the Events, never a substitute for them, and structural
+ * validation refuses a Fulfilment whose fields disagree with its own replay.
+ *
+ * ⚠️ **Deliberately absent, and not oversights:** tracking numbers, tracking
+ * URLs, `proofUrl`, file names, any proof content, carrier API references,
+ * webhooks, money, vendor orders, QA exceptions, disputes, escalation targets
+ * and delivery estimates. The evidence for *what* was dispatched lives on the
+ * immutable brief and the three selection Decisions this record references —
+ * duplicating their snapshots here would create a second source of truth for
+ * facts that are already frozen.
+ */
+export interface Fulfilment {
+  id: string;
+  workspaceId: string;
+  momentId: string;
+  status: FulfilmentStatus;
+  /** Which attempt is current. 1 on initial dispatch; only redelivery raises it. */
+  attempt: number;
+
+  /** The confirmed brief that governed the dispatch, and the exact revision. */
+  briefId: string;
+  briefRevision: number;
+  /** The three live selection Decisions — the authority for what went out. */
+  itemSelectionDecisionId: string;
+  vendorSelectionDecisionId: string;
+  courierSelectionDecisionId: string;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
 /**
@@ -523,12 +610,13 @@ export interface CourierSnapshot {
  * **v5 (H3.5)** adds the `couriers` collection. Additive.
  * **v6 (pre-H3.6 correction)** admits the four policy delivery promises on
  * newly generated Moments. Additive, and it **adds nothing to existing records**.
+ * **v7 (H3.6)** adds the `fulfilments` collection. Additive.
  *
  * There is no `courierSelections` collection: unlike a vendor comparison, which
  * had to persist several hand-entered quotes, a courier selection is one choice
  * with one cost and the Decision carries all of it.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 6;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 7;
 
 /**
  * The storage *location*, not a version assertion.
@@ -559,6 +647,8 @@ export interface OperationsState {
   vendorOffers: VendorOffer[];
   /** H3.5, additive at operations schema v5. */
   couriers: Courier[];
+  /** H3.6, additive at operations schema v7. */
+  fulfilments: Fulfilment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -574,6 +664,7 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     vendors: [],
     vendorOffers: [],
     couriers: [],
+    fulfilments: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -680,6 +771,23 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     working = { ...working, schemaVersion: 6 };
   }
 
+  // v6 → v7: add the fulfilment collection. Additive, and it **invents nothing**
+  // — a workspace where nothing has ever been dispatched gets an empty array,
+  // not a fabricated Fulfilment.
+  //
+  // Backfilling one for every Moment that has a courier would be the worst
+  // possible repair: it would assert that a parcel went out when nobody
+  // confirmed that it had. Under ADR-012 the *absence* of a Fulfilment is
+  // itself the fact — this Moment has not been dispatched — and the absence is
+  // preserved exactly.
+  if ((working.schemaVersion as number) === 6) {
+    working = {
+      ...working,
+      fulfilments: Array.isArray(working.fulfilments) ? working.fulfilments : [],
+      schemaVersion: 7,
+    };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -755,6 +863,153 @@ function deliveryContextValid(snapshot: unknown): boolean {
   );
 }
 
+// ─── Fulfilment lifecycle replay ─────────────────────────────────────────────
+
+/** The four Events the fulfilment lifecycle appends, in no particular order. */
+export const FULFILMENT_EVENT_TYPES = [
+  'Dispatched',
+  'DeliveryFailed',
+  'Delivered',
+  'ProofReceived',
+] as const;
+export type FulfilmentEventType = (typeof FULFILMENT_EVENT_TYPES)[number];
+
+/** Exact payload for the three state-changing lifecycle Events. */
+export const LIFECYCLE_PAYLOAD_KEYS = ['fulfilmentId', 'attempt'] as const;
+
+/**
+ * Exact payload for `ProofReceived` — **and the whole of it.**
+ *
+ * Everything else a proof receipt needs is already an Event field: the channel
+ * is `source`, who recorded it is `actorType`/`actorId`, when it happened and
+ * when Aniyé learned of it are `occurredAt`/`recordedAt`, and the workspace and
+ * Moment binding are on the Event itself. What remains is the binding to the
+ * Fulfilment and attempt, and what kind of proof arrived.
+ *
+ * ⚠️ Anything else — `url`, `proofUrl`, `fileName`, `dataUri`, `base64`,
+ * `bytes`, `blob`, `image`, `attachment` — is refused by the exact-key check.
+ * ADR-012 §7: H3.6 records **that** proof was received and stores no proof.
+ */
+export const PROOF_PAYLOAD_KEYS = ['fulfilmentId', 'attempt', 'proofKinds'] as const;
+
+export type FulfilmentReplay =
+  | { ok: true; status: FulfilmentStatus; attempt: number; redeliveries: number; count: number }
+  | { ok: false; reason: string };
+
+function exactPayloadKeys(payload: Record<string, unknown>, allowed: readonly string[]): string[] {
+  const permitted = new Set<string>(allowed);
+  return Object.keys(payload).filter(k => !permitted.has(k));
+}
+
+function proofKindsValid(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const seen = new Set<string>();
+  for (const kind of value) {
+    if (typeof kind !== 'string' || !(PROOF_KINDS as readonly string[]).includes(kind)) return false;
+    if (seen.has(kind)) return false;
+    seen.add(kind);
+  }
+  return true;
+}
+
+/**
+ * Walk one Fulfilment's Events **in persisted order** and derive what they say
+ * its state must be.
+ *
+ * This is the mechanism behind ADR-012's central claim: the Fulfilment record
+ * holds current state, the Events are the historical truth, and the two are
+ * checked against each other rather than one being trusted. A stored Fulfilment
+ * claiming `Delivered` whose Events stop at `DeliveryFailed` is refused — an
+ * impossible lifecycle is a corrupted record, not a display quirk.
+ *
+ * Pure, and deliberately usable without the repository.
+ */
+export function replayFulfilment(events: readonly unknown[], fulfilmentId: string): FulfilmentReplay {
+  let status: FulfilmentStatus | null = null;
+  let attempt = 0;
+  let redeliveries = 0;
+  let count = 0;
+  let previousInstant = '';
+
+  for (const raw of events) {
+    if (!isPlainObject(raw)) continue;
+    const eventType = raw.eventType;
+    if (typeof eventType !== 'string' || !(FULFILMENT_EVENT_TYPES as readonly string[]).includes(eventType)) {
+      continue;
+    }
+    if (!isPlainObject(raw.payload)) {
+      return { ok: false, reason: `A ${eventType} event carries no readable payload.` };
+    }
+    const payload = raw.payload;
+    if (payload.fulfilmentId !== fulfilmentId) continue;
+
+    count++;
+
+    const isProof = eventType === 'ProofReceived';
+    const extra = exactPayloadKeys(payload, isProof ? PROOF_PAYLOAD_KEYS : LIFECYCLE_PAYLOAD_KEYS);
+    if (extra.length > 0) {
+      return { ok: false, reason: `A ${eventType} event cannot carry ${extra.join(', ')}.` };
+    }
+
+    const at = payload.attempt;
+    if (typeof at !== 'number' || !Number.isInteger(at) || at < 1) {
+      return { ok: false, reason: `A ${eventType} event has an invalid attempt number.` };
+    }
+    if (isProof && !proofKindsValid(payload.proofKinds)) {
+      return { ok: false, reason: 'A ProofReceived event must name at least one distinct known proof kind.' };
+    }
+
+    // Time may repeat within one transaction, but it must never run backwards.
+    for (const field of ['occurredAt', 'recordedAt'] as const) {
+      if (!isIsoInstant(raw[field])) {
+        return { ok: false, reason: `A ${eventType} event has an unreadable ${field}.` };
+      }
+    }
+    const occurredAt = raw.occurredAt as string;
+    if (previousInstant !== '' && occurredAt < previousInstant) {
+      return { ok: false, reason: `A ${eventType} event happened before the step it follows.` };
+    }
+    previousInstant = occurredAt;
+
+    switch (eventType) {
+      case 'Dispatched':
+        if (status === null) {
+          if (at !== 1) return { ok: false, reason: 'A fulfilment must open at attempt 1.' };
+        } else if (status === 'DeliveryFailed') {
+          if (at !== attempt + 1) {
+            return { ok: false, reason: 'A redelivery must advance the attempt number by exactly one.' };
+          }
+          redeliveries++;
+        } else {
+          return { ok: false, reason: 'A dispatch can only follow a failed attempt.' };
+        }
+        status = 'Dispatched';
+        attempt = at;
+        break;
+
+      case 'DeliveryFailed':
+        if (status !== 'Dispatched') return { ok: false, reason: 'A failed attempt can only follow a dispatch.' };
+        if (at !== attempt) return { ok: false, reason: 'A failed attempt must name the attempt that failed.' };
+        status = 'DeliveryFailed';
+        break;
+
+      case 'Delivered':
+        if (status !== 'Dispatched') return { ok: false, reason: 'A delivery can only follow a dispatch.' };
+        if (at !== attempt) return { ok: false, reason: 'A delivery must name the attempt that arrived.' };
+        status = 'Delivered';
+        break;
+
+      case 'ProofReceived':
+        if (status !== 'Delivered') return { ok: false, reason: 'Proof can only be recorded after delivery.' };
+        if (at !== attempt) return { ok: false, reason: 'Proof must name the attempt it belongs to.' };
+        break;
+    }
+  }
+
+  if (status === null) return { ok: false, reason: 'That fulfilment has no dispatch on record.' };
+  return { ok: true, status, attempt, redeliveries, count };
+}
+
 /**
  * Structural gate for a whole operations payload.
  *
@@ -779,7 +1034,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
@@ -1121,6 +1376,161 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       if (!isIsoInstant(courier[field])) {
         return { ok: false, reason: `Courier "${courier.id}" has an unreadable ${field}.` };
       }
+    }
+  }
+
+  // ── Fulfilments (H3.6, ADR-012) ──
+  //
+  // The strongest structural rule in the file, because it is the only one that
+  // checks a stored record against a *replay* of its own history rather than
+  // against a field. A Fulfilment cannot claim a lifecycle its Events do not
+  // support, and its Events cannot describe one its record does not match.
+  const fulfilmentIds = new Set<string>();
+  const fulfilmentByMoment = new Map<string, string>();
+  const redeliveriesByFulfilment = new Map<string, number>();
+
+  for (const [i, fulfilment] of (raw.fulfilments as unknown[]).entries()) {
+    if (!isPlainObject(fulfilment)) return { ok: false, reason: `Fulfilment at index ${i} is not an object.` };
+    if (!isNonEmptyString(fulfilment.id)) return { ok: false, reason: `Fulfilment at index ${i} has no id.` };
+    if (fulfilmentIds.has(fulfilment.id)) {
+      return { ok: false, reason: `Duplicate fulfilment id "${fulfilment.id}".` };
+    }
+    fulfilmentIds.add(fulfilment.id);
+
+    if (fulfilment.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}" belongs to a different workspace.` };
+    }
+    if (!momentIds.has(fulfilment.momentId as string)) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}" references an unknown moment.` };
+    }
+    // ADR-012: one Fulfilment per Moment. Never two.
+    const momentId = fulfilment.momentId as string;
+    if (fulfilmentByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one fulfilment.` };
+    }
+    fulfilmentByMoment.set(momentId, fulfilment.id);
+
+    if (
+      typeof fulfilment.status !== 'string' ||
+      !(FULFILMENT_STATUSES as readonly string[]).includes(fulfilment.status)
+    ) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}" has an invalid status: ${String(fulfilment.status)}.` };
+    }
+    if (
+      typeof fulfilment.attempt !== 'number' ||
+      !Number.isInteger(fulfilment.attempt) ||
+      fulfilment.attempt < 1
+    ) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}" has an invalid attempt number.` };
+    }
+
+    // The immutable authority for what was dispatched. Each must still resolve.
+    if (!briefIds.has(fulfilment.briefId as string)) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}" references an unknown brief.` };
+    }
+    if (
+      typeof fulfilment.briefRevision !== 'number' ||
+      !Number.isInteger(fulfilment.briefRevision) ||
+      fulfilment.briefRevision < 1
+    ) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}" has an invalid brief revision.` };
+    }
+    for (const field of [
+      'itemSelectionDecisionId',
+      'vendorSelectionDecisionId',
+      'courierSelectionDecisionId',
+    ] as const) {
+      if (!decisionIds.has(fulfilment[field] as string)) {
+        return { ok: false, reason: `Fulfilment "${fulfilment.id}" references an unknown ${field}.` };
+      }
+    }
+    for (const field of ['createdAt', 'updatedAt'] as const) {
+      if (!isIsoInstant(fulfilment[field])) {
+        return { ok: false, reason: `Fulfilment "${fulfilment.id}" has an unreadable ${field}.` };
+      }
+    }
+
+    // The replay, and the whole point of it.
+    const replay = replayFulfilment(raw.events as unknown[], fulfilment.id);
+    if (!replay.ok) {
+      return { ok: false, reason: `Fulfilment "${fulfilment.id}": ${replay.reason}` };
+    }
+    if (replay.status !== fulfilment.status) {
+      return {
+        ok: false,
+        reason: `Fulfilment "${fulfilment.id}" says it is ${fulfilment.status}, but its history says ${replay.status}.`,
+      };
+    }
+    if (replay.attempt !== fulfilment.attempt) {
+      return {
+        ok: false,
+        reason: `Fulfilment "${fulfilment.id}" says attempt ${fulfilment.attempt}, but its history says ${replay.attempt}.`,
+      };
+    }
+    redeliveriesByFulfilment.set(fulfilment.id, replay.redeliveries);
+  }
+
+  // No lifecycle Event may float free of a Fulfilment, and none may cross into
+  // another Moment or workspace.
+  for (const event of raw.events as Record<string, unknown>[]) {
+    if (
+      typeof event.eventType !== 'string' ||
+      !(FULFILMENT_EVENT_TYPES as readonly string[]).includes(event.eventType)
+    ) {
+      continue;
+    }
+    if (!isPlainObject(event.payload)) {
+      return { ok: false, reason: `Event "${String(event.id)}" carries no readable payload.` };
+    }
+    const fulfilmentId = event.payload.fulfilmentId;
+    if (typeof fulfilmentId !== 'string' || !fulfilmentIds.has(fulfilmentId)) {
+      return { ok: false, reason: `Event "${String(event.id)}" references an unknown fulfilment.` };
+    }
+    if (fulfilmentByMoment.get(event.momentId as string) !== fulfilmentId) {
+      return { ok: false, reason: `Event "${String(event.id)}" names a fulfilment belonging to another moment.` };
+    }
+  }
+
+  // Every `Redelivery` Decision must correspond to exactly one confirmed
+  // redelivery transition — no more, no fewer. A Decision without its dispatch
+  // records a judgement that never took effect; a dispatch without its Decision
+  // is a state change nobody accounted for.
+  const redeliveriesSeen = new Map<string, number>();
+  for (const decision of raw.decisions as Record<string, unknown>[]) {
+    if (decision.decisionType !== 'Redelivery') continue;
+    if (decision.status !== 'Confirmed') {
+      return { ok: false, reason: `Redelivery decision "${String(decision.id)}" is only ever recorded as Confirmed.` };
+    }
+    if (decision.provider !== 'HumanOperator') {
+      return { ok: false, reason: `Redelivery decision "${String(decision.id)}" must be an operator judgement.` };
+    }
+    if (!isPlainObject(decision.inputs)) {
+      return { ok: false, reason: `Redelivery decision "${String(decision.id)}" records nothing readable.` };
+    }
+    const extra = exactPayloadKeys(decision.inputs, LIFECYCLE_PAYLOAD_KEYS);
+    if (extra.length > 0) {
+      return { ok: false, reason: `A redelivery cannot record ${extra.join(', ')}.` };
+    }
+    const fulfilmentId = decision.inputs.fulfilmentId;
+    if (typeof fulfilmentId !== 'string' || !fulfilmentIds.has(fulfilmentId)) {
+      return { ok: false, reason: `Redelivery decision "${String(decision.id)}" references an unknown fulfilment.` };
+    }
+    if (fulfilmentByMoment.get(decision.momentId as string) !== fulfilmentId) {
+      return { ok: false, reason: `Redelivery decision "${String(decision.id)}" names a fulfilment belonging to another moment.` };
+    }
+    const attempt = decision.inputs.attempt;
+    if (typeof attempt !== 'number' || !Number.isInteger(attempt) || attempt < 2) {
+      return { ok: false, reason: `Redelivery decision "${String(decision.id)}" has an invalid attempt number.` };
+    }
+    redeliveriesSeen.set(fulfilmentId, (redeliveriesSeen.get(fulfilmentId) ?? 0) + 1);
+  }
+  for (const [fulfilmentId, expected] of redeliveriesByFulfilment) {
+    const seen = redeliveriesSeen.get(fulfilmentId) ?? 0;
+    if (seen !== expected) {
+      return {
+        ok: false,
+        reason: `Fulfilment "${fulfilmentId}" has ${expected} redelivery dispatch(es) but ${seen} redelivery decision(s).`,
+      };
     }
   }
 

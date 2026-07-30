@@ -18,7 +18,8 @@
     "validate:operations": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-operations.mts",
     "validate:selection": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-selection.mts",
     "validate:vendors": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-vendors.mts",
-    "validate:couriers": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-couriers.mts"
+    "validate:couriers": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-couriers.mts",
+    "validate:fulfilments": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-fulfilments.mts"
   },
   "dependencies": {
     "next": "16.2.9",

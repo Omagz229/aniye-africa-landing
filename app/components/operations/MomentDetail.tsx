@@ -4,18 +4,20 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getWorkspace } from '@/lib/workspace';
 import { formatMoney } from '@/lib/money';
-import type { Decision, ExecutionBrief, Moment, OperationalEvent } from '@/lib/operations/types';
+import type { Decision, ExecutionBrief, Fulfilment, Moment, OperationalEvent } from '@/lib/operations/types';
 import { browserOperationsRepository } from '@/lib/operations/local-store';
 import { buildCancellation } from '@/lib/operations/generation';
 import { findLiveSelectionDecision } from '@/lib/operations/selection';
 import { findLiveVendorSelection } from '@/lib/operations/vendor-selection';
 import { findLiveCourierSelection } from '@/lib/operations/courier-selection';
+import { humanFulfilmentStatus } from '@/lib/operations/fulfilment';
 
 export default function MomentDetail({ momentId }: { momentId: string }) {
   const [moment, setMoment] = useState<Moment | null>(null);
   const [brief, setBrief] = useState<ExecutionBrief | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [events, setEvents] = useState<OperationalEvent[]>([]);
+  const [fulfilments, setFulfilments] = useState<Fulfilment[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -48,6 +50,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           .filter(e => e.momentId === momentId)
           .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)),
       );
+      setFulfilments(state.value.fulfilments.filter(f => f.momentId === momentId));
     }
   }
 
@@ -105,7 +108,8 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
    * quotes; vendor chosen → this is as far as the build goes.
    */
   const courierSelection = findLiveCourierSelection(decisions, moment.id);
-  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'done' =
+  const fulfilment = fulfilments.find(f => f.momentId === moment.id) ?? null;
+  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'dispatch' | 'fulfilment' =
     !brief || brief.status !== 'Confirmed'
       ? 'brief'
       : !selection
@@ -114,14 +118,17 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           ? 'vendor'
           : !courierSelection
             ? 'courier'
-            : 'done';
+            : !fulfilment
+              ? 'dispatch'
+              : 'fulfilment';
 
   const NEXT: Record<typeof nextAction, { href: string; label: string; primary: boolean }> = {
     brief: { href: `/operations/moments/${moment.id}/brief`, label: 'Open the brief', primary: true },
     item: { href: `/operations/moments/${moment.id}/item`, label: 'Choose an item', primary: true },
     vendor: { href: `/operations/moments/${moment.id}/vendor`, label: 'Compare vendor offers', primary: true },
     courier: { href: `/operations/moments/${moment.id}/courier`, label: 'Arrange carriage', primary: true },
-    done: { href: `/operations/moments/${moment.id}/courier`, label: 'View carriage', primary: false },
+    dispatch: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'Confirm dispatch', primary: true },
+    fulfilment: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'View fulfilment', primary: false },
   };
   const next = NEXT[nextAction];
 
@@ -231,7 +238,9 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
                   ? 'An item has been chosen. Recording vendor quotes and picking one is the next step.'
                   : nextAction === 'courier'
                     ? 'A vendor has been chosen. Arranging who carries it is the next step.'
-                    : 'Item, vendor and courier are all chosen. Tracking the dispatch is the next stage and is not built yet — nothing further can be done with this moment in this build.'}
+                    : nextAction === 'dispatch'
+                      ? 'Item, vendor and courier are all chosen. Confirming that the courier has it is the next step.'
+                      : `This is ${humanFulfilmentStatus(fulfilment!.status).toLowerCase()} at attempt ${fulfilment!.attempt}. The fulfilment screen holds its full history.`}
           </p>
         </div>
       )}
@@ -341,6 +350,10 @@ function humanEvent(type: string): string {
     case 'ItemSelected': return 'Item chosen';
     case 'VendorSelected': return 'Vendor chosen';
     case 'CourierSelected': return 'Courier chosen';
+    case 'Dispatched': return 'Dispatched';
+    case 'DeliveryFailed': return 'Delivery failed';
+    case 'Delivered': return 'Delivered';
+    case 'ProofReceived': return 'Proof received';
     default: return type;
   }
 }

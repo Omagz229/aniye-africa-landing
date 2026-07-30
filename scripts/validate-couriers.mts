@@ -725,7 +725,9 @@ check('30. `CourierSelection` and `CourierSelected` are declared; nothing later 
   for (const t of ['QAException', 'BudgetException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
-  for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {
+  // The fulfilment Events left this list at H3.6, the milestone that produces
+  // them. `Returned` and `Escalation` never arrive: ADR-012 refuses both.
+  for (const t of ['MomentClosed', 'Returned', 'Escalation']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
 });
@@ -921,8 +923,8 @@ check('41. Honest directory writes and an honest selection still commit', () => 
 
 // ─── Part 7: schema and structure ────────────────────────────────────────────
 
-check('42. The operations schema is at v6, and v1 walks every rung to it', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 6, 'Operations schema is not at v6.');
+check('42. The operations schema is at its current version, and v1 walks every rung to it', () => {
+  assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 6, 'Operations schema regressed below v6.');
   const v1 = {
     schemaVersion: 1, workspaceId: WS,
     moments: [{ id: 'm-old', sourceKey: 'k' }], decisions: [{ id: 'd-old' }], events: [{ id: 'e-old' }],
@@ -931,7 +933,7 @@ check('42. The operations schema is at v6, and v1 walks every rung to it', () =>
   const result = migrateOperationsState(v1);
   assert(result.status === 'migrated', 'A v1 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 6, 'Migration did not reach v6.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current schema.');
   assert(Array.isArray(result.state.executionBriefs), 'The v1 → v2 rung did not run.');
   assert(Array.isArray(result.state.vendors), 'The v3 → v4 rung did not run.');
   assert(Array.isArray(result.state.couriers), 'The v4 → v5 rung did not add couriers.');
@@ -952,7 +954,7 @@ check('43. The v4 → v5 rung invents nothing and touches no existing record', (
   const result = migrateOperationsState(JSON.parse(before));
   assert(result.status === 'migrated', 'A v4 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 6, 'Migration did not reach the current schema.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current schema.');
   assertEqual(result.state.couriers.length, 0, 'The migration invented couriers.');
   const original = JSON.parse(before) as Record<string, unknown>;
   for (const k of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers'] as const) {

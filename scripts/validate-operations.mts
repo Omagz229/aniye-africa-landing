@@ -218,9 +218,33 @@ check('3. OperationsState versions independently of the workspace', () => {
     CURRENT_OPERATIONS_SCHEMA_VERSION,
     'Empty state has the wrong schema version.',
   );
-  const opsVersion: number = CURRENT_OPERATIONS_SCHEMA_VERSION;
-  const wsVersion: number = CURRENT_WORKSPACE_SCHEMA_VERSION;
-  assert(opsVersion !== wsVersion, 'The two schema versions are coupled; they must move independently.');
+  /**
+   * ⚠️ **This previously asserted the two numbers were _unequal_**, and that was
+   * a bad test wearing a good one's clothes. Two independent counters coincide
+   * the moment they have taken the same number of steps, and at H3.6 both
+   * reached 7 — so the check failed while nothing was wrong.
+   *
+   * Independence is not "different numbers". It is that each chain advances on
+   * its own milestones and lands on its own constant. That is what is tested
+   * here: an operations payload walks the operations chain to the operations
+   * version, without the workspace version entering into it at any point.
+   */
+  const v1 = {
+    schemaVersion: 1, workspaceId: WS,
+    moments: [], decisions: [], events: [], createdAt: NOW, updatedAt: NOW,
+  };
+  const migrated = migrateOperationsState(v1);
+  assert(migrated.status === 'migrated', 'A v1 operations payload was not migrated.');
+  if (migrated.status !== 'migrated') return;
+  assertEqual(
+    migrated.state.schemaVersion,
+    CURRENT_OPERATIONS_SCHEMA_VERSION,
+    'The operations chain does not land on the operations version.',
+  );
+  assert(
+    (OPERATIONS_KEY as string) !== (WORKSPACE_KEY as string),
+    'Operations and workspace state share a storage key; they must persist separately.',
+  );
 });
 
 check('4. OperationsState cannot silently attach to another workspace', () => {
@@ -1102,7 +1126,11 @@ check('51. The v5 → v6 migration is a pure bump and does not backfill delivery
   const result = migrateOperationsState(JSON.parse(JSON.stringify(v5)));
   assert(result.status === 'migrated', 'A v5 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 6, 'The migration did not reach v6.');
+  assertEqual(
+    result.state.schemaVersion,
+    CURRENT_OPERATIONS_SCHEMA_VERSION,
+    'The migration did not reach the current schema.',
+  );
   assertEqual(JSON.stringify(result.state.moments), beforeMoments, 'The migration rewrote a legacy Moment.');
   assertEqual(JSON.stringify(result.state.decisions), beforeDecisions, 'The migration rewrote Decisions.');
   assertEqual(JSON.stringify(result.state.events), beforeEvents, 'The migration rewrote Events.');

@@ -28,9 +28,9 @@
 | [ADR-009](ADR-009-policy-lifecycle.md) | Policy lifecycle stays three states | **Accepted** | 2026-07-27 |
 | [ADR-010](ADR-010-operational-persistence-boundary.md) | Operational records live outside WorkspaceState | **Accepted** | 2026-07-27 |
 | [ADR-011](ADR-011-recipient-address.md) | Recipient address is customer-owned; operator overrides are per-brief | **Accepted** | 2026-07-28 |
-| [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) | Fulfilment lifecycle and the proof-receipt boundary | **Accepted** | 2026-07-30 |
+| [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) | Fulfilment lifecycle and the proof-receipt boundary | **Accepted · Implemented** | 2026-07-30 |
 
-**ADR-012 resolves OPS-U4a** (the Fulfilment lifecycle and proof-receipt boundary) and explicitly
+**ADR-012 resolves OPS-U4a** (the Fulfilment lifecycle and proof-receipt boundary), was implemented at H3.6, and explicitly
 **defers OPS-U4b** (QA, adjudication and disputes) with a recorded trigger. See
 [`../RELATIONSHIP_OPERATIONS_ATLAS.md`](../RELATIONSHIP_OPERATIONS_ATLAS.md) §9 for the source-scoped
 unresolved register.
@@ -55,13 +55,13 @@ itself is the authority.
 | ADR-002 | ✅ Yes — schema v2 |
 | ADR-004 | ⚠️ Partly — Campaign mode only, schema v6. Recurring and Triggered not implemented |
 | ADR-005 | ⚠️ Partly — H3.1. Separate route tree, shell and navigation exist. **No roles, no authentication** |
-| ADR-006 | ⚠️ **Partly — through H3.5.** Decisions and Events cover Moment generation, brief confirmation and address override, item selection, vendor selection and courier selection. **Partly** because the fulfilment lifecycle is accepted ([ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md)) and not built |
+| ADR-006 | ⚠️ **Partly — through H3.6.** Decisions and Events cover Moment generation, brief confirmation and address override, item selection, vendor selection, courier selection, and the fulfilment lifecycle. **Partly** because commercial tracking (H3.7) and Moment closure (H3.8) are not built |
 | ADR-007 | ⚠️ Partly — Money implemented, schema v5. `RecognitionOrder` deferred to H3.7 |
 | ADR-008 | ✅ Yes — schema v5 |
 | ADR-009 | ✅ Yes — no code change was required |
-| ADR-010 | ✅ Yes — H3.1, **introduced `OperationsState` v1**. Current `OperationsState` is **v6** |
-| ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v6** |
-| ADR-012 | ⬜ **No — accepted, not implemented.** H3.6 has not begun. The separate policy-snapshot prerequisite is complete at current `OperationsState` **v6** |
+| ADR-010 | ✅ Yes — H3.1, **introduced `OperationsState` v1**. Current `OperationsState` is **v7** |
+| ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v7** |
+| ADR-012 | ✅ Yes — H3.6, **landed at `OperationsState` v7** (additive `fulfilments`). Every Council condition held; proof is metadata with **no file stored**. `QAException` and OPS-U4b adjudication remain deferred, and proof-file storage is still an ADR-010 pilot prerequisite |
 
 ---
 

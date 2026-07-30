@@ -674,8 +674,18 @@ history is the **historical truth**. `Redelivery` is the only Decision the lifec
 
 ⚠️ **`MOMENT_STATUSES` is not expanded.** Fulfilment state belongs to the Fulfilment (Atlas §15e).
 
-⚠️ **Accepted, not implemented.** H3.6 has not begun. Its prerequisite policy-snapshot correction
-has landed at `OperationsState` **v6**; that correction does not implement a Fulfilment.
+✅ **Implemented at H3.6**, at `OperationsState` **v7** (additive `fulfilments`). The built record is
+twelve fields and is specified in
+[`RELATIONSHIP_OPERATIONS_ATLAS.md`](RELATIONSHIP_OPERATIONS_ATLAS.md) §3, which is authoritative for
+it. Of the draft above, **`vendorOrderId`, `channel`, `estimatedDeliveryDate`, `deliveredAt` and
+`notes` were not built either** — the delivery instant is on the `Delivered` Event, the channel is an
+Event field, and an estimate nothing consumes is speculation. The `Gift / Item` lesson held: almost
+none of the draft survived contact with the milestone that built it.
+
+⚠️ **What H3.6 still does not deliver.** Proof *files* are not stored, so Atlas §15b's
+*"confirmation + curated proof"* customer promise remains **future architecture**. `QAException`,
+dispute adjudication (**OPS-U4b**), `Returned`, `Escalation`, tracking numbers, tracking URLs and
+courier webhooks do not exist.
 
 ---
 
@@ -1780,8 +1790,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.11 — Aniyé Africa — July 2026*
+*System Atlas v3.12 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.12: **H3.6 — fulfilment tracking implemented; [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) is built as accepted.** `OperationsState` **v7** (additive `fulfilments`; invents no Fulfilment, touches no existing record; a v1 payload still walks every rung). Workspace unchanged at **v7** — the two counters coincide without being coupled. **§4 `Fulfillment` is marked implemented**, with the superseded draft retained for provenance: `vendorOrderId`, `channel`, `estimatedDeliveryDate`, `deliveredAt` and `notes` were **not** built either, alongside the already-superseded status enum, `trackingUrl` and `proofUrl`. The built twelve-field record is specified in `RELATIONSHIP_OPERATIONS_ATLAS.md` §3. One Fulfilment per Moment, created only on confirmed dispatch, no persisted draft; three statuses; `Redelivery` the only Decision; `ProofReceived` after `Delivered` only, changing no status. **Proof is metadata — no file, URL, data URI, base64 or blob** — so §15b's *"confirmation + curated proof"* promise remains future architecture. `MOMENT_STATUSES` unchanged at three. Milestone count **24 of 37**; H3 is **6 of 8**; **H3.7 is next, gated on CP-U3 / OPS-U3 and CP-U4, and has not begun.** ⚠️ No browser verification was performed for H3.6; real-device testing remains outstanding and is not claimed.*
 *v3.11: **Pre-H3.6 policy-resolution snapshot correction implemented.** `OperationsState` **v6** admits `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired` on newly generated Moment snapshots. The `v5 → v6` rung is a pure version bump: no existing Moment or copied Execution Brief snapshot is backfilled, and absence remains "not recorded", never a default. Partial or malformed delivery context is refused. Confirmation revalidation treats all four promises as material. Workspace remains **v7**; H3.6 and ADR-012's Fulfilment remain **not implemented**.*
 *v3.10: **H3.5 → H3.6 governance decision closure — documentation only.** No code, schema, migration, validation, route or UI changed. **§4 `Fulfillment` is re-issued by [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)** — the draft status enum is superseded by exactly three states (`Dispatched` · `DeliveryFailed` · `Delivered`), `proofUrl` and `trackingUrl` are superseded, and proof is recorded as **metadata only with no file stored**. One Fulfilment per Moment, created only on confirmed dispatch; `Redelivery` is the only Decision; `MOMENT_STATUSES` unchanged at three. §18 registers ADR-012 as **accepted and not implemented**. §17 records secure file storage for proof among the not-implemented set. **H3.6 has not begun**; Workspace remains **v7** and `OperationsState` remains **v5** — v6 is planned, not landed*
 *v3.9: H3.5 — the per-country Courier directory and manual courier selection implemented. `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record); Workspace unchanged at **v7**. **§4 gains `Courier`** — it did not exist in this document before, so nothing was re-issued; it lives in `OperationsState` and is never projected into Workspace. §15d updated to v7/v5; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. No rate APIs, tracking, optimization, scoring, routing, courier account or portal was built; fulfilment tracking remains H3.6 and is gated on unresolved U4. ADR-010 remains the external-pilot gate*

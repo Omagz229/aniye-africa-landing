@@ -30,10 +30,17 @@ const NAV_ITEMS = [
   { label: 'Briefs', href: '/operations/briefs', exact: false, built: true },
   { label: 'Vendors', href: '/operations/vendors', exact: false, built: true },
   { label: 'Couriers', href: '/operations/couriers', exact: false, built: true },
+  { label: 'Fulfilments', href: '/operations/fulfilments', exact: false, built: true },
 ];
 
-/** Shown as explicitly unavailable rather than omitted — no clickable dead ends. */
-const FUTURE_SECTIONS = ['Catalog', 'Fulfilment'];
+/**
+ * Shown as explicitly unavailable rather than omitted — no clickable dead ends.
+ *
+ * Fulfilment left this list at H3.6. **Catalog stays**: H3.3 built a flat seed
+ * that item selection reads, and no administration surface for it — listing a
+ * section that does not exist would be the dead end this list exists to prevent.
+ */
+const FUTURE_SECTIONS = ['Catalog'];
 
 export default function OperationsShell({ children }: Props) {
   const router = useRouter();

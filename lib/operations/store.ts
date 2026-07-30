@@ -12,6 +12,7 @@
 import type {
   Decision,
   ExecutionBrief,
+  Fulfilment,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -65,6 +66,40 @@ export interface VendorSelectionWrite {
  * Decision carries all of it.
  */
 export interface CourierSelectionWrite {
+  decision: Decision;
+  event: OperationalEvent;
+}
+
+/**
+ * What confirming initial dispatch writes, atomically (H3.6).
+ *
+ * The Fulfilment is **created here and nowhere else** — there is no draft, and
+ * no `Pending` row precedes it (ADR-012).
+ */
+export interface DispatchWrite {
+  fulfilment: Fulfilment;
+  event: OperationalEvent;
+}
+
+/**
+ * What a failure, a delivery confirmation or a proof receipt writes: **one
+ * Event, and no Decision.**
+ *
+ * The Fulfilment's status and attempt are recomputed by the implementation from
+ * re-read state — deliberately not submitted, so no caller can assert a
+ * lifecycle its own Events do not support.
+ */
+export interface FulfilmentEventWrite {
+  event: OperationalEvent;
+}
+
+/**
+ * What a confirmed redelivery writes, atomically (H3.6).
+ *
+ * The only fulfilment transition carrying a Decision, because it is the only one
+ * where the operator chose between real alternatives.
+ */
+export interface RedeliveryWrite {
   decision: Decision;
   event: OperationalEvent;
 }
@@ -276,6 +311,62 @@ export interface OperationsRepository {
     write: CourierSelectionWrite,
     now: string,
   ): StoreResult<Decision>;
+
+  // ── Fulfilment (H3.6) ──
+  //
+  // Five named transitions, one per lifecycle step. Deliberately **not** one
+  // `updateFulfilment(status)`: a generic setter would let any caller move a
+  // Fulfilment to any state, which is exactly the guarantee ADR-012 exists to
+  // hold. Each operation below re-reads state, recomputes the transition its own
+  // name allows, validates the full proposed state, and performs **one** write.
+
+  listFulfilments(workspaceId: string): StoreResult<Fulfilment[]>;
+
+  /** The one Fulfilment for a Moment, or null. Never more than one. */
+  findFulfilmentForMoment(workspaceId: string, momentId: string): StoreResult<Fulfilment | null>;
+
+  /**
+   * Confirm that the courier has it — **the only operation that creates a
+   * Fulfilment.**
+   *
+   * Refuses, with a named recovery and zero writes, unless the Moment is
+   * `ReadyForExecution` in this workspace with no Fulfilment already, its live
+   * confirmed brief and all three live selection Decisions exist and agree with
+   * each other, and the brief's policy snapshot carries **all four** v6 delivery
+   * promises. Legacy absence means "not recorded"; it is never defaulted and the
+   * live policy is never re-resolved.
+   */
+  commitInitialDispatch(workspaceId: string, write: DispatchWrite, now: string): StoreResult<Fulfilment>;
+
+  /** Record that the current attempt failed. `Dispatched` → `DeliveryFailed`. */
+  commitDeliveryFailure(
+    workspaceId: string,
+    write: FulfilmentEventWrite,
+    now: string,
+  ): StoreResult<Fulfilment>;
+
+  /**
+   * Send it again. `DeliveryFailed` → `Dispatched`, attempt + 1, with a
+   * Confirmed `Redelivery` Decision carrying the operator's reason. All three
+   * land together or not at all.
+   */
+  commitRedelivery(workspaceId: string, write: RedeliveryWrite, now: string): StoreResult<Fulfilment>;
+
+  /** Record that it reached the recipient. `Dispatched` → `Delivered`. */
+  commitDelivery(workspaceId: string, write: FulfilmentEventWrite, now: string): StoreResult<Fulfilment>;
+
+  /**
+   * Record that proof arrived. Appends one Event and **changes no status**.
+   *
+   * ⚠️ Metadata only — kind, channel, actor and timestamps. An implementation
+   * must refuse any payload carrying a file, file name, URL, data URI, base64 or
+   * blob (ADR-012 §7).
+   */
+  commitProofReceipt(
+    workspaceId: string,
+    write: FulfilmentEventWrite,
+    now: string,
+  ): StoreResult<Fulfilment>;
 
   /** Structural check of the stored state, without modifying it. */
   validate(workspaceId: string): StoreResult<true>;

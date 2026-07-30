@@ -26,9 +26,10 @@ import type {
  * typing a cost and changing either are all component state.
  *
  * ⚠️ **No ranking and no recommendation.** The couriers serving the delivery
- * country appear alphabetically. Aniyé has no evidence yet about which courier
- * delivers well — that is what H3.6's fulfilment records will eventually
- * provide, and suggesting an answer before then would be invention.
+ * country appear alphabetically. Aniyé still has no evidence about which courier
+ * delivers well — H3.6 began *recording* delivery outcomes, but reading them
+ * back as a score is Vendor and courier Intelligence (H4.3), gated on the pilot.
+ * Suggesting an answer from a handful of prototype records would be invention.
  */
 
 type Phase = 'loading' | 'failed' | 'missing' | 'ready';
@@ -225,8 +226,8 @@ export default function CourierSelectionPanel({ momentId }: { momentId: string }
           </p>
           <p className="font-body text-xs text-cream/70 mt-2 leading-snug">“{preview.confirmed.reason}”</p>
           <p className="font-body text-xs text-cream/50 mt-3 leading-snug">
-            This is what the courier quoted Aniyé, not what anyone has paid. Tracking the dispatch is
-            the next stage and is not built yet.
+            This is what the courier quoted Aniyé, not what anyone has paid. Confirming that the
+            courier has it is the next step.
           </p>
         </div>
       )}

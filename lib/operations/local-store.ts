@@ -20,18 +20,24 @@ import { verifyVendorSelection } from './vendor-selection';
 import { canonicalVendor } from './vendors';
 import { canonicalCourier } from './couriers';
 import { verifyCourierSelection } from './courier-selection';
+import { verifyFulfilmentWrite } from './fulfilment';
+import type { FulfilmentWriteKind } from './fulfilment';
 import type {
   BriefWrite,
+  DispatchWrite,
+  FulfilmentEventWrite,
   ItemSelectionWrite,
   MomentBatch,
   CourierSelectionWrite,
   OperationsRepository,
+  RedeliveryWrite,
   StoreResult,
   VendorSelectionWrite,
 } from './store';
 import type {
   Decision,
   ExecutionBrief,
+  Fulfilment,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -151,6 +157,94 @@ export function createLocalOperationsRepository(
       return { ok: false, reason: 'No operations state exists for this workspace yet.' };
     }
     return { ok: true, value: loaded.value };
+  }
+
+  /**
+   * The one path every fulfilment transition takes — H3.6.
+   *
+   * Five named repository operations, one implementation, because the *shape* of
+   * every transition is identical and only the rule differs: re-read state, find
+   * the Moment, hand the whole submission to the verifier, and store **what the
+   * verifier recomputed** rather than what the caller sent.
+   *
+   * ⚠️ **Shape before contents.** The interface types say this is a bundle; the
+   * compiler is gone by the time a caller passes `null`, an array or a string.
+   * Destructuring first would turn a bad submission into a thrown exception,
+   * which is not a refusal — it tells the operator nothing and leaves them
+   * unable to say whether anything was written.
+   */
+  function transitionFulfilment(
+    workspaceId: string,
+    write: unknown,
+    kind: FulfilmentWriteKind,
+    now: string,
+  ): StoreResult<Fulfilment> {
+    const state = require(workspaceId);
+    if (!state.ok) return state;
+
+    const refusal = 'Review the moment and try again — nothing was recorded.';
+
+    if (!isPlainRecord(write)) {
+      return { ok: false, reason: `That submission is not a record. ${refusal}` };
+    }
+    const event = write.event;
+    if (!isPlainRecord(event)) {
+      return { ok: false, reason: `That submission carries no readable event. ${refusal}` };
+    }
+
+    const moment = state.value.moments.find(m => m.id === event.momentId);
+    if (!moment) {
+      return { ok: false, reason: `That moment no longer exists. Review the queue — nothing was recorded.` };
+    }
+
+    /**
+     * **The trust boundary.** The Moment, the live brief, the three live
+     * selection Decisions, the stored Fulfilment and its whole replayed Event
+     * history are re-read and recomputed, and every submitted field is compared
+     * against them. On success the verifier hands back rebuilt records.
+     */
+    const verified = verifyFulfilmentWrite({
+      workspaceId,
+      moment,
+      briefs: state.value.executionBriefs,
+      decisions: state.value.decisions,
+      fulfilments: state.value.fulfilments,
+      events: state.value.events,
+      write,
+      kind,
+    });
+    if (!verified.ok) return verified;
+
+    // Idempotency: a replayed bundle collides on every identifier it carries, so
+    // a double-click or a re-submitted request writes nothing the second time.
+    if (state.value.events.some(e => e.id === verified.event.id)) {
+      return { ok: false, reason: 'That step has already been recorded.' };
+    }
+    if (verified.decision && state.value.decisions.some(d => d.id === verified.decision!.id)) {
+      return { ok: false, reason: 'That decision has already been recorded.' };
+    }
+
+    const fulfilments =
+      kind === 'Dispatched'
+        ? [...state.value.fulfilments, verified.fulfilment]
+        : state.value.fulfilments.map(f => (f.id === verified.fulfilment.id ? verified.fulfilment : f));
+
+    // One transaction, over a proposed state validated in full (ADR-006).
+    // Existing Decisions and Events are carried through **untouched** — the
+    // history is appended to, never rewritten or reordered.
+    const written = commit(
+      {
+        ...state.value,
+        fulfilments,
+        decisions: verified.decision
+          ? [...state.value.decisions, verified.decision]
+          : state.value.decisions,
+        events: [...state.value.events, verified.event],
+      },
+      now,
+    );
+    if (!written.ok) return written;
+    return { ok: true, value: verified.fulfilment };
   }
 
   return {
@@ -870,6 +964,40 @@ export function createLocalOperationsRepository(
       return { ok: true, value: decision };
     },
 
+    // ── Fulfilment (H3.6) ──
+
+    listFulfilments(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.fulfilments ?? [] };
+    },
+
+    findFulfilmentForMoment(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.fulfilments.find(f => f.momentId === momentId) ?? null };
+    },
+
+    commitInitialDispatch(workspaceId, write: DispatchWrite, now) {
+      return transitionFulfilment(workspaceId, write, 'Dispatched', now);
+    },
+
+    commitDeliveryFailure(workspaceId, write: FulfilmentEventWrite, now) {
+      return transitionFulfilment(workspaceId, write, 'DeliveryFailed', now);
+    },
+
+    commitRedelivery(workspaceId, write: RedeliveryWrite, now) {
+      return transitionFulfilment(workspaceId, write, 'Redelivery', now);
+    },
+
+    commitDelivery(workspaceId, write: FulfilmentEventWrite, now) {
+      return transitionFulfilment(workspaceId, write, 'Delivered', now);
+    },
+
+    commitProofReceipt(workspaceId, write: FulfilmentEventWrite, now) {
+      return transitionFulfilment(workspaceId, write, 'ProofReceived', now);
+    },
+
     validate(workspaceId) {
       const state = read(workspaceId);
       if (!state.ok) return state;
@@ -896,7 +1024,11 @@ export type {
   ItemSelectionWrite,
   VendorSelectionWrite,
   CourierSelectionWrite,
+  DispatchWrite,
+  FulfilmentEventWrite,
+  RedeliveryWrite,
   Vendor,
   VendorOffer,
   Courier,
+  Fulfilment,
 };

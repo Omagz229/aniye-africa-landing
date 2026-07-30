@@ -34,7 +34,8 @@
 | — | **H3.5 — Courier directory + manual selection** | ✅ **Complete** — OperationsState v5 | H3.5 |
 | — | **H3.3/H3.4-D1 — malformed runtime-container correction** | ✅ **Complete** — no schema change | H3.3/H3.4-D1 |
 | — | **Pre-H3.6 — policy-resolution delivery snapshot** | ✅ **Complete** — OperationsState v6 | Snapshot v6 |
-| — | **H3.6 — Fulfilment tracking** | ⬜ **Not begun.** Governance and both prerequisite corrections resolved | — |
+| — | **H3.6 — Fulfilment tracking** | ✅ **Complete** — OperationsState v7; ADR-012 implemented | H3.6 |
+| — | **H3.7 — Recognition Order + commercial tracking** | ⬜ **Not begun**, and gated on CP-U3 / OPS-U3 and CP-U4 | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1895,6 +1896,76 @@ with **28 routes**. No browser run was performed because there is no UI change.
 | `OperationsState` | **v6** |
 | Remaining prerequisite before H3.6 | **None** |
 | Still deferred | Actual proof-file storage · OPS-U4b adjudication |
+---
+
+### ✅ H3.6 — Fulfilment tracking — 2026-07-30
+
+**New build, not recovery. `OperationsState` v6 → v7.**
+[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) is implemented as accepted, with
+every Council condition held and no variance.
+
+**What was built.** One `Fulfilment` per Moment, created **only** on confirmed initial dispatch —
+there is no persisted `Pending` and no draft, so a Moment with carriage arranged but nothing
+dispatched simply has none, and that absence is itself the fact. Three statuses: `Dispatched`,
+`DeliveryFailed`, `Delivered`. Five named repository transitions, each **one atomic write** over a
+fully validated proposed state: initial dispatch, failed attempt, redelivery, delivery confirmation,
+proof receipt.
+
+**`Redelivery` is the only Decision.** Dispatching and delivering are occurrences — there were no
+alternatives, so a reason field on them could only ever be filler. Choosing to try again after a
+failure is a real choice between real alternatives (redeliver, cancel, or handle it outside the
+system), so it carries a required human reason exactly as every other Decision does.
+
+**Current state is a projection; the Events are the historical truth.** `replayFulfilment()` walks a
+Fulfilment's Events in persisted order, and `validateOperationsState` **refuses any stored record
+whose status or attempt disagrees with its own replay**. Nothing is mutated or reordered to produce
+a history: a fulfilment that failed once and was redelivered reads `Dispatched` at attempt 2, and its
+Events read `Dispatched#1 · DeliveryFailed#1 · Dispatched#2 · Delivered#2 · ProofReceived#2`.
+
+**Proof is metadata, and the boundary is enforced twice.** `ProofReceived` records a kind (`Photo`,
+`Document`, `Signature`), the channel, the actor and both timestamps. The exact-key check runs on the
+payload **and on the Event itself** — the second was added because checking only the payload would
+have left `event.proofUrl` free to reach storage beside a spotless payload, one nesting level above
+where the rule was being looked for. Fourteen forbidden field names are proven refused, and proven
+absent from storage afterwards. There is no upload control, and the operator surface states plainly
+that the evidence file is not retained.
+
+**The legacy gate is honest about having no repair.** A Moment prepared before `OperationsState` v6
+carries none of the four delivery promises and cannot be dispatched. It also cannot be fixed: the
+promises are unrecoverable (a policy is edited in place at the same id and version) and the Moment
+cannot be prepared again, because generation refuses a `sourceKey` that already exists and cancelling
+does not release it. The recovery says exactly that rather than offering an action that would fail.
+
+**Two defects found in the existing suites, and corrected rather than worked around:**
+
+1. **`validate:operations` check 3 and `validate:briefs` check 6 asserted the Workspace and
+   `OperationsState` schema versions were _unequal_**, as a proxy for "they move independently".
+   That was only ever incidentally true — two independent counters coincide the moment they have
+   taken the same number of steps, and at H3.6 both reached 7. Both checks now assert what actually
+   matters: that the operations chain lands on its own constant, and that the two states persist
+   under different storage keys (ADR-010).
+2. **`CLAUDE.md`'s command block omitted `validate:briefs`** — 47 checks. Anyone following it as
+   written under-ran the gates by a full suite. Added, with the total stated.
+
+**Not built, as required:** `QAException`, disputes, adjudication (**OPS-U4b**), `Returned`,
+`Escalation`, tracking numbers, tracking URLs, courier webhooks, carrier APIs, delivery scoring or
+routing, external-party access, and any storage of proof content. `MOMENT_STATUSES` is unchanged at
+three. Workspace schema is unchanged at **v7**.
+
+**Gates.** New suite `validate:fulfilments` — **50 checks**. **504 checks across twelve suites**
+(verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47,
+operations 54, selection 71, vendors 92, couriers 53, fulfilments 50). Typecheck clean. Lint **47
+problems — 26 errors, 21 warnings**, exactly the pre-H3.6 baseline. Build succeeds with **30 routes**
+(two intentional additions: `/operations/fulfilments` and `/operations/moments/[id]/fulfilment`).
+
+⚠️ **No browser verification was performed.** The two new operator surfaces are covered by automated
+checks and static review only. No responsive, keyboard, focus or overflow behaviour has been
+observed running, and none is claimed. Real-device testing remains outstanding, as it has since H3.1.
+
+**H3.7 has not begun**, and is gated on **CP-U3 / OPS-U3** (merchant of record) and **CP-U4** (first
+pilot currency).
+
+---
 
 ### ⛔ The hard gate before an external pilot
 
@@ -2419,7 +2490,6 @@ Reconstruction steps 4–10 remain in the sequence above and are gated behind th
 All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 `main` is not modified directly. The branch currently tracks `origin/recovery/h3-reconstruction`.
 
----
 
 *Recovery Ledger — Aniyé Africa — 27 July 2026*
 *Audit basis: commit `b639349`, System Atlas v2.2.*
@@ -2455,3 +2525,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.5 → H3.6 governance documentation correction D1 (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** Current-state passages that still described the country-coverage question as open have been reconciled with the governance closure: the Master Roadmap no longer calls H3.5 "per operating country" and no longer ends its H3.5 narrative "surfaced rather than resolved"; the Operations Atlas §3 named-gap section records the Council resolution and the exact accepted completion test, and is bumped **v1.7 → v1.8**; this ledger's H3.5 entry is **preserved as a historical account and explicitly qualified** with the later decision. **Current confirmed Execution Briefs are the accepted operational coverage authority**; `operatingCountries` remains free-text assessment and marketing data. `docs/adr/README.md` corrected — ADR-006 now applies through H3.5 and remains partly implemented; ADR-010 introduced `OperationsState` v1 with current **v5**; ADR-011 landed at v2 with current **v5**; ADR-012 accepted and not implemented. Dated historical footers and the separate, still-open milestone-count discrepancy were deliberately left intact. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5** — v6 planned, not landed. Relationship Operations Atlas v1.8.*
 *Updated after H3.3/H3.4-D1 (malformed runtime-container correction) — the two older selection boundaries now apply the exported `isPlainRecord` pattern before destructuring or property access, matching H3.5-D1. Item and vendor repository commits and direct verifiers refuse malformed write bundles, Decisions, Events, `Decision.inputs` and `Event.payload`; H3.4 also requires `offers` to be an array and every newly submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the policy-snapshot **v5 → v6** migration is the only remaining prerequisite.*
 *Updated after the pre-H3.6 policy-resolution delivery snapshot correction — `OperationsState` **v6** captures `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired` on newly generated Moments. The v5 → v6 migration is a pure version bump: existing records are not backfilled, legacy absence remains unknown, and partial or malformed delivery context is refused. Confirmation revalidation treats every delivery promise as material. Operations validation **50 → 54**; **454 checks across eleven suites**; typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI or route changed, so no browser run was performed. Workspace remains **v7**; H3.6 has not begun; both prerequisites are now complete. System Atlas v3.11, Master Roadmap v1.9, Relationship Operations Atlas v1.9.*
+*Updated after H3.6 (Fulfilment tracking) — `OperationsState` **v7** (additive `fulfilments`; invents no Fulfilment, touches no existing record; a v1 payload still walks every rung). Workspace unchanged at **v7**, and the two counters now coincide without being coupled — the two checks that asserted independence by asserting inequality were corrected to test separate persistence instead. ADR-012 implemented as accepted: one Fulfilment per Moment created only on confirmed dispatch, no persisted draft, three statuses, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only and changing no status. Proof is metadata — no file, URL, data URI, base64 or blob — refused on the payload **and** on the Event itself, and proven absent from storage. Current state is checked against a replay of each fulfilment's own Events. A pre-v6 Moment is refused at dispatch with a recovery that does not promise a re-preparation the idempotency rules cannot perform. New suite `validate:fulfilments` (50); **504 checks across twelve suites**; typecheck clean; lint 47 (26 errors, 21 warnings); build 30 routes. **No browser verification was performed**; real-device testing remains outstanding. H3.7 has not begun and is gated on CP-U3 / OPS-U3 and CP-U4.*

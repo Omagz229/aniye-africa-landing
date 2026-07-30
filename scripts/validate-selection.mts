@@ -833,7 +833,10 @@ check('42. H3.3 adds exactly one decision type and one event type, and no more',
   for (const t of ['QAException', 'BudgetException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
-  for (const t of ['ItemPrepared', 'VendorContacted', 'Dispatched', 'Delivered', 'MomentClosed']) {
+  // `Dispatched` and `Delivered` left this list at H3.6, the milestone that
+  // produces them. `ItemPrepared` and `VendorContacted` never arrive — each was
+  // renamed for what actually happens.
+  for (const t of ['ItemPrepared', 'VendorContacted', 'MomentClosed']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
 });

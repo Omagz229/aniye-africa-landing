@@ -14,6 +14,7 @@
 
 import {
   CURRENT_WORKSPACE_SCHEMA_VERSION,
+  WORKSPACE_KEY,
   migrateWorkspace,
   validateMigratedWorkspace,
 } from '../lib/migrations';
@@ -279,9 +280,17 @@ check('5. A structurally malformed address is refused; an incomplete one is not'
 // payload still walks every rung — is unchanged and now version-agnostic.
 check('6. OperationsState is at or beyond v2 and independent of the workspace', () => {
   assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 2, 'Operations schema regressed below v2.');
-  const ops: number = CURRENT_OPERATIONS_SCHEMA_VERSION;
-  const ws: number = CURRENT_WORKSPACE_SCHEMA_VERSION;
-  assert(ops !== ws, 'The two schema versions are coupled; they must move independently.');
+  assert(CURRENT_WORKSPACE_SCHEMA_VERSION >= 7, 'Workspace schema regressed below v7.');
+  /**
+   * ⚠️ This previously asserted the two versions were **unequal**. Both reached
+   * 7 at H3.6, which made the check fail without anything being wrong —
+   * independent counters are allowed to coincide. Separate persistence is the
+   * property that actually matters (ADR-010), so that is what is asserted.
+   */
+  assert(
+    (OPERATIONS_KEY as string) !== (WORKSPACE_KEY as string),
+    'Operations and workspace state share a storage key.',
+  );
 });
 
 check('7. A v1 operations payload migrates rather than being quarantined', () => {
@@ -781,10 +790,11 @@ check('35. The new Decision and Event types are declared, and no more', () => {
   // `ItemSelection` left this list at H3.3 and `VendorSelection` at H3.4 — each
   // at the milestone that produces it. The rest have not been built.
   // `CourierSelection` left this list at H3.5, the milestone that produces it.
+  // The four fulfilment Events left it at H3.6, and `Redelivery` with them.
   for (const t of ['QAException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
-  for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {
+  for (const t of ['MomentClosed', 'Returned', 'Escalation']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
 });
