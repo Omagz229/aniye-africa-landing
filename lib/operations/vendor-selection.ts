@@ -74,23 +74,23 @@ function readChosenItem(decision: Decision): ChosenItem | null {
   return {
     decisionId: decision.id,
     itemId: inputs.selectedItemId,
-    // Defensively copied on the way out, so a caller cannot reach back into a
-    // stored Decision through the object it was handed.
-    snapshot: { ...snapshot, price: { ...snapshot.price } },
+    /**
+     * A **canonical projection**, not a spread.
+     *
+     * Rebuilt field by field so it carries exactly the four declared keys, and
+     * `price` exactly two. That makes it safe to use as the expected value the
+     * submitted snapshot must match *exactly*: if the stored H3.3 Decision ever
+     * carried an extra field, projecting it away here means a new H3.4 record
+     * cannot inherit it — and a caller cannot reach back into stored history
+     * through the object they were handed.
+     */
+    snapshot: {
+      itemId: snapshot.itemId,
+      name: snapshot.name,
+      category: snapshot.category,
+      price: { amountMinor: snapshot.price.amountMinor, currency: snapshot.price.currency },
+    },
   };
-}
-
-export function sameItemSnapshot(a: unknown, b: CatalogItemSnapshot): boolean {
-  if (typeof a !== 'object' || a === null) return false;
-  const s = a as Partial<CatalogItemSnapshot>;
-  const price = s.price as Partial<Money> | undefined;
-  return (
-    s.itemId === b.itemId &&
-    s.name === b.name &&
-    s.category === b.category &&
-    price?.amountMinor === b.price.amountMinor &&
-    price?.currency === b.price.currency
-  );
 }
 
 // ─── Preview ─────────────────────────────────────────────────────────────────
@@ -648,6 +648,63 @@ function extraKeys(value: unknown, allowed: readonly string[]): string[] {
   return Object.keys(value as Record<string, unknown>).filter(k => !permitted.has(k));
 }
 
+/**
+ * ─── Recursive exactness ─────────────────────────────────────────────────────
+ *
+ * Outer-level key checking is not enough. Comparators inspect the fields they
+ * know about, so an extra key **inside** an otherwise-allowed object slips
+ * through whenever it is copied consistently into every representation — and a
+ * caller building a bundle by hand copies consistently by construction.
+ *
+ * `vendorSnapshot.reliabilityScore`, `itemSnapshot.price.margin`,
+ * `quotedVendorCost.actualPaidCost` and `approvedBudget.customerCharge` all
+ * passed the outer checks for exactly that reason: both sides of every
+ * comparison carried the same extra, so every comparison agreed.
+ *
+ * The fix is to compare against a **projection of live truth**. The expected
+ * value is rebuilt from the trusted record — the live Vendor, the live
+ * `ItemSelection`, the live brief — as exactly its declared fields, and the
+ * submitted value must have exactly those keys and exactly those values.
+ * Nothing undeclared can survive, because the thing it is compared against
+ * cannot contain it.
+ *
+ * These apply to **newly submitted records only**. Stored history and
+ * migration-level unknown keys are untouched: forward compatibility belongs on
+ * read, exactness belongs at the door.
+ */
+
+const MONEY_KEYS = ['amountMinor', 'currency'] as const;
+const VENDOR_SNAPSHOT_KEYS = ['vendorId', 'name', 'countryCode', 'city'] as const;
+const ITEM_SNAPSHOT_KEYS = ['itemId', 'name', 'category', 'price'] as const;
+
+/** Exactly two keys, exactly these values. */
+function exactMoney(value: unknown, expected: Money): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (extraKeys(value, MONEY_KEYS).length > 0) return false;
+  const m = value as Partial<Money>;
+  return m.amountMinor === expected.amountMinor && m.currency === expected.currency;
+}
+
+/** Exactly four keys, matching the live Vendor record's declared projection. */
+function exactVendorSnapshot(value: unknown, expected: VendorSnapshot): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (extraKeys(value, VENDOR_SNAPSHOT_KEYS).length > 0) return false;
+  return sameVendorSnapshot(value, expected);
+}
+
+/** Exactly four keys, with `price` itself exact Money. */
+function exactItemSnapshot(value: unknown, expected: CatalogItemSnapshot): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (extraKeys(value, ITEM_SNAPSHOT_KEYS).length > 0) return false;
+  const s = value as Partial<CatalogItemSnapshot>;
+  return (
+    s.itemId === expected.itemId &&
+    s.name === expected.name &&
+    s.category === expected.category &&
+    exactMoney(s.price, expected.price)
+  );
+}
+
 /** `undefined` counts as absent; a present value must be usable text. */
 function optionalTextValid(value: unknown): boolean {
   return value === undefined || (typeof value === 'string' && value.trim().length > 0);
@@ -668,12 +725,6 @@ const REVIEW_AGAIN = 'Review the moment and record the quotes again — nothing 
 
 function refuse(what: string): { ok: false; reason: string } {
   return { ok: false, reason: `${what} ${REVIEW_AGAIN}` };
-}
-
-function sameMoney(a: unknown, b: Money): boolean {
-  if (typeof a !== 'object' || a === null) return false;
-  const m = a as Partial<Money>;
-  return m.amountMinor === b.amountMinor && m.currency === b.currency;
 }
 
 export function verifyVendorSelection(
@@ -738,11 +789,11 @@ export function verifyVendorSelection(
   if (inputs.selectedItemId !== chosen.itemId) {
     return refuse('The recorded item does not match the one chosen for this moment.');
   }
-  if (!sameItemSnapshot(inputs.selectedItem, chosen.snapshot)) {
-    return refuse('The recorded details of the chosen item do not match the item selection.');
+  if (!exactItemSnapshot(inputs.selectedItem, chosen.snapshot)) {
+    return refuse('The recorded details of the chosen item do not match the item selection, or carry undeclared fields.');
   }
-  if (!sameMoney(inputs.approvedBudget, live.policyResolutionSnapshot.approvedRecognitionBudget)) {
-    return refuse('The recorded budget does not match the brief.');
+  if (!exactMoney(inputs.approvedBudget, live.policyResolutionSnapshot.approvedRecognitionBudget)) {
+    return refuse('The recorded budget does not match the brief, or carries undeclared fields.');
   }
 
   const currency = chosen.snapshot.price.currency;
@@ -772,8 +823,8 @@ export function verifyVendorSelection(
     if (offer.itemSelectionDecisionId !== itemDecision.id || offer.selectedItemId !== chosen.itemId) {
       return refuse('A quote refers to a different item.');
     }
-    if (!sameItemSnapshot(offer.itemSnapshot, chosen.snapshot)) {
-      return refuse('A quote records different details of the chosen item.');
+    if (!exactItemSnapshot(offer.itemSnapshot, chosen.snapshot)) {
+      return refuse('A quote records different or undeclared details of the chosen item.');
     }
 
     const vendor = input.vendors.find(v => v.id === offer.vendorId);
@@ -783,12 +834,17 @@ export function verifyVendorSelection(
     // The snapshot must match the record **as it stands now**, so a rename
     // between the screen opening and confirming stops the write rather than
     // silently recording a name nobody would recognize later.
-    if (!sameVendorSnapshot(offer.vendorSnapshot, snapshotVendor(vendor))) {
-      return refuse(`"${vendor.name}"'s directory entry changed while this was open.`);
+    // Compared against a projection of the **live** record, so an extra field
+    // inside the snapshot has nothing to match and is refused.
+    if (!exactVendorSnapshot(offer.vendorSnapshot, snapshotVendor(vendor))) {
+      return refuse(`"${vendor.name}"'s directory entry changed, or the quote records undeclared details about them.`);
     }
 
     if (!isValidMoney(offer.quotedVendorCost) || offer.quotedVendorCost.amountMinor < 0) {
       return refuse('A quote is not a valid amount.');
+    }
+    if (extraKeys(offer.quotedVendorCost, MONEY_KEYS).length > 0) {
+      return refuse('A quote records undeclared detail alongside its amount.');
     }
     if (offer.quotedVendorCost.currency !== currency) {
       return refuse(`A quote is not in ${currency}, and quotes are never converted.`);
@@ -839,10 +895,10 @@ export function verifyVendorSelection(
       got.quotedAt !== want.quotedAt ||
       got.leadTimeDays !== want.leadTimeDays ||
       got.terms !== want.terms ||
-      !sameMoney(got.quotedVendorCost, want.quotedVendorCost) ||
-      !sameVendorSnapshot(got.vendor, want.vendor)
+      !exactMoney(got.quotedVendorCost, want.quotedVendorCost) ||
+      !exactVendorSnapshot(got.vendor, want.vendor)
     ) {
-      return refuse('The recorded quotes do not match the quotes submitted.');
+      return refuse('The recorded quotes do not match the quotes submitted, or carry undeclared fields.');
     }
   }
 
@@ -852,11 +908,11 @@ export function verifyVendorSelection(
   if (inputs.selectedVendorId !== selected.vendorId) {
     return refuse('The chosen vendor does not match the chosen quote.');
   }
-  if (!sameVendorSnapshot(inputs.selectedVendor, selected.vendorSnapshot)) {
-    return refuse('The recorded details of the chosen vendor do not match the chosen quote.');
+  if (!exactVendorSnapshot(inputs.selectedVendor, selected.vendorSnapshot)) {
+    return refuse('The recorded details of the chosen vendor do not match the chosen quote, or carry undeclared fields.');
   }
-  if (!sameMoney(inputs.selectedQuotedVendorCost, selected.quotedVendorCost)) {
-    return refuse('The recorded chosen quote does not match its offer.');
+  if (!exactMoney(inputs.selectedQuotedVendorCost, selected.quotedVendorCost)) {
+    return refuse('The recorded chosen quote does not match its offer, or carries undeclared fields.');
   }
   // Recomputed from the same formatter the builder uses, so the headline cannot
   // contradict — or omit — the evidence beneath it.

@@ -62,6 +62,18 @@ export interface NormalizedVendorDraft {
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
+ * The one email-shape rule, shared by the form, the write boundary and
+ * structural read validation.
+ *
+ * Exported because it was previously applied in only two of those three places:
+ * a malformed address that reached storage another way still read as valid,
+ * which made the boundary check look stronger than it was.
+ */
+export function isVendorEmailShape(value: unknown): value is string {
+  return typeof value === 'string' && EMAIL_SHAPE.test(value.trim());
+}
+
+/**
  * Check a draft and normalize it.
  *
  * **At least one contact method is required** — a vendor nobody can reach
@@ -200,18 +212,37 @@ export function filterVendors(vendors: readonly Vendor[], query: string): Vendor
 // ─── The repository trust boundary ───────────────────────────────────────────
 
 /**
- * A canonical ISO instant — exactly what `Date.prototype.toISOString()` emits.
+ * A canonical ISO instant — **exactly** what `Date.prototype.toISOString()`
+ * emits, and nothing else: `YYYY-MM-DDTHH:mm:ss.sssZ`.
  *
- * The pattern matters as much as parseability: `Date.parse` accepts a great deal
- * that is not an instant (`"2026"`, `"August 1 2026"`, locale strings), and a
- * record whose timestamp cannot be compared byte-for-byte across builds is not
- * evidence. Deliberately **no ordering rule** beyond this — `createdAt` and
- * `updatedAt` are validated for shape, not sequence.
+ * The pattern alone is not enough, and neither is `Date.parse`. Both are far
+ * more permissive than they look:
+ *
+ * - `Date.parse` accepts `"2026"`, `"August 1 2026"` and locale strings.
+ * - It **normalizes impossible calendar dates rather than refusing them**:
+ *   `2026-02-30T00:00:00.000Z` parses happily and becomes 2 March, and
+ *   `2026-02-29` becomes 1 March because 2026 is not a leap year.
+ *
+ * So the test is a **round trip**: parse it, re-serialize it, and require the
+ * result to equal the input byte for byte. A date the runtime silently moved is
+ * not the date anybody wrote down, and a record whose timestamp cannot be
+ * compared byte-for-byte across builds is not evidence.
+ *
+ * Milliseconds are **required** at exactly three digits, because that is what
+ * `toISOString()` produces — accepting `.1`, `.12` or no fraction at all would
+ * admit values this system never emits and cannot compare by equality.
+ *
+ * Deliberately **no ordering rule** beyond this: `createdAt` and `updatedAt` are
+ * validated for shape, not sequence, and `quotedAt` may precede `recordedAt`.
  */
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export function isIsoInstant(value: unknown): value is string {
-  return typeof value === 'string' && ISO_INSTANT.test(value) && !Number.isNaN(Date.parse(value));
+  if (typeof value !== 'string' || !ISO_INSTANT.test(value)) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  // The round trip. Anything the runtime normalized comes back different.
+  return parsed.toISOString() === value;
 }
 
 /**

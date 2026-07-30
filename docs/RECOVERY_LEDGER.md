@@ -1159,9 +1159,15 @@ Spreading an untrusted object into persisted state means every field anyone ever
 attaches to it survives into the audit record. Rebuilding from a fixed list means
 only what this milestone declared can arrive.
 
-**Timestamps must be readable, not merely equal.** `isIsoInstant()` requires
-exactly what `toISOString()` emits — `Date.parse` alone accepts `"2026"`,
-`"August 1 2026"` and locale strings. Applied to the Decision's `createdAt` and
+**Timestamps must be readable, not merely equal.** `isIsoInstant()` was
+introduced here — `Date.parse` alone accepts `"2026"`, `"August 1 2026"` and
+locale strings.
+
+> ⚠️ **Corrected by H3.4-D2.** This entry claimed the predicate required
+> "exactly what `toISOString()` emits". **It did not.** It accepted second
+> precision and one- or two-digit fractions, and it accepted impossible calendar
+> dates because `Date.parse` normalizes them rather than refusing them. See
+> H3.4-D2 below. Applied to the Decision's `createdAt` and
 `confirmedAt`, the Event's `occurredAt` and `recordedAt`, and every offer's
 `recordedAt` and `quotedAt`. The shared-instant rule is unchanged, and `quotedAt`
 stays independently valid and **may precede** `recordedAt` — the vendor spoke
@@ -1177,8 +1183,17 @@ selected vendor snapshot and quoted cost and must match exactly.
 stored history: unknown keys must still survive migration, so they are preserved
 on read and refused at the door.
 
+> ⚠️ **Corrected by H3.4-D2.** This was **outer-level only**. Extra keys *inside*
+> allowed objects — `vendorSnapshot`, `itemSnapshot`, `price`,
+> `quotedVendorCost`, `approvedBudget` — still passed whenever they were copied
+> consistently into every representation. See H3.4-D2 below.
+
 Structural validation was strengthened to match, so a payload that reached
 storage another way still cannot be read as valid.
+
+> ⚠️ **Partially corrected by H3.4-D2.** Structural validation checked a stored
+> vendor email was non-empty text but **not** that it was address-shaped, so a
+> malformed address that reached storage another way still read as valid.
 
 **Preserved unchanged:** live-brief and live-`ItemSelection` authority, immutable
 item and vendor snapshots, exact currency matching, zero-cost quotes, the
@@ -1221,6 +1236,106 @@ list. A validator that refuses everything would otherwise pass every check above
 **No UI or route change was required, and none was made** — `git diff app/` is
 empty. **The H3.4 browser evidence recorded above remains applicable**, and no
 new browser run was performed or claimed.
+
+### ✅ H3.4-D2 — the remaining runtime-shape gaps
+
+**Second acceptance defect on the same boundary.** D1 closed the outer level and
+**over-claimed**: it said the timestamp rule accepted "exactly what
+`toISOString()` emits" and that exact keys were enforced on everything newly
+submitted. Neither was true as written, and both claims are corrected above
+rather than left standing.
+
+All three defect classes were **reproduced against the shipped code** before
+being fixed.
+
+| Passed before | Why |
+|---|---|
+| `2026-02-29`, `2026-02-30`, `2026-04-31` at canonical-looking precision | `Date.parse` **normalizes impossible dates rather than refusing them** — 2026 is not a leap year, so 29 February became 1 March, and the predicate only asked whether parsing succeeded |
+| `2026-08-01T00:00:00Z`, `.1Z`, `.12Z` | The regex made milliseconds optional and allowed one to three digits, so it admitted forms this system never emits and cannot compare by equality |
+| `vendorSnapshot.reliabilityScore`, `.capacity`, `selectedVendor.recommendation` | Comparators inspect the fields they know about. Both sides carried the extra, so every comparison agreed |
+| `itemSnapshot.catalogDerivedCost`, `itemSnapshot.price.margin` | Same — and `price` was never key-checked at all |
+| `quotedVendorCost.actualPaidCost`, `.revenue`, `approvedBudget.customerCharge` | Same. **Commercial vocabulary H3.4 explicitly does not decide**, arriving inside an allowed field |
+| A stored vendor email of `not-an-address` | `validateOperationsState` required non-empty text, not the address shape — and a WhatsApp number alongside it does not make the address usable |
+
+#### The correction
+
+**Canonical instants are a round trip, not a pattern match.**
+`isIsoInstant()` now requires `YYYY-MM-DDTHH:mm:ss.sssZ` — milliseconds
+mandatory at exactly three digits — **and** that
+`new Date(value).toISOString() === value`. A date the runtime silently moved is
+not the date anybody wrote down. Refused: impossible dates, normalized overflow,
+missing or short fractions, offsets, date-only and locale strings. A genuine
+leap day in a genuine leap year still passes, so the rule refuses impossible
+dates rather than February. `quotedAt` may still precede `recordedAt`, and no
+ordering is invented between `createdAt` and `updatedAt`.
+
+**Exactness is now recursive, against a projection of live truth.** Small exact
+validators for `Money` (2 keys), `VendorSnapshot` (4) and `CatalogItemSnapshot`
+(4, with `price` itself exact `Money`) are applied at every newly submitted
+location: an offer's `itemSnapshot`, its `price`, its `vendorSnapshot` and
+`quotedVendorCost`; `Decision.inputs.selectedItem` and its `price`;
+`approvedBudget`; every considered entry's `vendor` and `quotedVendorCost`;
+`selectedVendor`; `selectedQuotedVendorCost`.
+
+> The expected value is **rebuilt from the trusted live record** — the live
+> Vendor, the live `ItemSelection`, the live brief — as exactly its declared
+> fields. `readChosenItem()` now returns a canonical projection rather than a
+> spread, so even an extra field on a stored H3.3 Decision cannot be inherited
+> by a new H3.4 record. Nothing undeclared survives, because the thing it is
+> compared against cannot contain it.
+
+**One email rule, in all three places.** `isVendorEmailShape()` is exported and
+now applied inside `validateOperationsState()` as well as the form and the write
+boundary.
+
+**Two superseded comparators were deleted**, not left beside the strict ones:
+`sameMoney` and `sameItemSnapshot` in `vendor-selection.ts` had no remaining
+callers, and a loose comparator sitting next to an exact one is a trap for the
+next edit. H3.3's own `sameMoney` in `selection.ts` is untouched.
+
+#### One earlier assertion amended — declared
+
+`validate-vendors.mts` check 63 asserted `isIsoInstant('2026-08-01T00:00:00Z')`
+was **true**, while D1's prose claimed the predicate matched `toISOString()`
+exactly. Both could not hold. The assertion now requires second precision to be
+**refused**, which is what the corrected rule does.
+
+#### 10 new checks — vendors 74 → 84
+
+75 impossible and normalized dates (each first proven to survive `Date.parse`,
+so the fixture is a real trap) · 76 millisecond precision, including that a live
+`new Date().toISOString()` still passes · 77 non-canonical timestamps in a
+bundle · 78 vendor-snapshot extras · 79 item-snapshot and price extras · 80
+quoted-cost and budget extras · 81 extras duplicated consistently throughout,
+first asserting the fixture really is consistent so the check tests what it
+claims · 82 malformed stored email, with WhatsApp deliberately also present · 83
+valid and absent stored emails still read · 84 honest writes still commit.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **383/383 across ten suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, **vendors 84** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly baseline |
+| `build` | Succeeds, **26 routes** — unchanged |
+| Routes | All 13 sampled return 200 |
+| Links | All 28 internal targets resolve to built routes |
+
+**Preserved unchanged:** `OperationsState` v4, Workspace v7, the v1 → v2 → v3 →
+v4 chain, live-brief and live-`ItemSelection` authority, zero-cost quotes, exact
+currency matching, the complete ordered considered set, `finalDecision`
+recomputation, `HumanOperator`/`Confirmed` semantics, no recommendation or
+override reason, single-write atomicity, append-only history, duplicate refusal,
+no hard delete — and no claim that Aniyé proves what a vendor said.
+
+**No UI or routing change was required, and none was made** — `git diff app/` is
+empty. **The H3.4 browser evidence remains applicable**; no new browser run was
+performed or claimed.
+
+> **Reporting correction.** The D1 completion report said commit `9670fce`
+> changed five files. It changed **six** — the header miscounted while the path
+> list beneath it was correct.
 
 ### ⛔ The hard gate before an external pilot
 
@@ -1774,3 +1889,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.3 repository trust-boundary correction (H3.3-D1) — `commitItemSelection()` verified the brief id and revision and then trusted the rest of the submitted Decision, so a structurally valid bundle could alter the budget, exclusions, candidate set, selected snapshot or Event payload and still commit; a stale catalog was invisible to it. `verifyItemSelection()` now recomputes every claim from re-read state, the live brief's immutable snapshot and the current catalog, and refuses any mismatch without writing. Approved-budget `Money` is now defensively copied when building the Decision. Catalog injection added to the local repository so staleness is testable without touching the production seed. 18 new repository-level checks (selection 47 → 65); **299 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. No schema change — `OperationsState` stays **v3**, Workspace stays **v7**.*
 *Updated after H3.4 (Vendor directory, hand-entered offers and manual vendor selection) — `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record). Workspace schema unchanged at **v7**. Only a manual directory and hand-entered offers exist: no scoring, ranking, routing, APIs, vendor accounts, portal, courier, fulfilment or commerce, and **U5 partner onboarding was not invented**. Event named **`VendorSelected`**, not the checkpoint's `VendorContacted` — Aniyé contacts nobody. The chosen item is read from the live `ItemSelection` Decision, never re-read from the catalog; delivery context comes from the current confirmed brief. Zero-cost quotes allowed, negative refused, no invented rule that a quote sit below catalog price. `verifyVendorSelection()` recomputes every claim before one atomic write. Four earlier checks amended and declared. **357 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. Verified live at 1440px, 768px and 500px; **the 500px floor is the window manager's, and real-device testing is still not done**. System Atlas v3.8, Master Roadmap v1.5, Relationship Operations Atlas v1.5.*
 *Updated after the H3.4 vendor trust-boundary correction (H3.4-D1) — the builders produced the intended shapes but the repository did not enforce them at runtime, so a Vendor could carry `reliabilityScore`/`rating`/`capacity`/`sla`/`onboardingStatus`, a malformed email could reach `createVendor` directly, optional fields and timestamps went unchecked, a bundle whose shared instants were all the same unusable string satisfied the equality rule, non-string offer terms passed when duplicated consistently, a `finalDecision` could contradict its own evidence, and extra commercial fields could be attached to offers, `Decision.inputs`, considered entries or the Event payload. Vendors are now **rebuilt** from an exact eleven-field list rather than spread; timestamps must be canonical ISO instants, not merely equal; `finalDecision` is recomputed from a shared formatter; and exact keys are enforced on everything newly submitted while stored history keeps preserving unknown keys. 16 new refusal checks (vendors 58 → 74), each proving zero writes and byte-identical collections, plus two proving honest writes still commit. **373 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` stays **v4**, Workspace **v7**; the migration chain and existing records are untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.**
+*Updated after the remaining H3.4 runtime-shape correction (H3.4-D2) — D1 over-claimed on two counts, both corrected in its own entry above. `isIsoInstant()` accepted second precision, one- and two-digit fractions, and **impossible calendar dates**, because `Date.parse` normalizes rather than refuses; it now requires `YYYY-MM-DDTHH:mm:ss.sssZ` **and** an exact `toISOString()` round trip. Exactness was outer-level only, so extra keys inside `vendorSnapshot`, `itemSnapshot`, `price`, `quotedVendorCost` and `approvedBudget` survived whenever duplicated consistently; exact `Money`, `VendorSnapshot` and `CatalogItemSnapshot` validators are now applied recursively at every newly submitted location, compared against a projection rebuilt from live truth. `validateOperationsState()` now applies the shared `isVendorEmailShape()` rule, so a malformed stored address no longer reads as valid. Two superseded comparators deleted. One earlier assertion amended and declared. 10 new checks (vendors 74 → 84); **383 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` **v4**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.** Reporting correction: commit `9670fce` changed six files, not five.*

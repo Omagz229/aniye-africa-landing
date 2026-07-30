@@ -1299,9 +1299,12 @@ check('63. Unreadable vendor timestamps are refused', () => {
     expectVendorRefused(fx, { ...vendorRecord('v-new'), createdAt: bad }, `A createdAt of ${JSON.stringify(bad)}`);
     expectVendorRefused(fx, { ...vendorRecord('v-new'), updatedAt: bad }, `An updatedAt of ${JSON.stringify(bad)}`);
   }
-  // Canonical instants, with and without milliseconds, are accepted.
+  // H3.4-D2 amended this assertion. D1 claimed `isIsoInstant` accepted "exactly
+  // what toISOString() emits" while also accepting second precision — the two
+  // cannot both be true, and the second one was wrong. Only the three-digit
+  // millisecond form is canonical.
   assert(isIsoInstant('2026-08-01T00:00:00.000Z'), 'A canonical instant was rejected.');
-  assert(isIsoInstant('2026-08-01T00:00:00Z'), 'A second-precision instant was rejected.');
+  assert(!isIsoInstant('2026-08-01T00:00:00Z'), 'A second-precision instant was accepted.');
   assert(!isIsoInstant('2026-08-01T00:00:00+01:00'), 'A non-UTC offset was accepted.');
 });
 
@@ -1504,6 +1507,197 @@ check('74. A canonical vendor is rebuilt, not spread', () => {
   for (const k of Object.keys(clean.value)) {
     assert((VENDOR_KEYS as readonly string[]).includes(k), `Rebuilt vendor carries an undeclared "${k}".`);
   }
+});
+
+// ─── Part 9: recursive runtime shape (H3.4-D2) ───────────────────────────────
+//
+// D1 enforced exactness at the **outer** level only. Comparators inspect the
+// fields they know about, so an extra key inside an otherwise-allowed object
+// survived whenever it was copied consistently into every representation —
+// which a caller assembling a bundle by hand does by construction.
+
+check('75. Impossible and normalized calendar dates are refused', () => {
+  const fx = preparedWorkspace();
+  // `Date.parse` accepts all of these and silently moves them: 2026 is not a
+  // leap year, April has 30 days, February never has 30.
+  for (const bad of ['2026-02-29T00:00:00.000Z', '2026-02-30T00:00:00.000Z', '2026-04-31T00:00:00.000Z',
+                     '2026-06-31T00:00:00.000Z', '2026-09-31T00:00:00.000Z']) {
+    assert(!Number.isNaN(Date.parse(bad)), `The fixture ${bad} is not the trap it claims to be — Date.parse already rejects it.`);
+    assert(!isIsoInstant(bad), `${bad} was accepted as a canonical instant.`);
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), createdAt: bad }, `A createdAt of ${bad}`);
+    expectVendorRefused(fx, { ...vendorRecord('v-new'), updatedAt: bad }, `An updatedAt of ${bad}`);
+  }
+  // A real leap day in a real leap year round-trips, so the rule refuses
+  // impossible dates rather than February.
+  assert(isIsoInstant('2028-02-29T00:00:00.000Z'), 'A genuine leap day was rejected.');
+});
+
+check('76. Only exactly three millisecond digits are canonical', () => {
+  for (const bad of ['2026-08-01T00:00:00Z', '2026-08-01T00:00:00.1Z', '2026-08-01T00:00:00.12Z',
+                     '2026-08-01T00:00:00.1234Z', '2026-08-01T00:00:00.000+00:00', '2026-08-01 00:00:00.000Z']) {
+    assert(!isIsoInstant(bad), `${bad} was accepted.`);
+  }
+  // Whatever the runtime actually emits must pass, or the rule is unusable.
+  const emitted = new Date().toISOString();
+  assert(isIsoInstant(emitted), `A genuine toISOString() value (${emitted}) was rejected.`);
+  assert(isIsoInstant(new Date(0).toISOString()), 'The epoch was rejected.');
+});
+
+check('77. Non-canonical timestamps in a bundle write nothing', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const bad of ['2026-02-30T00:00:00.000Z', '2026-08-01T00:00:00Z', '2026-08-01T00:00:00.12Z']) {
+    expectRefused(fx, {
+      offers: bundle.offers.map(o => ({ ...o, recordedAt: bad })),
+      decision: { ...bundle.decision, createdAt: bad, confirmedAt: bad },
+      event: { ...bundle.event, occurredAt: bad, recordedAt: bad },
+    } as unknown as Bundle, `Shared timestamps of ${bad}`);
+
+    expectRefused(fx, {
+      ...bundle,
+      offers: bundle.offers.map((o, i) => (i === 0 ? { ...o, quotedAt: bad } : o)),
+      decision: {
+        ...bundle.decision,
+        inputs: {
+          ...bundle.decision.inputs,
+          consideredOffers: (bundle.decision.inputs as { consideredOffers: Record<string, unknown>[] })
+            .consideredOffers.map((c, i) => (i === 0 ? { ...c, quotedAt: bad } : c)),
+        },
+      },
+    }, `A quotedAt of ${bad}`);
+  }
+});
+
+/**
+ * Rebuild a bundle with a nested extra copied **consistently** into every
+ * submitted representation — the offer, the considered entry and the selected
+ * evidence. Consistency is what defeated the outer-level checks.
+ */
+function nested(fx: Fx, where: 'vendor' | 'item' | 'itemPrice' | 'quoted' | 'budget', patch: Record<string, unknown>): Bundle {
+  const b = threeOfferBundle(fx);
+  const inputs = b.decision.inputs as Record<string, unknown>;
+  const considered = inputs.consideredOffers as Record<string, unknown>[];
+
+  const offers = b.offers.map(o => {
+    if (where === 'vendor') return { ...o, vendorSnapshot: { ...o.vendorSnapshot, ...patch } };
+    if (where === 'item') return { ...o, itemSnapshot: { ...o.itemSnapshot, ...patch } };
+    if (where === 'itemPrice') return { ...o, itemSnapshot: { ...o.itemSnapshot, price: { ...o.itemSnapshot.price, ...patch } } };
+    if (where === 'quoted') return { ...o, quotedVendorCost: { ...o.quotedVendorCost, ...patch } };
+    return o;
+  });
+
+  const newInputs: Record<string, unknown> = { ...inputs };
+  if (where === 'vendor') {
+    newInputs.selectedVendor = { ...(inputs.selectedVendor as object), ...patch };
+    newInputs.consideredOffers = considered.map(c => ({ ...c, vendor: { ...(c.vendor as object), ...patch } }));
+  }
+  if (where === 'item') newInputs.selectedItem = { ...(inputs.selectedItem as object), ...patch };
+  if (where === 'itemPrice') {
+    const si = inputs.selectedItem as Record<string, unknown>;
+    newInputs.selectedItem = { ...si, price: { ...(si.price as object), ...patch } };
+  }
+  if (where === 'quoted') {
+    newInputs.selectedQuotedVendorCost = { ...(inputs.selectedQuotedVendorCost as object), ...patch };
+    newInputs.consideredOffers = considered.map(c => ({ ...c, quotedVendorCost: { ...(c.quotedVendorCost as object), ...patch } }));
+  }
+  if (where === 'budget') newInputs.approvedBudget = { ...(inputs.approvedBudget as object), ...patch };
+
+  return { offers, decision: { ...b.decision, inputs: newInputs }, event: b.event } as unknown as Bundle;
+}
+
+check('78. Extra fields inside a vendor snapshot are refused everywhere', () => {
+  const fx = preparedWorkspace();
+  for (const patch of [{ reliabilityScore: 0.97 }, { capacity: 100 }, { recommendation: 'yes' },
+                       { sla: '24h' }, { rank: 1 }]) {
+    expectRefused(fx, nested(fx, 'vendor', patch), `A vendor snapshot carrying ${Object.keys(patch)[0]}`);
+  }
+});
+
+check('79. Extra fields inside an item snapshot and its price are refused', () => {
+  const fx = preparedWorkspace();
+  for (const patch of [{ catalogDerivedCost: 380 }, { vendorId: 'v1' }, { images: [] }]) {
+    expectRefused(fx, nested(fx, 'item', patch), `An item snapshot carrying ${Object.keys(patch)[0]}`);
+  }
+  for (const patch of [{ margin: 12 }, { customerCharge: 6000 }, { revenue: 1 }]) {
+    expectRefused(fx, nested(fx, 'itemPrice', patch), `An item price carrying ${Object.keys(patch)[0]}`);
+  }
+});
+
+check('80. Extra fields inside quoted cost and approved budget are refused', () => {
+  const fx = preparedWorkspace();
+  for (const patch of [{ actualPaidCost: 31500 }, { revenue: 999 }, { margin: 12 }]) {
+    expectRefused(fx, nested(fx, 'quoted', patch), `A quoted cost carrying ${Object.keys(patch)[0]}`);
+  }
+  for (const patch of [{ customerCharge: 6000 }, { margin: 2000 }]) {
+    expectRefused(fx, nested(fx, 'budget', patch), `An approved budget carrying ${Object.keys(patch)[0]}`);
+  }
+});
+
+check('81. Nested extras are refused even when duplicated consistently throughout', () => {
+  const fx = preparedWorkspace();
+  // Proof the fixture really is consistent: every representation carries it, so
+  // every value-comparison agrees and only exact-shape checking can catch it.
+  const b = nested(fx, 'vendor', { reliabilityScore: 0.97 });
+  const inputs = b.decision.inputs as Record<string, unknown>;
+  const considered = inputs.consideredOffers as { vendor: Record<string, unknown> }[];
+  assertEqual((b.offers[0].vendorSnapshot as unknown as Record<string, unknown>).reliabilityScore, 0.97, 'The offer lost the extra.');
+  assertEqual((inputs.selectedVendor as Record<string, unknown>).reliabilityScore, 0.97, 'The selected vendor lost the extra.');
+  for (const c of considered) {
+    assertEqual(c.vendor.reliabilityScore, 0.97, 'A considered entry lost the extra.');
+  }
+  expectRefused(fx, b, 'A consistently duplicated vendor score');
+
+  const q = nested(fx, 'quoted', { margin: 12 });
+  const qi = q.decision.inputs as Record<string, unknown>;
+  assertEqual((q.offers[0].quotedVendorCost as unknown as Record<string, unknown>).margin, 12, 'The offer lost the extra.');
+  assertEqual((qi.selectedQuotedVendorCost as Record<string, unknown>).margin, 12, 'The selected quote lost the extra.');
+  expectRefused(fx, q, 'A consistently duplicated quote margin');
+});
+
+check('82. A malformed stored vendor email fails structural validation', () => {
+  const fx = preparedWorkspace();
+  const state = fx.repo.load(WS);
+  assert(state.ok && state.value, 'State unreadable.');
+  const base = state.value!;
+
+  for (const email of ['not-an-address', 'missing@tld', '@nobody.example', 'a b@c.example']) {
+    const broken = JSON.parse(JSON.stringify(base)) as OperationsState;
+    // WhatsApp is present too — a second contact method does not make a
+    // malformed address usable.
+    broken.vendors[0].email = email;
+    assert(broken.vendors[0].whatsapp !== undefined, 'The fixture has no WhatsApp, so it does not test the pairing.');
+    assert(!validateOperationsState(broken, WS).ok, `A stored email of "${email}" read as valid.`);
+  }
+});
+
+check('83. A valid stored vendor email still reads successfully', () => {
+  const fx = preparedWorkspace();
+  const state = fx.repo.load(WS);
+  assert(state.ok && state.value, 'State unreadable.');
+  const good = JSON.parse(JSON.stringify(state.value!)) as OperationsState;
+  good.vendors[0].email = 'orders@vendor.example';
+  assert(validateOperationsState(good, WS).ok, 'A well-formed stored email was refused.');
+  // And absent stays fine.
+  const none = JSON.parse(JSON.stringify(state.value!)) as OperationsState;
+  delete none.vendors[0].email;
+  assert(validateOperationsState(none, WS).ok, 'An absent email was refused.');
+});
+
+check('84. Honest writes still commit after the recursive tightening', () => {
+  // The counterweight again: everything above would pass against a boundary
+  // that refuses every submission.
+  const fx = preparedWorkspace();
+  assert(fx.repo.createVendor(WS, vendorRecord('v-honest-2'), NOW).ok, 'An honest vendor was refused.');
+
+  const before = fx.storage.writes.length;
+  const written = fx.repo.commitVendorSelection(WS, threeOfferBundle(fx), NOW);
+  assert(written.ok, `An honest selection was refused: ${written.ok ? '' : written.reason}`);
+  assertEqual(fx.storage.writes.length - before, 1, 'The honest commit was not a single write.');
+
+  const state = fx.repo.load(WS);
+  assert(state.ok && state.value, 'State unreadable.');
+  assertEqual(state.value!.vendorOffers.length, 3, 'Not every offer was stored.');
+  assertEqual(state.value!.decisions.filter(d => d.decisionType === 'VendorSelection').length, 1, 'Wrong decision count.');
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

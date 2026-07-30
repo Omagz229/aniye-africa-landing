@@ -10,7 +10,7 @@
 
 import type { Money } from '../money';
 import { isValidMoney } from '../money';
-import { isIsoInstant } from './vendors';
+import { isIsoInstant, isVendorEmailShape } from './vendors';
 import type { CatalogItemSnapshot } from '../catalog';
 import type { DeliveryAddress, RelationshipType } from '../workspace';
 
@@ -852,6 +852,13 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       if (typeof vendor[field] !== 'string' || (vendor[field] as string).trim().length === 0) {
         return { ok: false, reason: `Vendor "${vendor.id}" has an unusable ${field}.` };
       }
+    }
+    // The **same** shape rule the form and the write boundary apply. It was
+    // previously enforced in only two of the three places, so a malformed
+    // address that reached storage another way still read as valid — and a
+    // WhatsApp number alongside it did not make the email any more usable.
+    if (vendor.email !== undefined && !isVendorEmailShape(vendor.email)) {
+      return { ok: false, reason: `Vendor "${vendor.id}" has a malformed email address.` };
     }
     // A vendor nobody can reach is not a vendor. Enforced in the persistence
     // layer as well as the form, so it cannot be bypassed by a caller.
