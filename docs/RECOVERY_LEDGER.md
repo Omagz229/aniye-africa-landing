@@ -30,7 +30,8 @@
 | — | **R6 — governance reconciliation (ADR-011, Master Roadmap)** | ✅ **Complete** | R6 |
 | — | **H3.2 — Execution Brief** | ✅ **Complete** — schema v7, OperationsState v2 | H3.2 |
 | — | **H3.3 — Minimum Catalog + manual item selection** | ✅ **Complete** — OperationsState v3 | H3.3 |
-| — | **H3.4 — Vendor directory + hand-entered offers** | ⬅️ **Next** — nothing structural gates it | — |
+| — | **H3.4 — Vendor directory + hand-entered offers** | ✅ **Complete** — OperationsState v4 | H3.4 |
+| — | **H3.5 — Courier directory + manual selection** | ⬅️ **Next** — nothing structural gates it | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1000,6 +1001,127 @@ just as well against a boundary that refuses everything.
 | Routes | All 12 sampled return 200 |
 | Links | Every internal `href` resolves to a built route |
 
+### ✅ H3.4 — Vendor directory, hand-entered offers and manual vendor selection
+
+**The first Decision carrying a cost**, and the point at which Aniyé starts
+accumulating the operational evidence that H4.4's Vendor Intelligence will
+eventually be built from.
+
+**What was built.** `lib/operations/vendors.ts` — draft validation, snapshots
+and deterministic ordering. `lib/operations/vendor-selection.ts` — preview,
+builders and the repository trust boundary. Two routes: `/operations/vendors`
+with an inline add/edit form, and `/operations/moments/[id]/vendor`. Vendors
+joined the shell navigation and left the "not built yet" list.
+
+**Deliberately not built:** scores, ratings, reliability, capacity, lead-time
+policy, quality grades, price lists, preferred status, contracts, SLAs, ranking,
+recommendations, automatic routing, vendor accounts, a portal, vendor-facing
+routes, automated quote requests, APIs, couriers, fulfilment, proof of delivery,
+`RecognitionOrder`, customer charge or margin. WhatsApp remains a channel an
+operator records by hand.
+
+**U5 was not invented.** Partner onboarding is unresolved and the Operations
+Atlas §9 says in terms that H3.4 builds *a directory an operator types into,
+which needs no onboarding process*. No ADR was raised, because none was needed.
+
+#### The judgement calls, and why
+
+| Question | Answer |
+|---|---|
+| Event name | **`VendorSelected`**, not the checkpoint's `VendorContacted`. Aniyé sends nothing — an operator types up what they were already told, so the occurrence is the *selection*. The channel each quote arrived through is a `source` field on the offer, where it belongs |
+| Where the item comes from | The **live `ItemSelection` Decision**, never re-read from the catalog. That Decision is the immutable record of what was chosen and at what price |
+| Where delivery context comes from | The **current confirmed brief**. A brief may take a governed address-only revision after an item was chosen; that must not invalidate the item, so the selection references both |
+| Zero-cost quotes | **Allowed.** A vendor absorbing a cost is a real quote; refusing it would invent a commercial rule nobody decided. Negative is refused — that is a data error, not a discount |
+| Quote above catalog price | **Allowed.** There is no rule that a vendor must quote below the item price. Inventing one would make the tool misreport what vendors actually said |
+| Deleting a vendor | **Impossible.** Deactivation only — a vendor who quoted last quarter has to stay resolvable from the offers naming them |
+| Directory CRUD | **Not** a Moment Decision and **not** an OperationalEvent. Adding a vendor changes no Moment's execution, which is ADR-006's own test |
+
+#### The trust boundary
+
+`verifyVendorSelection()` recomputes before the single atomic write: the Moment
+still ready and in this workspace, the live brief matching the submitted
+reference, the live `ItemSelection` matching **and its item snapshot matching
+exactly**, no existing vendor selection, every offer unique by id and by vendor,
+every vendor still present, in-workspace and **active**, every vendor snapshot
+matching the record **as it stands now**, every quote valid and in the item's
+exact currency, every channel and timestamp valid, the complete ordered
+considered set matching the offers being committed, the selection resolving to
+exactly one of them, the Decision `Confirmed`/`HumanOperator` with a reason and
+no fabricated recommendation, and the Event `VendorSelected`/`Operator`/
+`Platform` agreeing with the Decision at one shared instant.
+
+> **One limit stated honestly.** The repository can verify everything Aniyé
+> holds. It **cannot prove what a vendor actually said** — a quote is
+> attributable operator testimony, not an independently verified fact, and the
+> code does not pretend otherwise.
+
+#### Schema
+
+`OperationsState` **v3 → v4**: one additive rung adding `vendors` and
+`vendorOffers`, inventing nothing and touching no Moment, brief, Decision, Event
+or H3.3 evidence. A v1 payload still walks v1 → v2 → v3 → v4 one rung at a time,
+unknown future keys survive, future versions are refused, and reads never rewrite
+storage. Workspace schema unchanged at **v7**.
+
+#### Amendments to earlier suites — declared, not silent
+
+Four checks pinned literals this milestone legitimately moves. **Three of the
+four are now version-agnostic**, so the next rung will not break them again.
+
+| Suite | Check | Change |
+|---|---|---|
+| briefs | 35 | `VendorSelection` removed from the "later milestone" list — H3.4 produces it |
+| selection | 38 | `=== 3` → `>= 3`, and migrates to `CURRENT_OPERATIONS_SCHEMA_VERSION` |
+| selection | 39 | Migrates to `CURRENT_OPERATIONS_SCHEMA_VERSION` rather than literal `3` |
+| selection | 42 | `VendorSelection` removed from the forbidden list. **`VendorContacted` stays forbidden** — H3.4 deliberately does not use it |
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Validation | **357/357 across ten suites** — verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, **vendors 58** |
+| `typecheck` | Clean |
+| `lint` | **47 problems — 26 errors, 21 warnings.** Exactly baseline |
+| `build` | Succeeds, **26 routes** — two intentional additions |
+| Routes | All 13 sampled return 200, including both new routes |
+| Links | Every internal `href` resolves to a built route |
+
+#### Browser evidence
+
+Full flow driven live: empty directory → add three vendors → edit, deactivate,
+reactivate → prepare a Moment → confirm brief → choose item → record three
+quotes → choose the second → confirm.
+
+| State | Result |
+|---|---|
+| Directory loading / read failure | Corrupted payload: named, adapter reason preserved, *"cannot say whether any vendors exist"*, retry offered. **Never rendered as an empty directory** |
+| Empty directory | One obvious action — *Add the first vendor* |
+| Add / validation | Blank save named all four errors and wrote **0 vendors** |
+| Edit / deactivate | Deactivation left the record in place (3 of 3 shown · 2 active); reactivation restored it |
+| Zero-write proof | Filtering, opening an edit form, typing in it and cancelling left storage **byte-identical** |
+| No brief · no item | Both blockers named simultaneously, each linking to its own recovery |
+| No active vendors | Deactivated vendor correctly absent from the quote dropdown |
+| Offer validation | Empty add named vendor, amount and date; wrote nothing |
+| One-offer comparison | Allowed, and explicitly named as a limited comparison |
+| Three offers | Entered with zero writes; primary action disabled until one was chosen |
+| Keyboard | Arrow key moved and selected the second offer; live region announced *"Abuja Concept Store selected — NGN 31,500.50"* |
+| Confirmation | Stated it would record **all 3 quotes including the ones not chosen** |
+| Confirmed | **1** Decision, **1** Event, **3** offers, **1** storage write. All three considered offers carried vendor, money, channel, quoted time, lead time and terms. No `recommendation`, no `overrideReason` |
+| Duplicate refusal | Reload → still 1/1/3; *"A vendor has already been chosen"* |
+| Stale vendor | Deactivating the chosen vendor mid-comparison produced *"\"Abuja Concept Store\" was deactivated while this was open… nothing was recorded"* — and **0 offers, 0 selections** written |
+| Overflow | No page-level or inner-container horizontal scroll at any width |
+| Targets | No H3.4 control under 44px — the new form fields were raised from 41–42px after measurement |
+
+**Widths actually measured** (`window.innerWidth`): **1440px**, **768px**, **500px**.
+
+> ⚠️ **The mobile cell is 500px, not 390–420px.** The window manager clamps
+> Chrome to a ~500px minimum width. Reported as measured. **No width was
+> simulated by toggling classes, and real-device testing was not performed and is
+> not claimed** — it remains a pre-pilot **[P]** item (H4.0).
+
+**Still open:** the four sub-44px targets in the `OperationsShell` navigation
+drawer (40px links, 32px close). Pre-existing H3.1 shell chrome, untouched.
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -1550,3 +1672,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the pre-pilot regression correction — assessment same-session resume prompt suppressed via an interaction latch; PolicyForm Review completed to 11 of 11 configurable values; PolicyForm step focus, live announcement and `aria-current` added. EX-M11 remains open. 234 checks, lint 47 (26 errors, 21 warnings), build 23 routes.*
 *Updated after H3.3 (Minimum Catalog + manual item selection) — `OperationsState` **v3** (additive; newly generated Moments snapshot `policyResolutionSnapshot.excludedCategories`, and the rung writes nothing into any existing record). Workspace schema unchanged at **v7**. A pre-H3.3 record **blocks** item selection with a named recovery rather than assuming an empty exclusion list, because a policy is edited in place at the same version and equivalence is not provable. Event named `ItemSelected`, not the checkpoint's `ItemPrepared`; `ItemSubstitution` not added. Three defects found and fixed — an aliased `Money` snapshot, missing workspace-id checks on Decisions and Events, and a false "not resolved / not recorded" panel before a brief exists. Four H3.2 checks amended and declared. **281 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. Verified live at 400px, 768px and 1200px; **1440px was not reachable and real-device testing is still not done**. System Atlas v3.7, Master Roadmap v1.4, Relationship Operations Atlas v1.4.*
 *Updated after the H3.3 repository trust-boundary correction (H3.3-D1) — `commitItemSelection()` verified the brief id and revision and then trusted the rest of the submitted Decision, so a structurally valid bundle could alter the budget, exclusions, candidate set, selected snapshot or Event payload and still commit; a stale catalog was invisible to it. `verifyItemSelection()` now recomputes every claim from re-read state, the live brief's immutable snapshot and the current catalog, and refuses any mismatch without writing. Approved-budget `Money` is now defensively copied when building the Decision. Catalog injection added to the local repository so staleness is testable without touching the production seed. 18 new repository-level checks (selection 47 → 65); **299 checks across nine suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 24 routes. No schema change — `OperationsState` stays **v3**, Workspace stays **v7**.*
+*Updated after H3.4 (Vendor directory, hand-entered offers and manual vendor selection) — `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record). Workspace schema unchanged at **v7**. Only a manual directory and hand-entered offers exist: no scoring, ranking, routing, APIs, vendor accounts, portal, courier, fulfilment or commerce, and **U5 partner onboarding was not invented**. Event named **`VendorSelected`**, not the checkpoint's `VendorContacted` — Aniyé contacts nobody. The chosen item is read from the live `ItemSelection` Decision, never re-read from the catalog; delivery context comes from the current confirmed brief. Zero-cost quotes allowed, negative refused, no invented rule that a quote sit below catalog price. `verifyVendorSelection()` recomputes every claim before one atomic write. Four earlier checks amended and declared. **357 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. Verified live at 1440px, 768px and 500px; **the 500px floor is the window manager's, and real-device testing is still not done**. System Atlas v3.8, Master Roadmap v1.5, Relationship Operations Atlas v1.5.*

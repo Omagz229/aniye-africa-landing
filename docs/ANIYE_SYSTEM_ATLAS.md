@@ -581,6 +581,42 @@ snapshot and the operator's reason. Currencies are matched exactly and never con
 
 ---
 
+### Vendor
+
+A partner Aniyé buys from. **Implemented at H3.4** in `lib/operations/types.ts`, inside
+`OperationsState` — never in `WorkspaceState`, and never projected into any Workspace route.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Stable — confirmed offers reference it forever |
+| `workspaceId` | string | Scoped consistently to the one workspace `OperationsState` holds |
+| `name` · `countryCode` · `city` | string | Who they are and where |
+| `whatsapp` · `email` | string? | **At least one required** — a vendor nobody can reach is not a vendor |
+| `isActive` | boolean | Deactivated, **never deleted** |
+| `note` | string? | Free text. Not a grade, not a score |
+| `createdAt` · `updatedAt` | ISO 8601 | — |
+
+> ⚠️ **No scores, ratings, reliability, capacity, lead-time policy, quality grades, price lists,
+> preferred status, contracts, SLAs or onboarding state.** Vendor *Intelligence* is **H4.4**, gated
+> on the pilot; partner onboarding is unresolved **U5**. A directory an operator types into needs
+> neither, and there is no vendor account, portal or vendor-facing route.
+
+### VendorOffer
+
+An immutable record of what an operator was quoted for the item already chosen for a Moment.
+Carries the Moment, the brief and revision quoted against, the live `ItemSelection` Decision, the
+item and vendor snapshots, `quotedVendorCost` as canonical Money, the channel the quote arrived
+through (`WhatsApp` · `Email` · `Phone` · `Manual`), when it was quoted, when it was recorded, an
+optional whole-day lead time and optional terms.
+
+> ⚠️ **`quotedVendorCost` is an estimate of what the vendor will charge Aniyé** — not the customer's
+> charge, not the catalog price, not an actual paid cost, not revenue, not margin, and **never
+> derived from `Gift / Item.price`**. Currencies are never converted; every offer in one comparison
+> uses the item's exact currency (ADR-007). Aniyé's commercial role remains unresolved (U3) until
+> H3.7.
+
+---
+
 ### Fulfillment
 
 Tracks delivery execution. The Fulfillment Object is the system of record. WhatsApp and other communication channels are execution tools only.
@@ -1382,7 +1418,7 @@ Both objects belong to the **Knowledge** domain (§3). ADR-010 keeps them out of
 | | WorkspaceState | OperationsState |
 |---|---------------|-----------------|
 | Owns | Configuration the customer edits | The record of what Aniyé did |
-| Schema | v7 | v3, versioned **independently** |
+| Schema | v7 | v4, versioned **independently** |
 | Storage key | `aniye_workspace` | `aniye_operations_v1` |
 | Growth | Bounded by organization size | Unbounded |
 | Mutability | Edited freely | Events append-only; Decisions immutable except supersession |
@@ -1454,7 +1490,7 @@ these is ever presented as an empty queue or as success.
 
 ## 15f. Execution Brief
 
-> ✅ **Implemented in H3.2** — `OperationsState` v2, carried forward at v3. Vendor and courier selection do not exist.
+> ✅ **Implemented in H3.2** — `OperationsState` v2, carried forward at v4. Courier selection does not exist.
 
 The operator's unit of work for one Moment: **who, where, how much, and what constraints apply.**
 Deliberately invisible to the customer — nothing here is projected into Workspace.
@@ -1544,11 +1580,11 @@ These capabilities are not built yet. They are documented here to ensure archite
 
 > **Reading this document:** the Atlas describes both *accepted architecture* and *implemented
 > capability*, and they are not the same thing. Sections describing something not yet built carry an
-> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v3**:
+> explicit ⚠️ marker. As of **Workspace schema v7 and `OperationsState` v4**:
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, **the minimum flat Catalog and manual item selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, Vendor, Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, the minimum flat Catalog and manual item selection, **the manual Vendor directory, hand-entered VendorOffers and manual vendor selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, vendor accounts or portal, Courier, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
 
 > **The authoritative roadmap is [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).** The horizon table below
 > is the thematic summary; `MASTER_ROADMAP.md` carries the canonical H3.1 … H3.8 milestone
@@ -1701,8 +1737,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.7 — Aniyé Africa — July 2026*
+*System Atlas v3.8 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.8: H3.4 — the manual Vendor directory, hand-entered VendorOffers and manual vendor selection implemented. `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record); Workspace schema unchanged at **v7**. **§4 gains `Vendor` and `VendorOffer`** — neither existed in this document before, so nothing was re-issued; both live in `OperationsState` and are never projected into Workspace. §15d updated to v7/v4; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Vendor Intelligence remains deferred to H4.4; no scoring, routing, API, portal, vendor account, courier, fulfilment or commerce was built. ADR-010 remains the external-pilot gate*
 *v3.7: H3.3 — minimum Catalog and manual item selection implemented. `OperationsState` **v3** (additive: `policyResolutionSnapshot.excludedCategories`, invented on no existing record); Workspace schema unchanged at **v7**. **§4 `Gift / Item` re-issued** — its pre-H3.3 field list is superseded, and none of `vendorId`, `intent`, `collectionIds`, `vendorCost`, `availableCountries`, `images` or `tags` survived; the implemented object has six fields and lives in `lib/catalog.ts`, never in `WorkspaceState`. §15d updated to v7/v3; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Catalog, Gift and Vendor Intelligence remain deferred to H4.2–H4.4, behind the pilot; ADR-010 remains the external-pilot gate*
 *v3.6: H3.2 — Execution Brief implemented. Workspace schema **v7** (additive `Person.deliveryAddress`, ADR-011) and `OperationsState` **v2** (additive `executionBriefs`). §4 Person marks the address implemented; new §15f defines the Execution Brief, the address gate, override and revision; §15d updated to v7/v2; §17 reading block restated; §18 marks ADR-011 implemented. `MOMENT_STATUSES` unchanged*
 *v3.5: H3.1 acceptance correction — defect **H3.1-D1** closed. §15e gains "The preview shows; the confirmation re-reads": confirmation re-reads the Workspace, Program status, frozen population, People, groups, assignments, policies and existing source keys, builds the batch from live state, writes nothing when live state moved or when a read fails, and requires a second confirmation. 15 regression checks added (operations 35 → 50). No schema change; WorkspaceState stays v6 and OperationsState stays v1. **Live visual verification still not performed**

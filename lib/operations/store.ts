@@ -16,6 +16,8 @@ import type {
   MomentStatus,
   OperationalEvent,
   OperationsState,
+  Vendor,
+  VendorOffer,
 } from './types';
 
 export type StoreResult<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -38,6 +40,18 @@ export interface BriefWrite {
 
 /** What one confirmed item selection writes, atomically (H3.3). */
 export interface ItemSelectionWrite {
+  decision: Decision;
+  event: OperationalEvent;
+}
+
+/**
+ * What one confirmed vendor comparison writes, atomically (H3.4).
+ *
+ * **Every considered offer**, not only the chosen one — the rejected quotes are
+ * the evidence that a choice was made at all.
+ */
+export interface VendorSelectionWrite {
+  offers: VendorOffer[];
   decision: Decision;
   event: OperationalEvent;
 }
@@ -153,6 +167,60 @@ export interface OperationsRepository {
   commitItemSelection(
     workspaceId: string,
     write: ItemSelectionWrite,
+    now: string,
+  ): StoreResult<Decision>;
+
+  // ── Vendor directory (H3.4) ──
+  //
+  // Ordinary directory maintenance is **not** a Moment Decision and not an
+  // OperationalEvent: adding a vendor changes no Moment's execution, which is
+  // ADR-006's own test. The judgement is recorded when a vendor is *chosen*.
+
+  listVendors(workspaceId: string): StoreResult<Vendor[]>;
+
+  findVendor(workspaceId: string, vendorId: string): StoreResult<Vendor | null>;
+
+  createVendor(workspaceId: string, vendor: Vendor, now: string): StoreResult<Vendor>;
+
+  /**
+   * Replace a vendor's editable fields. Not a general setter — the
+   * implementation carries `id`, `workspaceId`, `createdAt` and `isActive`
+   * through from the stored record, so an edit cannot reassign a vendor to
+   * another workspace or resurrect a deactivated one.
+   */
+  updateVendor(workspaceId: string, vendor: Vendor, now: string): StoreResult<Vendor>;
+
+  /**
+   * Deactivate or reactivate. **There is deliberately no delete.** A vendor who
+   * quoted last quarter must stay resolvable from the offers that name them.
+   */
+  setVendorActive(workspaceId: string, vendorId: string, isActive: boolean, now: string): StoreResult<Vendor>;
+
+  // ── Vendor selection (H3.4) ──
+
+  listVendorOffers(workspaceId: string, momentId: string): StoreResult<VendorOffer[]>;
+
+  /** The one live `VendorSelection` Decision for a Moment, or null. */
+  findLiveVendorSelection(workspaceId: string, momentId: string): StoreResult<Decision | null>;
+
+  /**
+   * Commit a vendor comparison **atomically** — every considered offer, one
+   * Decision and one Event land together or not at all.
+   *
+   * **Recomputes rather than trusts**, exactly as `commitItemSelection` does:
+   * the Moment, the live brief, the live `ItemSelection` Decision and every
+   * vendor record are re-read, and each piece of submitted evidence is compared
+   * against them. A vendor renamed or deactivated while the screen sat open
+   * stops the write.
+   *
+   * One honest limit: the repository can verify everything Aniyé holds, but it
+   * **cannot prove what a vendor said**. A quote is attributable operator
+   * testimony — channel, quoted time and recorder — not an independently
+   * verified fact, and nothing here pretends otherwise.
+   */
+  commitVendorSelection(
+    workspaceId: string,
+    write: VendorSelectionWrite,
     now: string,
   ): StoreResult<Decision>;
 

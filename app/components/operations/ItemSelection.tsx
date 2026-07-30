@@ -223,10 +223,11 @@ export default function ItemSelectionPanel({ momentId }: { momentId: string }) {
           <p className="font-body text-xs text-cream/70 mt-2 leading-snug">
             “{preview.confirmed.reason}”
           </p>
-          <p className="font-body text-xs text-cream/50 mt-3 leading-snug">
-            Sourcing this from a vendor is the next stage and is not built yet. Nothing further can be
-            done with this moment in this build.
-          </p>
+          {/* The one obvious next step once an item is chosen (H3.4). */}
+          <Link href={`/operations/moments/${moment.id}/vendor`}
+            className="mt-3 inline-flex items-center rounded-full bg-gold text-ink px-5 font-body text-sm font-semibold hover:brightness-105 transition-all min-h-[44px]">
+            Compare vendor offers →
+          </Link>
         </div>
       )}
 

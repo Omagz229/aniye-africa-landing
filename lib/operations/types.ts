@@ -9,6 +9,8 @@
  */
 
 import type { Money } from '../money';
+import { isValidMoney } from '../money';
+import type { CatalogItemSnapshot } from '../catalog';
 import type { DeliveryAddress, RelationshipType } from '../workspace';
 
 // ─── Moment ──────────────────────────────────────────────────────────────────
@@ -147,6 +149,12 @@ export const DECISION_TYPES = [
   // selection that already exists and something downstream that consumed it;
   // neither exists yet, and a type nothing can produce is not architecture.
   'ItemSelection',
+  // H3.4 — the first Decision carrying a **cost**. Several vendors quoted for
+  // the item already chosen; the operator picks one and says why.
+  //
+  // `VendorSubstitution` is not added, for the same reason `ItemSubstitution`
+  // was not: nothing downstream has consumed a vendor selection yet.
+  'VendorSelection',
 ] as const;
 export type DecisionType = (typeof DECISION_TYPES)[number];
 
@@ -197,6 +205,13 @@ export const EVENT_TYPES = [
   // `RELATIONSHIP_OPERATIONS_ATLAS.md` §6 the checkpoint's downstream names are
   // proposals, and the milestone that builds each one fixes its final name.
   'ItemSelected',
+  // H3.4. The checkpoint proposed `VendorContacted`, and that is **not** what
+  // happens here. Aniyé sends nothing: an operator who already spoke to vendors
+  // by phone or WhatsApp types up what they were quoted and picks one. The
+  // occurrence is the *selection*. Recording a contact event would assert an
+  // outreach this build never performs — and the channel each quote arrived
+  // through is already a `source` field on the offer, where it belongs.
+  'VendorSelected',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -316,6 +331,113 @@ export interface ExecutionBrief {
   confirmedAt: string;
 }
 
+// ─── Vendor ──────────────────────────────────────────────────────────────────
+
+/**
+ * Someone Aniyé can buy from — **a row an operator typed**, not an account.
+ *
+ * There is no vendor portal, no login, no automated request and no API. Atlas §4
+ * never defined this object, so nothing is being re-issued here: H3.4 defines
+ * it, and defines it as small as the milestone actually needs.
+ *
+ * ⚠️ **Deliberately absent, and not oversights:** scores, ratings, reliability,
+ * capacity, lead-time policy, quality grades, price lists, categories,
+ * preferred status, contracts, SLAs, onboarding or offboarding state. Vendor
+ * *Intelligence* is H4.4 and is gated on the pilot — it must be built from
+ * recorded outcomes, and H3.4 is the milestone that starts recording them.
+ * Partner onboarding is unresolved **U5** and belongs before the pilot; a
+ * directory an operator types into needs none of it.
+ */
+export interface Vendor {
+  id: string;
+  /** One workspace per `OperationsState` today. Scoped consistently anyway. */
+  workspaceId: string;
+  name: string;
+  /** ISO 3166-1 alpha-2, uppercase. */
+  countryCode: string;
+  city: string;
+  /**
+   * At least one of these is required — a vendor nobody can reach is not a
+   * vendor. WhatsApp is a **channel recorded by hand**, never an integration.
+   */
+  whatsapp?: string;
+  email?: string;
+  /**
+   * Deactivated rather than deleted. A vendor who quoted last quarter must stay
+   * resolvable, so there is no hard delete anywhere in the repository.
+   */
+  isActive: boolean;
+  /** Free text. Not a grade, not a score — whatever the operator needs to recall. */
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * What a confirmed record keeps about a vendor.
+ *
+ * **Copied, never referenced** — the same rule the address, policy and item
+ * snapshots follow. Renaming or deactivating a vendor must not rewrite what an
+ * operator compared six months ago.
+ */
+export interface VendorSnapshot {
+  vendorId: string;
+  name: string;
+  countryCode: string;
+  city: string;
+}
+
+// ─── VendorOffer ─────────────────────────────────────────────────────────────
+
+/**
+ * How a quote reached Aniyé.
+ *
+ * Deliberately **not** `EVENT_SOURCES`: `Platform` is absent, because no vendor
+ * can reach this platform. Every quote arrives through a human conversation
+ * that an operator then types up.
+ */
+export const OFFER_SOURCES = ['WhatsApp', 'Email', 'Phone', 'Manual'] as const;
+export type OfferSource = (typeof OFFER_SOURCES)[number];
+
+/**
+ * An immutable record of what an operator was quoted for the item already
+ * chosen for this Moment.
+ *
+ * Written only as part of a confirmed comparison — a draft row on the screen is
+ * not an offer (ADR-006). Once written it is never edited: H3.4 has no offer
+ * revision, substitution or negotiation flow.
+ *
+ * ⚠️ **`quotedVendorCost` is an estimate of what the vendor will charge Aniyé.**
+ * It is not the customer's charge, not the catalog price, not an actual paid
+ * cost, not revenue and not margin. It is **never derived from
+ * `CatalogItem.price`** — the two answer different questions, and Aniyé's
+ * commercial role is unresolved (U3) until H3.7.
+ */
+export interface VendorOffer {
+  id: string;
+  workspaceId: string;
+  momentId: string;
+  /** The brief that supplied the delivery context this was quoted against. */
+  briefId: string;
+  briefRevision: number;
+  /** The live `ItemSelection` Decision that is the authority for the item. */
+  itemSelectionDecisionId: string;
+  selectedItemId: string;
+  /** Copied from that Decision, never re-read from the live catalog. */
+  itemSnapshot: CatalogItemSnapshot;
+  vendorId: string;
+  vendorSnapshot: VendorSnapshot;
+  quotedVendorCost: Money;
+  source: OfferSource;
+  /** When the vendor gave the quote, in the world. */
+  quotedAt: string;
+  /** When the operator committed it to Aniyé. The two differ, and both matter. */
+  recordedAt: string;
+  /** Whole days, non-negative. Absent means the vendor did not say. */
+  leadTimeDays?: number;
+  terms?: string;
+}
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
 /**
@@ -324,13 +446,14 @@ export interface ExecutionBrief {
  * **v2 (H3.2)** adds the `executionBriefs` collection. Additive.
  * **v3 (H3.3)** admits `policyResolutionSnapshot.excludedCategories` on newly
  * generated Moments. Additive, and it **adds nothing to existing records**.
+ * **v4 (H3.4)** adds the `vendors` and `vendorOffers` collections. Additive.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 3;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 4;
 
 /**
  * The storage *location*, not a version assertion.
  *
- * Deliberately unchanged at v3. ADR-010 and Atlas §15d name this key, and
+ * Deliberately unchanged at v4. ADR-010 and Atlas §15d name this key, and
  * moving it would orphan every operational record already written — the exact
  * history this module exists to protect. The version lives inside the payload.
  */
@@ -351,6 +474,9 @@ export interface OperationsState {
   events: OperationalEvent[];
   /** H3.2, additive at operations schema v2. */
   executionBriefs: ExecutionBrief[];
+  /** H3.4, additive at operations schema v4. */
+  vendors: Vendor[];
+  vendorOffers: VendorOffer[];
   createdAt: string;
   updatedAt: string;
 }
@@ -363,6 +489,8 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     decisions: [],
     events: [],
     executionBriefs: [],
+    vendors: [],
+    vendorOffers: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -434,6 +562,19 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     working = { ...working, schemaVersion: 3 };
   }
 
+  // v3 → v4: add the vendor collections. Additive, and it **invents nothing** —
+  // a workspace that has never had a vendor gets two empty arrays, not a
+  // fabricated directory. Existing Moments, briefs, Decisions and Events are
+  // carried through by the spread, untouched.
+  if ((working.schemaVersion as number) === 3) {
+    working = {
+      ...working,
+      vendors: Array.isArray(working.vendors) ? working.vendors : [],
+      vendorOffers: Array.isArray(working.vendorOffers) ? working.vendorOffers : [],
+      schemaVersion: 4,
+    };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -490,7 +631,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
@@ -681,6 +822,100 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       }
       liveBriefByMoment.set(momentId, brief.id);
     }
+  }
+
+  // ── Vendors (H3.4) ──
+  const vendorIds = new Set<string>();
+  for (const [i, vendor] of (raw.vendors as unknown[]).entries()) {
+    if (!isPlainObject(vendor)) return { ok: false, reason: `Vendor at index ${i} is not an object.` };
+    if (!isNonEmptyString(vendor.id)) return { ok: false, reason: `Vendor at index ${i} has no id.` };
+    if (vendorIds.has(vendor.id)) return { ok: false, reason: `Duplicate vendor id "${vendor.id}".` };
+    vendorIds.add(vendor.id);
+
+    if (vendor.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Vendor "${vendor.id}" belongs to a different workspace.` };
+    }
+    for (const field of ['name', 'countryCode', 'city'] as const) {
+      if (!isNonEmptyString(vendor[field]) || (vendor[field] as string).trim().length === 0) {
+        return { ok: false, reason: `Vendor "${vendor.id}" is missing a ${field}.` };
+      }
+    }
+    if (!/^[A-Z]{2}$/.test(vendor.countryCode as string)) {
+      return { ok: false, reason: `Vendor "${vendor.id}" has an invalid country code.` };
+    }
+    // A vendor nobody can reach is not a vendor. Enforced in the persistence
+    // layer as well as the form, so it cannot be bypassed by a caller.
+    const reachable =
+      (isNonEmptyString(vendor.whatsapp) && (vendor.whatsapp as string).trim().length > 0) ||
+      (isNonEmptyString(vendor.email) && (vendor.email as string).trim().length > 0);
+    if (!reachable) {
+      return { ok: false, reason: `Vendor "${vendor.id}" has no way of being contacted.` };
+    }
+    if (typeof vendor.isActive !== 'boolean') {
+      return { ok: false, reason: `Vendor "${vendor.id}" has no active state.` };
+    }
+  }
+
+  // ── Vendor offers (H3.4) ──
+  const offerIds = new Set<string>();
+  for (const [i, offer] of (raw.vendorOffers as unknown[]).entries()) {
+    if (!isPlainObject(offer)) return { ok: false, reason: `Offer at index ${i} is not an object.` };
+    if (!isNonEmptyString(offer.id)) return { ok: false, reason: `Offer at index ${i} has no id.` };
+    if (offerIds.has(offer.id)) return { ok: false, reason: `Duplicate offer id "${offer.id}".` };
+    offerIds.add(offer.id);
+
+    if (offer.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Offer "${offer.id}" belongs to a different workspace.` };
+    }
+    if (!momentIds.has(offer.momentId as string)) {
+      return { ok: false, reason: `Offer "${offer.id}" references an unknown moment.` };
+    }
+    if (!briefIds.has(offer.briefId as string)) {
+      return { ok: false, reason: `Offer "${offer.id}" references an unknown brief.` };
+    }
+    // Vendors are deactivated, never deleted, so this reference always resolves.
+    if (!vendorIds.has(offer.vendorId as string)) {
+      return { ok: false, reason: `Offer "${offer.id}" references an unknown vendor.` };
+    }
+    if (!decisionIds.has(offer.itemSelectionDecisionId as string)) {
+      return { ok: false, reason: `Offer "${offer.id}" references an unknown item selection.` };
+    }
+    if (typeof offer.source !== 'string' || !(OFFER_SOURCES as readonly string[]).includes(offer.source)) {
+      return { ok: false, reason: `Offer "${offer.id}" has an invalid source: ${String(offer.source)}.` };
+    }
+    // ADR-007 — integer minor units, known currency, and never negative. Zero is
+    // permitted: a vendor absorbing a cost is a real quote, and refusing it
+    // would invent a commercial rule nobody decided.
+    const cost = offer.quotedVendorCost;
+    if (!isValidMoney(cost) || cost.amountMinor < 0) {
+      return { ok: false, reason: `Offer "${offer.id}" has an invalid quoted cost.` };
+    }
+    if (!isPlainObject(offer.vendorSnapshot) || !isPlainObject(offer.itemSnapshot)) {
+      return { ok: false, reason: `Offer "${offer.id}" is missing a vendor or item snapshot.` };
+    }
+    if (!isNonEmptyString(offer.quotedAt) || !isNonEmptyString(offer.recordedAt)) {
+      return { ok: false, reason: `Offer "${offer.id}" is missing a timestamp.` };
+    }
+    if (
+      offer.leadTimeDays !== undefined &&
+      (typeof offer.leadTimeDays !== 'number' ||
+        !Number.isInteger(offer.leadTimeDays) ||
+        offer.leadTimeDays < 0)
+    ) {
+      return { ok: false, reason: `Offer "${offer.id}" has an invalid lead time.` };
+    }
+  }
+
+  // At most one live vendor selection per Moment — the same rule item selection
+  // follows, and for the same reason.
+  const liveVendorByMoment = new Set<string>();
+  for (const decision of raw.decisions as Record<string, unknown>[]) {
+    if (decision.decisionType !== 'VendorSelection' || decision.status !== 'Confirmed') continue;
+    const momentId = decision.momentId as string;
+    if (liveVendorByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one live vendor selection.` };
+    }
+    liveVendorByMoment.add(momentId);
   }
 
   // Supersession must point somewhere real, and only forward.

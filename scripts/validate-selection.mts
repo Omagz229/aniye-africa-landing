@@ -737,8 +737,13 @@ check('37. Confirming preserves every existing decision and event untouched', ()
   assertEqual(JSON.stringify(kept.executionBriefs), priorBriefs, 'Briefs were rewritten by a selection.');
 });
 
-check('38. The operations schema is at v3, and v1 walks every rung to it', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 3, 'Operations schema is not at v3.');
+// H3.4 amended checks 38, 39 and 42. They pinned the literal version `3` and
+// the pre-H3.4 decision set, so a legitimate additive rung (v3 → v4, the vendor
+// collections) failed them. What they test — that a v1 payload walks every rung
+// without losing history, that the exclusions rung invents nothing, and that no
+// later milestone is pre-empted — is unchanged and now version-agnostic.
+check('38. The operations schema is at or beyond v3, and v1 walks every rung to it', () => {
+  assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 3, 'Operations schema regressed below v3.');
   const v1 = {
     schemaVersion: 1, workspaceId: WS,
     moments: [{ id: 'm-old', sourceKey: 'k' }], decisions: [{ id: 'd-old' }], events: [{ id: 'e-old' }],
@@ -749,7 +754,7 @@ check('38. The operations schema is at v3, and v1 walks every rung to it', () =>
   assert(result.status === 'migrated', 'A v1 payload was not migrated.');
   if (result.status !== 'migrated') return;
   assertEqual(result.from, 1, 'Wrong source version reported.');
-  assertEqual(result.state.schemaVersion, 3, 'Migration did not reach v3.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current version.');
   assert(Array.isArray(result.state.executionBriefs), 'The v1 → v2 rung did not run.');
   // History survives the whole chain, and unknown keys with it.
   assertEqual(result.state.moments.length, 1, 'A moment was lost in migration.');
@@ -771,7 +776,7 @@ check('39. The v2 → v3 rung invents no exclusions', () => {
   const result = migrateOperationsState(v2);
   assert(result.status === 'migrated', 'A v2 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 3, 'Migration did not reach v3.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current version.');
   const snapshot = result.state.moments[0].policyResolutionSnapshot as unknown as Record<string, unknown>;
   assertEqual(snapshot.excludedCategories, undefined, 'The migration invented an exclusion list.');
 });
@@ -818,7 +823,8 @@ check('42. H3.3 adds exactly one decision type and one event type, and no more',
   assert((EVENT_TYPES as readonly string[]).includes('ItemSelected'), 'ItemSelected is not declared.');
   // Substitution presupposes something downstream that consumed a selection.
   assert(!(DECISION_TYPES as readonly string[]).includes('ItemSubstitution'), 'ItemSubstitution belongs to a later milestone.');
-  for (const t of ['VendorSelection', 'CourierSelection', 'QAException', 'BudgetException']) {
+  // `VendorSelection` left this list at H3.4, the milestone that produces it.
+  for (const t of ['CourierSelection', 'QAException', 'BudgetException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   for (const t of ['ItemPrepared', 'VendorContacted', 'Dispatched', 'Delivered', 'MomentClosed']) {

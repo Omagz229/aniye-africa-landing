@@ -28,10 +28,11 @@ const NAV_ITEMS = [
   { label: 'Command', href: '/operations', exact: true, built: true },
   { label: 'Moments', href: '/operations/moments', exact: false, built: true },
   { label: 'Briefs', href: '/operations/briefs', exact: false, built: true },
+  { label: 'Vendors', href: '/operations/vendors', exact: false, built: true },
 ];
 
 /** Shown as explicitly unavailable rather than omitted — no clickable dead ends. */
-const FUTURE_SECTIONS = ['Catalog', 'Vendors', 'Couriers', 'Fulfilment'];
+const FUTURE_SECTIONS = ['Catalog', 'Couriers', 'Fulfilment'];
 
 export default function OperationsShell({ children }: Props) {
   const router = useRouter();

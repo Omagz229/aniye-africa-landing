@@ -21,11 +21,11 @@
 | | Value |
 |---|---|
 | **Workspace schema** | **v7** — `lib/migrations.ts` |
-| **`OperationsState` schema** | **v3** — `lib/operations/types.ts`, versioned independently (ADR-010) |
-| **Last completed milestone** | **H3.3** — Minimum Catalog + manual item selection |
-| **Next milestone** | **H3.4** — Vendor directory, hand-entered offers + manual selection |
-| **Milestones** | **21 of 37 complete** — see *Milestone count* |
-| **Blocking H3.4** | Nothing structural. **U3** (merchant of record) binds at H3.7, not here |
+| **`OperationsState` schema** | **v4** — `lib/operations/types.ts`, versioned independently (ADR-010) |
+| **Last completed milestone** | **H3.4** — Vendor directory, hand-entered offers + manual vendor selection |
+| **Next milestone** | **H3.5** — Courier directory + manual selection, per operating country |
+| **Milestones** | **22 of 37 complete** — see *Milestone count* |
+| **Blocking H3.5** | Nothing structural. **U5** (partner onboarding) binds at H4.1 and **U3** at H3.7, not here |
 | **Outstanding** | ⚠️ **Live responsive testing on real devices** — still never performed. Browser verification at emulated widths is not a substitute; it is a pre-pilot **[P]** item (H4.0) |
 | **Blocking the pilot (H4.1)** | ⛔ Production backend, authentication, multi-tenancy, secure file storage (ADR-010). **This gate does not bind on any H3 milestone** |
 
@@ -38,7 +38,7 @@
 | **H0** | Foundation — retrospective label for pre-roadmap work | ✅ Complete |
 | **H1** | Assessment + Snapshot | ✅ Complete |
 | **H2** | Configure — Organization Profile through Programs | ✅ Complete |
-| **H3** | Operational execution — the closed loop | 🔨 In progress (3 of 8 done) |
+| **H3** | Operational execution — the closed loop | 🔨 In progress (4 of 8 done) |
 | **H4** | Learn — pilot, then intelligence built on its evidence | ⬜ Not started |
 | **H5** | Relationship Infrastructure — backend, enterprise, **integrations** | ⬜ Not started |
 
@@ -113,8 +113,8 @@ to a delivered, costed, closed recognition. Everything not on this path is defer
 | **H3.1** | **Operational Foundation + Moment Engine** — `OperationsState`, the `/operations` shell, Moment generation with per-Moment policy snapshot, Decisions and Operational Events | 3 | H2.6 | **[R]** | ✅ **Complete** |
 | **H3.2** | **Execution Brief** — an operator-facing brief per Moment: recipient, address, budget, constraints; the address gate, operator override and governed revision | 4 | H3.1 · ADR-011 / schema v7 | **[R]** | ✅ **Complete** |
 | **H3.3** | **Minimum Catalog + manual item selection** — a flat item list filtered by budget and excluded categories; operator selects one | 5 | H3.2 · `OperationsState` v3 | **[R]** | ✅ **Complete** |
-| **H3.4** | **Vendor directory, hand-entered offers + manual selection** | 6 | H3.3 | **[R]** | ⬅️ **Next** |
-| **H3.5** | **Courier directory + manual selection** — per operating country | 7 | H3.4 | **[R]** | ⬜ |
+| **H3.4** | **Vendor directory, hand-entered offers + manual selection** | 6 | H3.3 · `OperationsState` v4 | **[R]** | ✅ **Complete** |
+| **H3.5** | **Courier directory + manual selection** — per operating country | 7 | H3.4 | **[R]** | ⬅️ **Next** |
 | **H3.6** | **Fulfilment tracking** — dispatch → delivered → proof, with failure and redelivery paths | 8 | H3.5 | **[R]** | ⬜ |
 | **H3.7** | **Recognition Order + commercial tracking** — budget, estimates, actuals, derived margin | 9 | H3.6 | **[R]** | ⬜ |
 | **H3.8** | **Confirmation + Memory** — the Moment closes; a Memory record enters the relationship timeline | 10 | H3.7 | **[R]** | ⬜ |
@@ -175,6 +175,45 @@ prepared at this step — no vendor has been asked and nothing has moved. Per
 names are proposals, and the milestone that builds each one fixes its final name. `ItemSubstitution`
 was **not** added: it presupposes a selection something downstream has already consumed.
 
+### What H3.4 built, and what it deliberately did not
+
+**Only a manual vendor directory and hand-entered offers exist.** A `Vendor` is six fields an
+operator typed — name, country, city, at least one contact method, an active flag and an optional
+note. A `VendorOffer` is an immutable record of what an operator was told, carrying the quote, the
+channel it arrived through, when it was quoted and when it was recorded.
+
+**Nothing was built that resembles intelligence.** No scores, ratings, reliability, capacity,
+lead-time policy, quality grades, price lists, preferred status, contracts, SLAs, ranking,
+recommendations or automatic routing. Rows appear in the order the operator entered them. **Vendor
+Intelligence remains H4.4**, gated on the pilot — it has to be built from recorded outcomes, and
+H3.4 is the milestone that starts recording them.
+
+**No vendor accounts, no portal, no vendor-facing route, no automated quote requests, no APIs and no
+external integrations.** WhatsApp stays what it has always been: a channel an operator records by
+hand. No courier, fulfilment, proof of delivery, `RecognitionOrder`, customer charge or margin was
+introduced.
+
+**Two sources of truth, deliberately different.** Delivery context comes from the **current confirmed
+brief**; the chosen item comes from the **live `ItemSelection` Decision**, never re-read from the
+catalog. A brief may take a governed address-only revision after an item was chosen, and that must
+not invalidate the item — so the vendor selection references both, and snapshots the brief it was
+quoted against.
+
+**`quotedVendorCost` is an estimate of what the vendor will charge Aniyé.** Not the customer's
+charge, not the catalog price, not an actual paid cost, not revenue, not margin, and **never derived
+from `CatalogItem.price`**. Every offer in a comparison must use the item's exact currency; quotes
+are never converted (ADR-007). Zero is allowed — a vendor absorbing a cost is a real quote, and
+refusing it would invent a commercial rule nobody decided. Negative is refused. There is deliberately
+**no rule that a quote must sit below the catalog price**: the two answer different questions.
+
+**`OperationsState` moved to v4.** One additive rung adding the `vendors` and `vendorOffers`
+collections, inventing nothing and touching no existing record. Workspace schema stays **v7**.
+
+**Event naming.** The checkpoint proposed `VendorContacted`; H3.4 records **`VendorSelected`**.
+Aniyé contacts nobody — an operator types up what they were already told, so the occurrence is the
+*selection*, and the channel each quote arrived through is a `source` field on the offer.
+`VendorSubstitution` was not added.
+
 ### ⛔ The ADR-010 gate — what it actually binds
 
 Per **ADR-010**, all four are mandatory and none is scheduled:
@@ -213,13 +252,22 @@ What remains outstanding is narrower and unchanged: a **live responsive review o
 Browser verification at resized viewports is not that, and is not described as that anywhere in this
 repository. It is a **pre-pilot [P]** item (H4.0), not an H3 blocker.
 
-**H3.3 browser verification.** Every named state — loading, read failure, no confirmed brief,
-constraints unrecorded, no eligible items, eligible list, draft selection, confirmation, confirmed
-selection, duplicate refusal, cancelled and not-ready — was exercised in a live browser at **400px**,
-**768px** and **1200px** measured `window.innerWidth`. **1440px was not reached**: the widest
-physically achievable viewport on the verification machine was 1200px, and no width was simulated by
-toggling classes. Page-level and inner-container horizontal scrolling were checked programmatically
-at every width and both are clean. **Real-device testing was not performed and is not claimed.**
+**H3.3 browser verification.** Every named state was exercised live at **400px**, **768px** and
+**1200px** measured `window.innerWidth`. 1440px was not reachable in that session.
+
+**H3.4 browser verification.** Directory loading, read failure, empty directory, add, edit,
+deactivate and reactivate; a Moment without a brief, without an item selection, and with no active
+vendors; offer-entry validation; the one-offer limited comparison; three offers compared; the second
+chosen by keyboard; confirmation; the confirmed selection; duplicate refusal; and a vendor
+deactivated mid-comparison — all exercised in a live browser at **1440px**, **768px** and **500px**
+measured `window.innerWidth`.
+
+> **500px, not 390–420px.** The window manager clamps Chrome to a ~500px minimum width, so the
+> mobile cell was measured at 500 and is reported as 500. **No width was simulated by toggling
+> classes.** Page-level and inner-container horizontal scrolling were checked programmatically at
+> every width and both are clean; no H3.4 control is under 44px.
+>
+> **Real-device testing was not performed and is not claimed.**
 
 ---
 
@@ -312,12 +360,12 @@ Counting basis: every numbered milestone in the six horizon tables above. One ro
 | **H0** — Foundation | 7 | **7** |
 | **H1** — Assessment + Snapshot | 4 | **4** |
 | **H2** — Configure | 7 | **7** |
-| **H3** — Operational execution | 8 | **3** |
+| **H3** — Operational execution | 8 | **4** |
 | **H4** — Learn | 6 | 0 |
 | **H5** — Relationship Infrastructure | 5 | 0 |
-| **Total** | **37** | **21** |
+| **Total** | **37** | **22** |
 
-**21 of 37 major milestones complete.**
+**22 of 37 major milestones complete.**
 
 > ⚠️ **This does not match the 15 of 31 the Council asked to be confirmed.** The instruction was
 > conditional — *"if the roadmap still contains 31 milestones"* — and it does not; at this
@@ -359,27 +407,28 @@ until a Council decision closes it.**
 way in [`RELATIONSHIP_OPERATIONS_ATLAS.md`](RELATIONSHIP_OPERATIONS_ATLAS.md) §9, and none of those
 blocks H3.4 either.
 
-### What blocks H3.4
+### What blocks H3.5
 
-**Nothing structural.** H3.3 shipped the selected item and the immutable constraints a vendor offer
-will be quoted against. Checkpoint milestone 6 excludes vendor scoring, automated requests and APIs
-— a vendor is a row an operator typed, not an account, so **ADR-010's external-pilot gate does not
-bind** (see *The ADR-010 gate* above).
+**Nothing structural.** H3.4 shipped the chosen vendor and the first recorded cost estimate.
+Checkpoint milestone 7 excludes rate APIs, tracking integration and optimization — a courier, like a
+vendor, is a row an operator typed, so **ADR-010's external-pilot gate does not bind** (see *The
+ADR-010 gate* above).
 
-**U3 — merchant of record — binds at H3.7, not H3.4.** A hand-entered vendor offer records a cost;
-what that cost legally *is* only matters once `actualCustomerCharge` exists.
+**U3 — merchant of record — binds at H3.7, not H3.5.** A hand-entered courier cost records an
+estimate; what it legally *is* only matters once `actualCustomerCharge` exists.
 
-⚠️ **`RELATIONSHIP_OPERATIONS_ATLAS.md` §9 U5 — partner onboarding — does not exist.** If H3.4 needs
-a rule for how a vendor enters the directory beyond an operator typing it in, raise an ADR. Do not
-reconstruct one.
+⚠️ **`RELATIONSHIP_OPERATIONS_ATLAS.md` §9 U5 — partner onboarding — still does not exist**, and
+H3.4 deliberately did not invent it. If H3.5 needs a rule for how a courier enters the directory
+beyond an operator typing it in, raise an ADR. Do not reconstruct one.
 
 ---
 
-*Master Roadmap v1.4 — Aniyé Africa — 29 July 2026*
-*v1.4: **H3.3 — Minimum Catalog + manual item selection complete.** `OperationsState` **v3** (additive; `policyResolutionSnapshot.excludedCategories`). Workspace schema unchanged at **v7**. **281 checks across nine suites** (verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 47); typecheck clean; build succeeds with **24 routes**; lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.3 baseline. Milestone count **21 of 37**; H3 is **3 of 8**. H3.4 is next. Minimum flat catalog only — Catalog/Gift/Vendor Intelligence remain H4.2–H4.4. **The stale claim that H3.1/H3.2 visual verification was never performed is withdrawn.** ADR-010 remains the external-pilot gate and binds at H4.1. Real-device testing remains outstanding and is not claimed.*
+*Master Roadmap v1.5 — Aniyé Africa — 30 July 2026*
+*v1.5: **H3.4 — Vendor directory, hand-entered offers and manual vendor selection complete.** `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record). Workspace schema unchanged at **v7**. **357 checks across ten suites** (verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, vendors 58); typecheck clean; build succeeds with **26 routes** (two intentional additions); lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.4 baseline. Milestone count **22 of 37**; H3 is **4 of 8**. H3.5 is next. Only a manual directory and hand-entered offers exist — Vendor Intelligence remains H4.4, and no scoring, routing, API, portal, courier, fulfilment or commerce was built. Event named **`VendorSelected`**, not the checkpoint's `VendorContacted`. **The v1.4 footer's 281-check figure is corrected: the accepted H3.3 state was 299 checks across nine suites**, after the H3.3-D1 trust-boundary correction. ADR-010 remains the external-pilot gate and binds at H4.1. Real-device testing remains outstanding and is not claimed.*
+*v1.4: **H3.3 — Minimum Catalog + manual item selection complete.** `OperationsState` **v3** (additive; `policyResolutionSnapshot.excludedCategories`). Workspace schema unchanged at **v7**. 281 checks across nine suites at first landing, **corrected to 299** by H3.3-D1 (selection 47 → 65); typecheck clean; build succeeds with **24 routes**; lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.3 baseline. Milestone count **21 of 37**; H3 is **3 of 8**. H3.4 is next. Minimum flat catalog only — Catalog/Gift/Vendor Intelligence remain H4.2–H4.4. **The stale claim that H3.1/H3.2 visual verification was never performed is withdrawn.** ADR-010 remains the external-pilot gate and binds at H4.1. Real-device testing remains outstanding and is not claimed.*
 *v1.3: H3.1-D1 and H3.2-D1 acceptance corrections recorded. 232 checks across eight suites.*
 *v1.2: **H3.2 — Execution Brief complete.** Workspace schema v7, `OperationsState` v2. H3.3 is next and is ungated. Milestone count 20 of 37.*
 *v1.1: Council corrections. H0 restated as an approved retrospective label for real completed work. H4 renamed **Learn** and renumbered — pre-pilot [P] set becomes H4.0, pilot H4.1, intelligence H4.2–H4.5. **All external connectors moved to H5.4 — Integrations**; the intermediate H4.4/H4.5 placement is removed entirely. Milestone count published (37/19) with the 31/15 discrepancy surfaced rather than resolved. Every unresolved item classified by what it blocks. **The claim that the ADR-010 gate binds from H3.4 is withdrawn** — no governing document establishes it; the gate binds at the pilot and at any grant of external access.*
 *v1.0: Created by the governance reconciliation (R6) under Council decisions of 2026-07-28.*
 *Supersedes the H3 sequences in `RECOVERY_LEDGER.md` §0 and §10 for roadmap reporting.*
-*Basis: Workspace schema v7, `OperationsState` v3, System Atlas v3.6, ADR-001 … ADR-011.*
+*Basis: Workspace schema v7, `OperationsState` v4, System Atlas v3.8, ADR-001 … ADR-011.*

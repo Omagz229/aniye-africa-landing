@@ -16,12 +16,14 @@
 import type { CatalogItem } from '../catalog';
 import { CATALOG_ITEMS } from '../catalog';
 import { verifyItemSelection } from './selection';
+import { verifyVendorSelection } from './vendor-selection';
 import type {
   BriefWrite,
   ItemSelectionWrite,
   MomentBatch,
   OperationsRepository,
   StoreResult,
+  VendorSelectionWrite,
 } from './store';
 import type {
   Decision,
@@ -30,6 +32,8 @@ import type {
   MomentStatus,
   OperationalEvent,
   OperationsState,
+  Vendor,
+  VendorOffer,
 } from './types';
 import {
   OPERATIONS_KEY,
@@ -463,6 +467,167 @@ export function createLocalOperationsRepository(
       return { ok: true, value: decision };
     },
 
+    // ── Vendor directory (H3.4) ──
+
+    listVendors(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.vendors ?? [] };
+    },
+
+    findVendor(workspaceId, vendorId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.vendors.find(v => v.id === vendorId) ?? null };
+    },
+
+    createVendor(workspaceId, vendor, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+      if (vendor.workspaceId !== workspaceId) {
+        return { ok: false, reason: 'That vendor belongs to a different workspace. Nothing was saved.' };
+      }
+      if (state.value.vendors.some(v => v.id === vendor.id)) {
+        return { ok: false, reason: 'That vendor has already been added.' };
+      }
+      const written = commit({ ...state.value, vendors: [...state.value.vendors, vendor] }, now);
+      if (!written.ok) return written;
+      return { ok: true, value: vendor };
+    },
+
+    updateVendor(workspaceId, vendor, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+      const existing = state.value.vendors.find(v => v.id === vendor.id);
+      if (!existing) return { ok: false, reason: 'That vendor is no longer in the directory.' };
+      if (vendor.workspaceId !== workspaceId) {
+        return { ok: false, reason: 'That vendor belongs to a different workspace. Nothing was saved.' };
+      }
+
+      // Identity, ownership, creation time and active state are carried from
+      // the stored record, never from the submission. An edit form must not be
+      // able to reassign a vendor or resurrect a deactivated one.
+      const updated: Vendor = {
+        ...vendor,
+        id: existing.id,
+        workspaceId: existing.workspaceId,
+        isActive: existing.isActive,
+        createdAt: existing.createdAt,
+        updatedAt: now,
+      };
+
+      const written = commit(
+        { ...state.value, vendors: state.value.vendors.map(v => (v.id === vendor.id ? updated : v)) },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: updated };
+    },
+
+    setVendorActive(workspaceId, vendorId, isActive, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+      const existing = state.value.vendors.find(v => v.id === vendorId);
+      if (!existing) return { ok: false, reason: 'That vendor is no longer in the directory.' };
+      if (existing.isActive === isActive) {
+        return { ok: true, value: existing };
+      }
+      const updated: Vendor = { ...existing, isActive, updatedAt: now };
+      const written = commit(
+        { ...state.value, vendors: state.value.vendors.map(v => (v.id === vendorId ? updated : v)) },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: updated };
+    },
+
+    // ── Vendor selection (H3.4) ──
+
+    listVendorOffers(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: (state.value?.vendorOffers ?? []).filter(o => o.momentId === momentId) };
+    },
+
+    findLiveVendorSelection(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      const found =
+        state.value?.decisions.find(
+          d => d.momentId === momentId && d.decisionType === 'VendorSelection' && d.status === 'Confirmed',
+        ) ?? null;
+      return { ok: true, value: found };
+    },
+
+    commitVendorSelection(workspaceId, write: VendorSelectionWrite, now) {
+      const state = require(workspaceId);
+      if (!state.ok) return state;
+
+      const { offers, decision, event } = write;
+
+      if (decision.momentId !== event.momentId) {
+        return {
+          ok: false,
+          reason: 'The decision and event refer to different moments. Review the moment and record the quotes again — nothing was recorded.',
+        };
+      }
+
+      const moment = state.value.moments.find(m => m.id === decision.momentId);
+      if (!moment) {
+        return {
+          ok: false,
+          reason: 'That moment no longer exists. Review the queue — nothing was recorded.',
+        };
+      }
+
+      /**
+       * **The trust boundary.** Everything the submission asserts is recomputed
+       * from re-read state — the Moment, the live brief, the live
+       * `ItemSelection` Decision and every vendor record — and compared.
+       *
+       * The item is taken from the item-selection Decision, **not** re-read from
+       * the catalog: that Decision is the immutable record of what was chosen
+       * and at what price, and a later repricing must not silently replace it.
+       */
+      const verified = verifyVendorSelection({
+        workspaceId,
+        moment,
+        briefs: state.value.executionBriefs,
+        decisions: state.value.decisions,
+        vendors: state.value.vendors,
+        write,
+      });
+      if (!verified.ok) return verified;
+
+      // Idempotency: a replayed bundle collides on every identifier it carries.
+      for (const offer of offers) {
+        if (state.value.vendorOffers.some(o => o.id === offer.id)) {
+          return { ok: false, reason: 'Those quotes have already been recorded.' };
+        }
+      }
+      if (state.value.decisions.some(d => d.id === decision.id)) {
+        return { ok: false, reason: 'That decision has already been recorded.' };
+      }
+      if (state.value.events.some(e => e.id === event.id)) {
+        return { ok: false, reason: 'That event has already been recorded.' };
+      }
+
+      // One transaction: every considered offer, the Decision and the Event
+      // together, over a proposed state validated in full (ADR-006). Existing
+      // records are carried through untouched.
+      const written = commit(
+        {
+          ...state.value,
+          vendorOffers: [...state.value.vendorOffers, ...offers],
+          decisions: [...state.value.decisions, decision],
+          events: [...state.value.events, event],
+        },
+        now,
+      );
+      if (!written.ok) return written;
+      return { ok: true, value: decision };
+    },
+
     validate(workspaceId) {
       const state = read(workspaceId);
       if (!state.ok) return state;
@@ -487,4 +652,7 @@ export type {
   MomentBatch,
   BriefWrite,
   ItemSelectionWrite,
+  VendorSelectionWrite,
+  Vendor,
+  VendorOffer,
 };

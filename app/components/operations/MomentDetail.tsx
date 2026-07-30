@@ -8,6 +8,7 @@ import type { Decision, ExecutionBrief, Moment, OperationalEvent } from '@/lib/o
 import { browserOperationsRepository } from '@/lib/operations/local-store';
 import { buildCancellation } from '@/lib/operations/generation';
 import { findLiveSelectionDecision } from '@/lib/operations/selection';
+import { findLiveVendorSelection } from '@/lib/operations/vendor-selection';
 
 export default function MomentDetail({ momentId }: { momentId: string }) {
   const [moment, setMoment] = useState<Moment | null>(null);
@@ -96,8 +97,28 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
   const recipient = moment.recipientSnapshot;
   const snapshot = moment.policyResolutionSnapshot;
   const selection = findLiveSelectionDecision(decisions, moment.id);
-  const nextAction: 'brief' | 'item' | 'done' =
-    !brief || brief.status !== 'Confirmed' ? 'brief' : selection ? 'done' : 'item';
+  const vendorSelection = findLiveVendorSelection(decisions, moment.id);
+  /**
+   * The one clear next action, **computed from state** (Doctrine §1.1): no brief
+   * → confirm one; brief but no item → choose one; item but no vendor → compare
+   * quotes; vendor chosen → this is as far as the build goes.
+   */
+  const nextAction: 'brief' | 'item' | 'vendor' | 'done' =
+    !brief || brief.status !== 'Confirmed'
+      ? 'brief'
+      : !selection
+        ? 'item'
+        : !vendorSelection
+          ? 'vendor'
+          : 'done';
+
+  const NEXT: Record<typeof nextAction, { href: string; label: string; primary: boolean }> = {
+    brief: { href: `/operations/moments/${moment.id}/brief`, label: 'Open the brief', primary: true },
+    item: { href: `/operations/moments/${moment.id}/item`, label: 'Choose an item', primary: true },
+    vendor: { href: `/operations/moments/${moment.id}/vendor`, label: 'Compare vendor offers', primary: true },
+    done: { href: `/operations/moments/${moment.id}/vendor`, label: 'View vendor selection', primary: false },
+  };
+  const next = NEXT[nextAction];
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -154,29 +175,15 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         </Panel>
       )}
 
-      {/*
-        The one clear next action for a ready moment, **chosen from state**
-        (Doctrine §1.1): no brief yet → confirm one; brief confirmed but nothing
-        chosen → choose an item; item chosen → the moment is as far as this
-        build takes it.
-      */}
       {moment.status === 'ReadyForExecution' && (
-        nextAction === 'brief' ? (
-          <Link href={`/operations/moments/${moment.id}/brief`}
-            className="block rounded-full bg-ink text-cream px-6 py-3 font-body text-sm font-semibold text-center hover:bg-ink/90 transition-colors">
-            Open the brief
-          </Link>
-        ) : nextAction === 'item' ? (
-          <Link href={`/operations/moments/${moment.id}/item`}
-            className="block rounded-full bg-ink text-cream px-6 py-3 font-body text-sm font-semibold text-center hover:bg-ink/90 transition-colors">
-            Choose an item
-          </Link>
-        ) : (
-          <Link href={`/operations/moments/${moment.id}/item`}
-            className="block rounded-full border border-stone/20 px-6 py-3 font-body text-sm font-semibold text-ink text-center hover:border-stone/40 transition-colors">
-            View the chosen item
-          </Link>
-        )
+        <Link href={next.href}
+          className={`block rounded-full px-6 py-3 font-body text-sm font-semibold text-center transition-colors ${
+            next.primary
+              ? 'bg-ink text-cream hover:bg-ink/90'
+              : 'border border-stone/20 text-ink hover:border-stone/40'
+          }`}>
+          {next.label}
+        </Link>
       )}
 
       {/* Issues, with the workspace link that fixes each */}
@@ -215,7 +222,9 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
               ? 'Confirm the brief next — it fixes the address and the budget an item is chosen against.'
               : nextAction === 'item'
                 ? 'The brief is confirmed. Choosing an item is the next step.'
-                : 'An item has been chosen. Sourcing it from a vendor is the next stage and is not built yet — nothing further can be done with this moment in this build.'}
+                : nextAction === 'vendor'
+                  ? 'An item has been chosen. Recording vendor quotes and picking one is the next step.'
+                  : 'A vendor has been chosen. Choosing a courier is the next stage and is not built yet — nothing further can be done with this moment in this build.'}
           </p>
         </div>
       )}
@@ -323,6 +332,7 @@ function humanEvent(type: string): string {
     case 'BriefGenerated': return 'Brief confirmed';
     case 'ExecutionBriefAddressOverridden': return 'Brief address corrected';
     case 'ItemSelected': return 'Item chosen';
+    case 'VendorSelected': return 'Vendor chosen';
     default: return type;
   }
 }

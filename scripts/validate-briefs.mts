@@ -778,7 +778,9 @@ check('35. The new Decision and Event types are declared, and no more', () => {
   assert(!(EVENT_TYPES as readonly string[]).includes('AddressUpdated'), 'AddressUpdated was reintroduced.');
   // Later milestones must not be pre-empted here. `ItemSelection` left this
   // list at H3.3, which is the milestone that produces it; the rest have not.
-  for (const t of ['VendorSelection', 'CourierSelection', 'QAException']) {
+  // `ItemSelection` left this list at H3.3 and `VendorSelection` at H3.4 — each
+  // at the milestone that produces it. The rest have not been built.
+  for (const t of ['CourierSelection', 'QAException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
   for (const t of ['Dispatched', 'Delivered', 'ProofReceived', 'MomentClosed']) {
