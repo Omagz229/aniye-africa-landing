@@ -18,6 +18,7 @@ import { CATALOG_ITEMS, eligibleItems, findCatalogItem, itemEligibility, snapsho
 import { formatMoney } from '../money';
 import type { Money } from '../money';
 import type { Decision, ExecutionBrief, Moment, OperationalEvent } from './types';
+import { isPlainRecord } from './types';
 import type { IdFactory } from './generation';
 
 // ─── Preview ─────────────────────────────────────────────────────────────────
@@ -409,8 +410,18 @@ function sameSnapshot(a: unknown, b: CatalogItemSnapshot): boolean {
 }
 
 export function verifyItemSelection(input: VerifySelectionInput): VerifySelectionResult {
-  const { workspaceId, moment, write } = input;
-  const { decision, event } = write;
+  const { workspaceId, moment } = input;
+
+  // ── 0. The submission itself must be a record before anything is read ──
+  //
+  // Callable directly, so it cannot assume the repository already checked.
+  if (!isPlainRecord(input.write)) {
+    return refuse('That submission is not a record.');
+  }
+  const { decision, event } = input.write as Partial<SelectionBundle>;
+  if (!isPlainRecord(decision)) return refuse('That submission carries no readable decision.');
+  if (!isPlainRecord(event)) return refuse('That submission carries no readable event.');
+
   const items = input.items ?? CATALOG_ITEMS;
 
   // ── 1. The Decision must be the kind of record this operation writes ──
@@ -456,7 +467,10 @@ export function verifyItemSelection(input: VerifySelectionInput): VerifySelectio
     return refuse('This moment has no confirmed brief.');
   }
 
-  const inputs = decision.inputs as Record<string, unknown>;
+  if (!isPlainRecord(decision.inputs)) {
+    return refuse('That decision records nothing readable.');
+  }
+  const inputs = decision.inputs;
   if (inputs.briefId !== live.id || inputs.briefRevision !== live.revision) {
     return refuse('The brief was corrected while this was open.');
   }
@@ -536,7 +550,10 @@ export function verifyItemSelection(input: VerifySelectionInput): VerifySelectio
     return refuse('The decision and event name different actors.');
   }
 
-  const payload = event.payload as Record<string, unknown>;
+  if (!isPlainRecord(event.payload)) {
+    return refuse('That item-selection event records nothing readable.');
+  }
+  const payload = event.payload;
   if (
     payload.briefId !== inputs.briefId ||
     payload.briefRevision !== inputs.briefRevision ||

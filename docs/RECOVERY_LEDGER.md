@@ -32,7 +32,8 @@
 | — | **H3.3 — Minimum Catalog + manual item selection** | ✅ **Complete** — OperationsState v3 | H3.3 |
 | — | **H3.4 — Vendor directory + hand-entered offers** | ✅ **Complete** — OperationsState v4 | H3.4 |
 | — | **H3.5 — Courier directory + manual selection** | ✅ **Complete** — OperationsState v5 | H3.5 |
-| — | **H3.6 — Fulfilment tracking** | ⬜ **Not begun.** Governance resolved by **ADR-012**; two corrections must land first | — |
+| — | **H3.3/H3.4-D1 — malformed runtime-container correction** | ✅ **Complete** — no schema change | H3.3/H3.4-D1 |
+| — | **H3.6 — Fulfilment tracking** | ⬜ **Not begun.** Governance resolved by **ADR-012**; policy-snapshot v5 → v6 remains first | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1801,6 +1802,57 @@ corrections — the H3.3/H3.4 malformed-container fix and the policy-snapshot
 v5 → v6 migration — remain **unimplemented** and must land, in that order,
 before H3.6.
 
+### ✅ H3.3/H3.4-D1 — malformed runtime-container correction — 2026-07-30
+
+**Correctness correction. No schema, migration, UI or route change.** This
+implements the Council-scoped correction recorded in the governance checkpoint
+without beginning the separate policy-snapshot v5 → v6 migration or H3.6.
+
+#### What changed
+
+- `commitItemSelection()` and `verifyItemSelection()` now establish that the
+  write bundle, Decision, Event, `Decision.inputs` and `Event.payload` are plain
+  records **before** destructuring or property access.
+- `commitVendorSelection()` and `verifyVendorSelection()` apply the same gates.
+  They additionally establish that `offers` is an array and that **every newly
+  submitted offer is a plain record** before exact-key or field checks.
+- Every refusal uses the existing operation-specific review-again recovery and
+  states that nothing was recorded.
+- TypeScript interfaces were **not weakened**. The already exported
+  `isPlainRecord` remains the one shared runtime predicate; the three
+  milestone-specific `extraKeys` helpers were not consolidated because the
+  Council did not authorize that wider refactor.
+
+#### Proof
+
+Fourteen new checks exercise every guard through both the repository and the
+pure verifier directly. Together they assert: **no throw**, the named
+review-again recovery, zero storage writes, byte-identical stored bytes,
+byte-identical `OperationsState` collections, and an honest confirmation still
+committing in exactly one write.
+
+| Suite | Before | After |
+|---|---:|---:|
+| Item selection | 65 | **71** |
+| Vendor selection | 84 | **92** |
+| All eleven suites | 436 | **450** |
+
+Typecheck clean. Lint unchanged at **47 problems — 26 errors, 21 warnings**.
+Production build succeeds with **28 routes**. No browser run was performed:
+there is no UI change, so the existing H3.3/H3.4 visual evidence remains the
+relevant evidence.
+
+#### State after this correction
+
+| | |
+|---|---|
+| H3.5 | ✅ **Complete** |
+| H3.6 | ⬜ **Not begun.** Governance resolved |
+| Workspace schema | **v7** |
+| `OperationsState` | **v5** — v6 planned, **not landed** |
+| Must land before H3.6 | **Policy-resolution snapshot v5 → v6** — the only remaining prerequisite |
+| Still deferred | Actual proof-file storage · OPS-U4b adjudication |
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -2358,3 +2410,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the H3.5 courier runtime-boundary correction (H3.5-D1) — the boundary enforced exact keys only after receiving a valid object, and `extraKeys` reports no extras for `null`, so malformed containers passed the key check and **threw** on the property reads beneath it. A thrown exception is not a refusal: it returns no `StoreResult`, names no recovery, and leaves the operator unable to say whether anything was written. `isPlainRecord` is now exported from `lib/operations/types.ts` (the private `isPlainObject` became an alias of it), and both `commitCourierSelection()` and `verifyCourierSelection()` validate the write bundle, Decision, Event, `Decision.inputs` and `Event.payload` are plain records **before** reading any property. TypeScript types were not weakened. 7 new checks (couriers 46 → 53), each asserting no throw, the review-again recovery, zero writes and byte-identical collections, exercised through both the repository and the verifier directly. **436 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. No schema change — `OperationsState` **v5**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.5 browser evidence stands.** ⚠️ **The same latent shape exists on the H3.3 and H3.4 boundaries and was deliberately left out of scope — recorded for a Council-scoped correction.***
 *Updated after the H3.5 → H3.6 governance decision closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** H3.5's completion test rewritten to name confirmed Execution Briefs as the operational country authority; `operatingCountries` stays a free-text assessment field and no Workspace v8 is added. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) accepted** — one Fulfilment per Moment, no persisted draft, exactly three states, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only, and **proof recorded as metadata with no file stored**; `Returned`, `Escalation`, `QAException`, disputes, webhooks and tracking all excluded. The former Operations `U4` is split — **OPS-U4a resolved**, **OPS-U4b deferred** with a five-point trigger, since a single-operator prototype has no second party to adjudicate with. Unresolved identifiers are now source-scoped (`CP-Un`, `OPS-Un`, `LEDGER-Cn`) after two documents were found using bare `U4` and bare `U5` for different questions; **nothing was renumbered**. The policy-snapshot defect is accepted at **four** missing delivery fields, not three. The H3.3/H3.4 malformed-container correction is recorded as pending and must land **before** the v5 → v6 migration. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5.** System Atlas v3.10, Master Roadmap v1.7, Relationship Operations Atlas v1.7, ADR-012 accepted.*
 *Updated after the H3.5 → H3.6 governance documentation correction D1 (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** Current-state passages that still described the country-coverage question as open have been reconciled with the governance closure: the Master Roadmap no longer calls H3.5 "per operating country" and no longer ends its H3.5 narrative "surfaced rather than resolved"; the Operations Atlas §3 named-gap section records the Council resolution and the exact accepted completion test, and is bumped **v1.7 → v1.8**; this ledger's H3.5 entry is **preserved as a historical account and explicitly qualified** with the later decision. **Current confirmed Execution Briefs are the accepted operational coverage authority**; `operatingCountries` remains free-text assessment and marketing data. `docs/adr/README.md` corrected — ADR-006 now applies through H3.5 and remains partly implemented; ADR-010 introduced `OperationsState` v1 with current **v5**; ADR-011 landed at v2 with current **v5**; ADR-012 accepted and not implemented. Dated historical footers and the separate, still-open milestone-count discrepancy were deliberately left intact. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5** — v6 planned, not landed. Relationship Operations Atlas v1.8.*
+*Updated after H3.3/H3.4-D1 (malformed runtime-container correction) — the two older selection boundaries now apply the exported `isPlainRecord` pattern before destructuring or property access, matching H3.5-D1. Item and vendor repository commits and direct verifiers refuse malformed write bundles, Decisions, Events, `Decision.inputs` and `Event.payload`; H3.4 also requires `offers` to be an array and every newly submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the policy-snapshot **v5 → v6** migration is the only remaining prerequisite.*

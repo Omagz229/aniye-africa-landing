@@ -63,6 +63,7 @@ import {
   emptyOfferDraft,
   previewVendorSelection,
   validateOfferDraft,
+  verifyVendorSelection,
   vendorFinalDecision,
 } from '../lib/operations/vendor-selection';
 import type { NormalizedOffer } from '../lib/operations/vendor-selection';
@@ -1702,6 +1703,187 @@ check('84. Honest writes still commit after the recursive tightening', () => {
   assert(state.ok && state.value, 'State unreadable.');
   assertEqual(state.value!.vendorOffers.length, 3, 'Not every offer was stored.');
   assertEqual(state.value!.decisions.filter(d => d.decisionType === 'VendorSelection').length, 1, 'Wrong decision count.');
+});
+
+// ─── Part 10: malformed runtime containers (H3.3/H3.4-D1) ───────────────────
+//
+// Runtime callers can violate the TypeScript interface. The repository and the
+// pure verifier must refuse before destructuring, array iteration, exact-key
+// checks or property access — and must leave the whole state byte-identical.
+
+/** Submit through the repository, expect a named refusal, prove no byte moved. */
+function expectMalformedVendorRefused(fx: Fx, write: unknown, what: string): void {
+  const before = fx.repo.load(WS);
+  assert(before.ok && before.value, 'State unreadable.');
+  const priorState = JSON.stringify(before.value);
+  const priorStorage = fx.storage.getItem(OPERATIONS_KEY);
+  const priorWrites = fx.storage.writes.length;
+
+  let result: { ok: boolean; reason?: string };
+  try {
+    result = fx.repo.commitVendorSelection(WS, write as never, NOW);
+  } catch (error) {
+    throw new Error(`${what} threw instead of refusing: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  assert(!result.ok, `${what} was accepted.`);
+  assert(
+    (result.reason ?? '').toLowerCase().includes('nothing was recorded'),
+    `${what} was refused without the review-again recovery: "${result.reason}"`,
+  );
+  assertEqual(fx.storage.writes.length, priorWrites, `${what} still wrote to storage.`);
+  assertEqual(fx.storage.getItem(OPERATIONS_KEY), priorStorage, `${what} changed the stored bytes.`);
+
+  const after = fx.repo.load(WS);
+  assert(after.ok && after.value, 'State could not be re-read.');
+  assertEqual(JSON.stringify(after.value), priorState, `${what} changed an operations collection.`);
+}
+
+/** Call the pure verifier directly, expect the same named refusal and no throw. */
+function expectMalformedVendorVerifierRefused(fx: Fx, write: unknown, what: string): void {
+  let result: { ok: boolean; reason?: string };
+  try {
+    result = verifyVendorSelection({
+      workspaceId: WS,
+      moment: fx.moment,
+      briefs: [fx.brief],
+      decisions: fx.decisions,
+      vendors: fx.vendors,
+      write: write as never,
+    });
+  } catch (error) {
+    throw new Error(`${what} threw in the verifier: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  assert(!result.ok, `${what} was accepted by the verifier.`);
+  assert(
+    (result.reason ?? '').toLowerCase().includes('nothing was recorded'),
+    `${what} was refused by the verifier without the review-again recovery: "${result.reason}"`,
+  );
+}
+
+function expectMalformedVendorBoth(fx: Fx, write: unknown, what: string): void {
+  expectMalformedVendorRefused(fx, write, what);
+  expectMalformedVendorVerifierRefused(fx, write, what);
+}
+
+check('85. A malformed vendor-selection bundle is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  for (const [label, write] of [
+    ['A null bundle', null],
+    ['An undefined bundle', undefined],
+    ['An array bundle', []],
+    ['A string bundle', 'not a bundle'],
+    ['A numeric bundle', 42],
+    ['A boolean bundle', true],
+  ] as const) {
+    expectMalformedVendorBoth(fx, write, label);
+  }
+});
+
+check('86. A malformed offers container is refused before array access', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [label, offers] of [
+    ['Null offers', null],
+    ['Undefined offers', undefined],
+    ['Object-shaped offers', { 0: bundle.offers[0] }],
+    ['String offers', 'offers'],
+    ['Numeric offers', 3],
+  ] as const) {
+    expectMalformedVendorBoth(fx, { ...bundle, offers }, label);
+  }
+});
+
+check('87. A missing or malformed vendor-selection Decision is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [label, decision] of [
+    ['A missing decision', undefined],
+    ['A null decision', null],
+    ['An array decision', []],
+    ['A string decision', 'decision'],
+  ] as const) {
+    expectMalformedVendorBoth(fx, { ...bundle, decision }, label);
+  }
+  expectMalformedVendorBoth(fx, {
+    offers: bundle.offers,
+    event: bundle.event,
+  }, 'A bundle with no decision key');
+});
+
+check('88. A missing or malformed vendor-selection Event is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [label, event] of [
+    ['A missing event', undefined],
+    ['A null event', null],
+    ['An array event', []],
+    ['A numeric event', 7],
+  ] as const) {
+    expectMalformedVendorBoth(fx, { ...bundle, event }, label);
+  }
+  expectMalformedVendorBoth(fx, {
+    offers: bundle.offers,
+    decision: bundle.decision,
+  }, 'A bundle with no event key');
+});
+
+check('89. Malformed vendor-selection Decision.inputs are refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [label, inputs] of [
+    ['Null decision inputs', null],
+    ['Undefined decision inputs', undefined],
+    ['Array decision inputs', []],
+    ['String decision inputs', 'inputs'],
+    ['Numeric decision inputs', 0],
+  ] as const) {
+    expectMalformedVendorBoth(fx, {
+      ...bundle,
+      decision: { ...bundle.decision, inputs },
+    }, label);
+  }
+});
+
+check('90. Malformed VendorSelected Event payloads are refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [label, payload] of [
+    ['A null event payload', null],
+    ['An undefined event payload', undefined],
+    ['An array event payload', []],
+    ['A string event payload', 'payload'],
+  ] as const) {
+    expectMalformedVendorBoth(fx, {
+      ...bundle,
+      event: { ...bundle.event, payload },
+    }, label);
+  }
+});
+
+check('91. Every newly submitted offer must itself be a plain record', () => {
+  const fx = preparedWorkspace();
+  const bundle = threeOfferBundle(fx);
+  for (const [label, offer] of [
+    ['A null offer', null],
+    ['An undefined offer', undefined],
+    ['An array offer', []],
+    ['A string offer', 'offer'],
+    ['A numeric offer', 1],
+  ] as const) {
+    expectMalformedVendorBoth(fx, {
+      ...bundle,
+      offers: bundle.offers.map((candidate, index) => (index === 0 ? offer : candidate)),
+    }, label);
+  }
+});
+
+check('92. An honest vendor selection still commits in exactly one write', () => {
+  const fx = preparedWorkspace();
+  const before = fx.storage.writes.length;
+  const written = fx.repo.commitVendorSelection(WS, threeOfferBundle(fx), NOW);
+  assert(written.ok, `An honest selection was refused: ${written.ok ? '' : written.reason}`);
+  assertEqual(fx.storage.writes.length - before, 1, 'The honest commit was not a single write.');
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

@@ -409,7 +409,25 @@ export function createLocalOperationsRepository(
       const state = require(workspaceId);
       if (!state.ok) return state;
 
-      const { decision, event } = write;
+      if (!isPlainRecord(write)) {
+        return {
+          ok: false,
+          reason: 'That submission is not a record. Review the moment and choose again — nothing was recorded.',
+        };
+      }
+      const { decision, event } = write as Partial<ItemSelectionWrite>;
+      if (!isPlainRecord(decision)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable decision. Review the moment and choose again — nothing was recorded.',
+        };
+      }
+      if (!isPlainRecord(event)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable event. Review the moment and choose again — nothing was recorded.',
+        };
+      }
 
       if (decision.momentId !== event.momentId) {
         return {
@@ -588,7 +606,39 @@ export function createLocalOperationsRepository(
       const state = require(workspaceId);
       if (!state.ok) return state;
 
-      const { offers, decision, event } = write;
+      if (!isPlainRecord(write)) {
+        return {
+          ok: false,
+          reason: 'That submission is not a record. Review the moment and record the quotes again — nothing was recorded.',
+        };
+      }
+      const { offers, decision, event } = write as Partial<VendorSelectionWrite>;
+      if (!Array.isArray(offers)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable quotes. Review the moment and record the quotes again — nothing was recorded.',
+        };
+      }
+      for (const offer of offers) {
+        if (!isPlainRecord(offer)) {
+          return {
+            ok: false,
+            reason: 'A submitted quote is not a readable record. Review the moment and record the quotes again — nothing was recorded.',
+          };
+        }
+      }
+      if (!isPlainRecord(decision)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable decision. Review the moment and record the quotes again — nothing was recorded.',
+        };
+      }
+      if (!isPlainRecord(event)) {
+        return {
+          ok: false,
+          reason: 'That submission carries no readable event. Review the moment and record the quotes again — nothing was recorded.',
+        };
+      }
 
       if (decision.momentId !== event.momentId) {
         return {

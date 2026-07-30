@@ -23,9 +23,9 @@
 | **Workspace schema** | **v7** — `lib/migrations.ts` |
 | **`OperationsState` schema** | **v5** — `lib/operations/types.ts`, versioned independently (ADR-010) |
 | **Last completed milestone** | **H3.5** — Courier directory + manual selection. **Directory scoped per country; coverage authority is the countries on current confirmed Execution Briefs** |
-| **Next milestone** | **H3.6** — Fulfilment tracking. **Governance resolved (ADR-012); not begun; two corrections pending** |
+| **Next milestone** | **H3.6** — Fulfilment tracking. **Governance resolved (ADR-012); not begun; one correction pending** |
 | **Milestones** | **23 of 37 complete** — see *Milestone count* |
-| **Blocking H3.6** | ✅ **Governance resolved** — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), 2026-07-30. ⚠️ **Two corrections must land first** — see *Before H3.6 may begin* |
+| **Blocking H3.6** | ✅ **Governance resolved** — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), 2026-07-30. ✅ **H3.3/H3.4-D1 complete.** ⚠️ **The policy-snapshot v5 → v6 migration remains** — see *Before H3.6 may begin* |
 | **Outstanding** | ⚠️ **Live responsive testing on real devices** — still never performed. Browser verification at emulated widths is not a substitute; it is a pre-pilot **[P]** item (H4.0) |
 | **Blocking the pilot (H4.1)** | ⛔ Production backend, authentication, multi-tenancy, secure file storage (ADR-010). **This gate does not bind on any H3 milestone** |
 
@@ -488,12 +488,13 @@ was accepted on 2026-07-30: three Fulfilment states, one Fulfilment per Moment, 
 `Redelivery` as the only Decision, and **proof recorded as metadata with no file stored**. It
 resolves **OPS-U4a** and defers **OPS-U4b** with a recorded trigger.
 
-**Two corrections must land before implementation**, in this order:
+**The first of two prerequisite corrections is complete.** The second remains, preserving the
+accepted order:
 
-| # | Correction | Schema | Why first |
-|---|---|---|---|
-| 1 | **H3.3/H3.4 malformed-container correction** | None | Verified by execution: 11 of 14 malformed submissions **throw instead of refusing**. Independent of everything else |
-| 2 | **Policy-resolution snapshot `v5 → v6`** | `OperationsState` **v6** | H3.6 cannot know whether proof was even required. Every Moment generated before it lands is permanently unable to answer |
+| # | Correction | Status | Schema | Why first |
+|---|---|---|---|---|
+| 1 | **H3.3/H3.4 malformed-container correction** | ✅ **Complete — H3.3/H3.4-D1** | None | Both repository and direct-verifier boundaries now refuse malformed bundles, Decisions, Events, nested inputs/payloads and H3.4 offer containers without throwing or writing |
+| 2 | **Policy-resolution snapshot `v5 → v6`** | ⬜ **Next — not begun** | `OperationsState` **v6** | H3.6 cannot know whether proof was even required. Every Moment generated before it lands is permanently unable to answer |
 
 > ⚠️ **`OperationsState` is v5.** v6 is **planned and not landed**. No document may report it as
 > implemented until the migration ships.
@@ -524,7 +525,8 @@ A future country model requires **its own milestone and its own architecture rev
 
 ---
 
-*Master Roadmap v1.7 — Aniyé Africa — 30 July 2026*
+*Master Roadmap v1.8 — Aniyé Africa — 30 July 2026*
+*v1.8: **H3.3/H3.4-D1 malformed runtime-container correction complete.** `commitItemSelection()` / `verifyItemSelection()` and `commitVendorSelection()` / `verifyVendorSelection()` now apply the existing `isPlainRecord` runtime boundary before destructuring or property access; H3.4 additionally requires `offers` to be an array and every submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both repository and direct-verifier paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 problems (26 errors, 21 warnings)**; build succeeds with **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the separate policy-snapshot **v5 → v6** migration is now the only remaining prerequisite.*
 *v1.7: **H3.5 → H3.6 governance decision closure — documentation only. No code, schema, migration, validation, route or UI changed.** H3.5's completion test is **rewritten** to "a courier is selectable for every country represented by a current confirmed Execution Brief, or the gap is named" — `operatingCountries` remains a free-text assessment field and is **not** operational country authority; no normalization, mapping, country collection or Workspace v8. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) accepted** — three Fulfilment states, one per Moment, no persisted draft, `Redelivery` the only Decision, **proof recorded as metadata with no file stored**; it resolves **OPS-U4a** and defers **OPS-U4b**. Unresolved identifiers are now **source-scoped** (`CP-Un`, `OPS-Un`, `LEDGER-Cn`) because bare `U4` and bare `U5` each meant two different questions; **nothing was renumbered**. Two corrections must land before H3.6: the **H3.3/H3.4 malformed-container correction** (no schema change) and the **policy-snapshot `v5 → v6` migration** for four missing delivery fields. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5** — v6 is planned, not landed. Actual proof-file storage and adjudication remain deferred.*
 *v1.6: **H3.5 — Courier directory and manual selection complete.** `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record). Workspace unchanged at **v7**. **429 checks across eleven suites** (verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, vendors 84, couriers 46); typecheck clean; build **28 routes** (two intentional additions); lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.5 baseline. Milestone count **23 of 37**; H3 is **5 of 8**. H3.6 is next **and is gated on unresolved U4** — the QA and exception taxonomy, first needed at delivery confirmation. Only a manual per-country directory and one recorded carriage cost exist; no rate APIs, tracking, optimization, scoring or routing. Event named **`CourierSelected`** — a **declared departure** from the checkpoint, which proposes no Event for this step. Coverage is measured against confirmed briefs because `operatingCountries` are free-text names with no code mapping in the repository — surfaced, not resolved. Verified live at 1440px, 768px and 400px. ADR-010 remains the external-pilot gate; real-device testing remains outstanding.*
 *v1.5: **H3.4 — Vendor directory, hand-entered offers and manual vendor selection complete.** `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record). Workspace schema unchanged at **v7**. **357 checks across ten suites** (verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 50, selection 65, vendors 58); typecheck clean; build succeeds with **26 routes** (two intentional additions); lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.4 baseline. Milestone count **22 of 37**; H3 is **4 of 8**. H3.5 is next. Only a manual directory and hand-entered offers exist — Vendor Intelligence remains H4.4, and no scoring, routing, API, portal, courier, fulfilment or commerce was built. Event named **`VendorSelected`**, not the checkpoint's `VendorContacted`. **The v1.4 footer's 281-check figure is corrected: the accepted H3.3 state was 299 checks across nine suites**, after the H3.3-D1 trust-boundary correction. ADR-010 remains the external-pilot gate and binds at H4.1. Real-device testing remains outstanding and is not claimed.*

@@ -51,7 +51,12 @@ import { createLocalOperationsRepository } from '../lib/operations/local-store';
 import type { GenerationContext } from '../lib/operations/generation';
 import { buildMomentBatch } from '../lib/operations/generation';
 import { buildBriefConfirmation } from '../lib/operations/briefs';
-import { buildItemSelection, findLiveSelectionDecision, previewItemSelection } from '../lib/operations/selection';
+import {
+  buildItemSelection,
+  findLiveSelectionDecision,
+  previewItemSelection,
+  verifyItemSelection,
+} from '../lib/operations/selection';
 import { titleFor } from '../lib/operations/routes';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
@@ -1143,6 +1148,162 @@ check('65. The honest bundle still commits, so the boundary is not simply refusi
   assert(state.ok && state.value, 'State could not be re-read.');
   assertEqual(state.value!.decisions.filter(d => d.decisionType === 'ItemSelection').length, 1, 'Wrong number of selections.');
   assertEqual(state.value!.events.filter(e => e.eventType === 'ItemSelected').length, 1, 'Wrong number of events.');
+});
+
+// ─── Part 7: malformed runtime containers (H3.3/H3.4-D1) ────────────────────
+//
+// TypeScript interfaces do not exist at runtime. The repository and the pure
+// verifier must therefore refuse malformed containers before destructuring or
+// reading any property, with the same recovery an honest stale submission gets.
+
+/** Submit through the repository, expect a named refusal, prove no byte moved. */
+function expectMalformedSelectionRefused(
+  fx: ReturnType<typeof preparedWorkspace>,
+  write: unknown,
+  what: string,
+): void {
+  const before = fx.repo.load(WS);
+  assert(before.ok && before.value, 'State could not be read.');
+  const priorState = JSON.stringify(before.value);
+  const priorStorage = fx.storage.getItem(OPERATIONS_KEY);
+  const priorWrites = fx.storage.writes.length;
+
+  let result: { ok: boolean; reason?: string };
+  try {
+    result = fx.repo.commitItemSelection(WS, write as never, NOW);
+  } catch (error) {
+    throw new Error(`${what} threw instead of refusing: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  assert(!result.ok, `${what} was accepted.`);
+  assert(
+    (result.reason ?? '').toLowerCase().includes('nothing was recorded'),
+    `${what} was refused without the review-again recovery: "${result.reason}"`,
+  );
+  assertEqual(fx.storage.writes.length, priorWrites, `${what} still wrote to storage.`);
+  assertEqual(fx.storage.getItem(OPERATIONS_KEY), priorStorage, `${what} changed the stored bytes.`);
+
+  const after = fx.repo.load(WS);
+  assert(after.ok && after.value, 'State could not be re-read.');
+  assertEqual(JSON.stringify(after.value), priorState, `${what} changed an operations collection.`);
+}
+
+/** Call the pure verifier directly, expect the same named refusal and no throw. */
+function expectMalformedSelectionVerifierRefused(
+  fx: ReturnType<typeof preparedWorkspace>,
+  write: unknown,
+  what: string,
+): void {
+  let result: { ok: boolean; reason?: string };
+  try {
+    result = verifyItemSelection({
+      workspaceId: WS,
+      moment: fx.moment,
+      briefs: [fx.brief],
+      decisions: fx.decisions,
+      write: write as never,
+      items: FIXTURE_ITEMS,
+    });
+  } catch (error) {
+    throw new Error(`${what} threw in the verifier: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  assert(!result.ok, `${what} was accepted by the verifier.`);
+  assert(
+    (result.reason ?? '').toLowerCase().includes('nothing was recorded'),
+    `${what} was refused by the verifier without the review-again recovery: "${result.reason}"`,
+  );
+}
+
+function expectMalformedSelectionBoth(
+  fx: ReturnType<typeof preparedWorkspace>,
+  write: unknown,
+  what: string,
+): void {
+  expectMalformedSelectionRefused(fx, write, what);
+  expectMalformedSelectionVerifierRefused(fx, write, what);
+}
+
+check('66. A malformed item-selection bundle is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  for (const [label, write] of [
+    ['A null bundle', null],
+    ['An undefined bundle', undefined],
+    ['An array bundle', []],
+    ['A string bundle', 'not a bundle'],
+    ['A numeric bundle', 42],
+    ['A boolean bundle', true],
+  ] as const) {
+    expectMalformedSelectionBoth(fx, write, label);
+  }
+});
+
+check('67. A missing or malformed item-selection Decision is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = goodBundle(fx);
+  for (const [label, decision] of [
+    ['A missing decision', undefined],
+    ['A null decision', null],
+    ['An array decision', []],
+    ['A string decision', 'decision'],
+  ] as const) {
+    expectMalformedSelectionBoth(fx, { ...bundle, decision }, label);
+  }
+  expectMalformedSelectionBoth(fx, { event: bundle.event }, 'A bundle with no decision key');
+});
+
+check('68. A missing or malformed item-selection Event is refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = goodBundle(fx);
+  for (const [label, event] of [
+    ['A missing event', undefined],
+    ['A null event', null],
+    ['An array event', []],
+    ['A numeric event', 7],
+  ] as const) {
+    expectMalformedSelectionBoth(fx, { ...bundle, event }, label);
+  }
+  expectMalformedSelectionBoth(fx, { decision: bundle.decision }, 'A bundle with no event key');
+});
+
+check('69. Malformed item-selection Decision.inputs are refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = goodBundle(fx);
+  for (const [label, inputs] of [
+    ['Null decision inputs', null],
+    ['Undefined decision inputs', undefined],
+    ['Array decision inputs', []],
+    ['String decision inputs', 'inputs'],
+    ['Numeric decision inputs', 0],
+  ] as const) {
+    expectMalformedSelectionBoth(fx, {
+      ...bundle,
+      decision: { ...bundle.decision, inputs },
+    }, label);
+  }
+});
+
+check('70. Malformed ItemSelected Event payloads are refused, not thrown', () => {
+  const fx = preparedWorkspace();
+  const bundle = goodBundle(fx);
+  for (const [label, payload] of [
+    ['A null event payload', null],
+    ['An undefined event payload', undefined],
+    ['An array event payload', []],
+    ['A string event payload', 'payload'],
+  ] as const) {
+    expectMalformedSelectionBoth(fx, {
+      ...bundle,
+      event: { ...bundle.event, payload },
+    }, label);
+  }
+});
+
+check('71. An honest item selection still commits in exactly one write', () => {
+  const fx = preparedWorkspace();
+  const before = fx.storage.writes.length;
+  const written = fx.repo.commitItemSelection(WS, goodBundle(fx), NOW);
+  assert(written.ok, `An honest selection was refused: ${written.ok ? '' : written.reason}`);
+  assertEqual(fx.storage.writes.length - before, 1, 'The honest commit was not a single write.');
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

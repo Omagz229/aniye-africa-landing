@@ -33,7 +33,7 @@ import type {
   VendorOffer,
   VendorSnapshot,
 } from './types';
-import { OFFER_SOURCES } from './types';
+import { OFFER_SOURCES, isPlainRecord } from './types';
 import { activeVendors, isIsoInstant, sameVendorSnapshot, snapshotVendor } from './vendors';
 import type { IdFactory } from './generation';
 
@@ -730,8 +730,21 @@ function refuse(what: string): { ok: false; reason: string } {
 export function verifyVendorSelection(
   input: VerifyVendorSelectionInput,
 ): VerifyVendorSelectionResult {
-  const { workspaceId, moment, write } = input;
-  const { offers, decision, event } = write;
+  const { workspaceId, moment } = input;
+
+  // ── 0. Containers before contents ──
+  //
+  // Callable directly, so it cannot assume the repository already checked.
+  if (!isPlainRecord(input.write)) {
+    return refuse('That submission is not a record.');
+  }
+  const { offers, decision, event } = input.write as Partial<VendorSelectionBundle>;
+  if (!Array.isArray(offers)) return refuse('That submission carries no readable quotes.');
+  if (!isPlainRecord(decision)) return refuse('That submission carries no readable decision.');
+  if (!isPlainRecord(event)) return refuse('That submission carries no readable event.');
+  for (const offer of offers) {
+    if (!isPlainRecord(offer)) return refuse('A submitted quote is not a readable record.');
+  }
 
   // ── 1. The Decision must be the kind of record this operation writes ──
   if (decision.decisionType !== 'VendorSelection') {
@@ -753,6 +766,9 @@ export function verifyVendorSelection(
     return refuse('That decision belongs to a different workspace or moment.');
   }
 
+  if (!isPlainRecord(decision.inputs)) {
+    return refuse('That decision records nothing readable.');
+  }
   const extraInputs = extraKeys(decision.inputs, DECISION_INPUT_KEYS);
   if (extraInputs.length > 0) {
     return refuse(`A vendor selection cannot record ${extraInputs.join(', ')}.`);
@@ -772,7 +788,7 @@ export function verifyVendorSelection(
   const live = input.briefs.find(b => b.momentId === moment.id && b.status === 'Confirmed') ?? null;
   if (!live) return refuse('This moment has no confirmed brief.');
 
-  const inputs = decision.inputs as Record<string, unknown>;
+  const inputs = decision.inputs;
   if (inputs.briefId !== live.id || inputs.briefRevision !== live.revision) {
     return refuse('The brief was corrected while this was open.');
   }
@@ -929,12 +945,15 @@ export function verifyVendorSelection(
   if (event.source !== 'Platform') return refuse('A vendor selection recorded here came through the platform.');
   if (event.actorId !== decision.actorId) return refuse('The decision and event name different actors.');
 
+  if (!isPlainRecord(event.payload)) {
+    return refuse('That vendor-selection event records nothing readable.');
+  }
   const extraPayload = extraKeys(event.payload, EVENT_PAYLOAD_KEYS);
   if (extraPayload.length > 0) {
     return refuse(`A vendor-selection event cannot carry ${extraPayload.join(', ')}.`);
   }
 
-  const payload = event.payload as Record<string, unknown>;
+  const payload = event.payload;
   if (
     payload.briefId !== inputs.briefId ||
     payload.briefRevision !== inputs.briefRevision ||
