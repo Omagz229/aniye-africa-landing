@@ -35,7 +35,8 @@
 | — | **H3.3/H3.4-D1 — malformed runtime-container correction** | ✅ **Complete** — no schema change | H3.3/H3.4-D1 |
 | — | **Pre-H3.6 — policy-resolution delivery snapshot** | ✅ **Complete** — OperationsState v6 | Snapshot v6 |
 | — | **H3.6 — Fulfilment tracking** | ✅ **Complete** — OperationsState v7; ADR-012 implemented | H3.6 |
-| — | **H3.7 — Recognition Order + commercial tracking** | ⬜ **Not begun**, and gated on CP-U3 / OPS-U3 and CP-U4 | — |
+| — | **H3.6 → H3.7 commercial governance closure** | ✅ **Complete** — ADR-013 accepted; documentation only | Governance |
+| — | **H3.7 — Recognition Order + commercial tracking** | ⬜ **Not begun.** Governance resolved by [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1967,6 +1968,87 @@ pilot currency).
 
 ---
 
+### ✅ H3.6 → H3.7 commercial governance closure — 2026-07-30
+
+**Documentation only.** No code, schema, migration, validation script, route, component or UI
+changed. Workspace remains **v7**; `OperationsState` remains **v7**. The 504-check, lint and build
+baselines are unchanged and were **not rerun** — there was nothing for them to exercise.
+
+**[ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) created and
+accepted**, closing the two questions that had blocked H3.7 since the H2 → H3 Architecture
+Checkpoint.
+
+**CP-U3 / OPS-U3 — resolved.** `commercialRole = MerchantOfRecord`. Aniyé contracts with the
+corporate customer for the complete managed-recognition outcome and procures vendor and courier
+fulfilment as its own operational cost. This matches what the Atlas has asserted since before the
+question was asked — *"The customer buys from Aniyé. The vendor is a fulfillment partner"* (§9) — and
+what §15 already implied by distinguishing *"what it cost them"* from *"what it cost **us**."*
+
+⚠️ **It is a platform and pilot posture, not a legal, tax or accounting opinion.** Qualified Nigerian
+advisers must confirm the contracts, VAT treatment, invoicing, refunds and the principal-versus-agent
+accounting treatment before any external pilot. If professional advice later requires an Agent model,
+existing orders must **not** be silently relabelled, historical `MerchantOfRecord` snapshots must
+**not** be reinterpreted, and a **new governance decision** is required.
+
+**CP-U4 — resolved.** **NGN**, for every amount on a pilot `RecognitionOrder`. A supplier quote or
+cost in any other currency makes the order multi-currency and therefore outside the approved H3.7
+architecture — never converted, never defaulted, never implicitly compared. **FX stays out of H3.7
+entirely**: no rate source, snapshot, conversion, settlement currency or cross-border arithmetic.
+
+**Pricing — manual, per order.** `estimatedCustomerCharge` is entered deliberately by an operator,
+explicitly confirmed, and immutable once the order exists. **No formula, no percentage, no rate card,
+no pricing engine**, and no payment, cash-only or settlement assumption. Aniyé has no pricing
+evidence yet, and a formula chosen now would encode a commercial rule nobody decided while looking
+identical in the data to one that had been.
+
+**ADR-007 clarified, not replaced.** `estimatedItemCost` is **superseded for H3.7** by
+`estimatedVendorCost`, read from the confirmed `VendorSelection` quote — the catalog price answers
+what a gift is worth against the budget, not what a vendor will charge Aniyé, and the repository has
+said so since H3.4. Integer minor units, the pinned exponent table, the prohibition on implicit FX,
+one order per Moment and **derived-never-stored margin** are all unchanged. ADR-007's own text is not
+rewritten; it carries a forward pointer.
+
+**Earlier revenue proposals — preserved, deferred, non-authoritative.** Vendor commission, sender
+service fee, corporate subscription, payment margin, featured placement, percentage pricing and
+*"25% + courier fee"* are recorded as historical proposals. **Corporate subscription remains a
+possible future account-level model and can never be a `RecognitionOrder` field** — a one-per-Moment
+object cannot carry a recurring account-level fee. The founders' original material is neither deleted
+nor rewritten; the later Council decision controls the pilot architecture.
+
+**Conflicting analysis handled, not blended.** Material produced during the Council process that
+argued for an Agent posture, percentage pricing or cash-only framing is recorded in ADR-013's *What
+was rejected* section as **superseded analysis**, with the reasoning preserved. It was not merged
+with the accepted decisions.
+
+**Pilot sequence.** One corporate organization, Lagos fulfilment, city-first — a domestic closed-loop
+pilot. **Nigeria → Cameroon remains the intended first cross-border corridor**, sequenced after it.
+The historical cross-border plan is **not abandoned and not superseded**; the decision changes
+sequence, not strategy. The corridor needs its own architecture decision, because the implemented
+H3.3–H3.5 chain refuses currency mismatch by design and would have to be reopened.
+
+**Current-state documentation drift corrected**, with dated historical entries left intact:
+
+| Document | Was | Now |
+|---|---|---|
+| `docs/adr/README.md` | Current `OperationsState` **v6** | **v7** |
+| `docs/MASTER_ROADMAP.md` basis footer | `OperationsState` v6, System Atlas v3.11, ADR-001 … ADR-012 | **v7**, v3.13, ADR-001 … **ADR-013** |
+| `docs/ANIYE_SYSTEM_ATLAS.md` §17 | "As of … `OperationsState` v6"; Fulfilment listed as not implemented | **v7**; Fulfilment **implemented**; Recognition Order listed as accepted-not-implemented |
+| `docs/ANIYE_SYSTEM_ATLAS.md` §18 | ADR-012 "No — H3.6 not begun" | **Implemented** at H3.6 |
+| `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` §1 | `OperationsState` **v6** | **v7** |
+| `docs/RELATIONSHIP_OPERATIONS_ATLAS.md` footer | Implemented state stopped at **H3.5** | Through **H3.6** |
+
+**H3.7 is unblocked by governance and has not begun.** No `RecognitionOrder`, no `commercialRole`
+field, no actual vendor cost, courier cost or customer charge, and no margin calculation exists
+anywhere in the repository. Milestone count stays **24 of 37**; H3 stays **6 of 8**.
+
+**Still gating an external pilot:** Nigerian legal, tax and accounting confirmation of the commercial
+posture, and ADR-010's unchanged production backend, authentication, multi-tenancy and secure
+file-storage requirements. **OPS-U4b** (QA and adjudication) remains deferred.
+
+
+
+---
+
 ### ⛔ The hard gate before an external pilot
 
 **Browser persistence is an internal prototype only.** Per ADR-010, all of the following are mandatory before anyone outside Aniyé touches this:
@@ -2526,3 +2608,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.3/H3.4-D1 (malformed runtime-container correction) — the two older selection boundaries now apply the exported `isPlainRecord` pattern before destructuring or property access, matching H3.5-D1. Item and vendor repository commits and direct verifiers refuse malformed write bundles, Decisions, Events, `Decision.inputs` and `Event.payload`; H3.4 also requires `offers` to be an array and every newly submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the policy-snapshot **v5 → v6** migration is the only remaining prerequisite.*
 *Updated after the pre-H3.6 policy-resolution delivery snapshot correction — `OperationsState` **v6** captures `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired` on newly generated Moments. The v5 → v6 migration is a pure version bump: existing records are not backfilled, legacy absence remains unknown, and partial or malformed delivery context is refused. Confirmation revalidation treats every delivery promise as material. Operations validation **50 → 54**; **454 checks across eleven suites**; typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI or route changed, so no browser run was performed. Workspace remains **v7**; H3.6 has not begun; both prerequisites are now complete. System Atlas v3.11, Master Roadmap v1.9, Relationship Operations Atlas v1.9.*
 *Updated after H3.6 (Fulfilment tracking) — `OperationsState` **v7** (additive `fulfilments`; invents no Fulfilment, touches no existing record; a v1 payload still walks every rung). Workspace unchanged at **v7**, and the two counters now coincide without being coupled — the two checks that asserted independence by asserting inequality were corrected to test separate persistence instead. ADR-012 implemented as accepted: one Fulfilment per Moment created only on confirmed dispatch, no persisted draft, three statuses, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only and changing no status. Proof is metadata — no file, URL, data URI, base64 or blob — refused on the payload **and** on the Event itself, and proven absent from storage. Current state is checked against a replay of each fulfilment's own Events. A pre-v6 Moment is refused at dispatch with a recovery that does not promise a re-preparation the idempotency rules cannot perform. New suite `validate:fulfilments` (50); **504 checks across twelve suites**; typecheck clean; lint 47 (26 errors, 21 warnings); build 30 routes. **No browser verification was performed**; real-device testing remains outstanding. H3.7 has not begun and is gated on CP-U3 / OPS-U3 and CP-U4.*
+*Updated after the H3.6 → H3.7 commercial governance closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) created and accepted, closing **CP-U3 / OPS-U3** (`commercialRole = MerchantOfRecord`, a platform and pilot posture rather than a legal opinion) and **CP-U4** (**NGN** for every amount on a pilot `RecognitionOrder`). FX stays out of H3.7 entirely; `estimatedCustomerCharge` is a **manual per-order quotation** with no formula, percentage, rate card or pricing engine and no payment or cash assumption; ADR-007's `estimatedItemCost` is superseded for H3.7 by `estimatedVendorCost` from the confirmed `VendorSelection` quote; `grossMargin` stays derived on read and never stored. Vendor commission, sender service fee, corporate subscription, payment margin, featured placement and percentage pricing are preserved historically but **deferred and non-authoritative**. First pilot is one corporate organization with **Lagos fulfilment, city-first**; **Nigeria → Cameroon remains the first cross-border corridor, sequenced after it and not abandoned**. Current-state drift corrected across the ADR registry, both Atlases and the roadmap basis footer; dated historical entries left intact. Baselines unchanged and **not rerun** — 504 checks across twelve suites, lint 47 (26 errors, 21 warnings), build 30 routes. Workspace **v7**, `OperationsState` **v7**, **24 of 37**, H3 **6 of 8**. **H3.7 is unblocked by governance and has not begun.***

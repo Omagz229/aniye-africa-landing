@@ -23,9 +23,9 @@
 | **Workspace schema** | **v7** — `lib/migrations.ts` |
 | **`OperationsState` schema** | **v7** — `lib/operations/types.ts`, versioned independently (ADR-010). Both counters read 7; that is coincidence, not coupling |
 | **Last completed milestone** | **H3.6** — Fulfilment tracking. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) implemented**: three statuses, one Fulfilment per Moment, `Redelivery` the only Decision, proof recorded as metadata with **no file stored** |
-| **Next milestone** | **H3.7** — Recognition Order + commercial tracking. **Not begun, and gated** — see *Before H3.7 may begin* |
+| **Next milestone** | **H3.7** — Recognition Order + commercial tracking. **Next — governance resolved, implementation not begun** — see *Before H3.7 — closed* |
 | **Milestones** | **24 of 37 complete** — see *Milestone count* |
-| **Blocking H3.7** | ⛔ **CP-U3 / OPS-U3** — is Aniyé the merchant of record or an agent? · ⛔ **CP-U4** — what is the first pilot currency? Both must be closed before H3.7 starts |
+| **Blocking H3.7** | ✅ **No remaining prerequisite blocker.** [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) closes **CP-U3 / OPS-U3** (`MerchantOfRecord`) and **CP-U4** (NGN) |
 | **Outstanding** | ⚠️ **Live responsive testing on real devices** — still never performed. Browser verification at emulated widths is not a substitute; it is a pre-pilot **[P]** item (H4.0). ⚠️ **H3.6 shipped with no browser run at all** — its operator surfaces are verified by automated checks and static review only |
 | **Blocking the pilot (H4.1)** | ⛔ Production backend, authentication, multi-tenancy, secure file storage (ADR-010). **This gate does not bind on any H3 milestone** |
 
@@ -116,7 +116,7 @@ to a delivered, costed, closed recognition. Everything not on this path is defer
 | **H3.4** | **Vendor directory, hand-entered offers + manual selection** | 6 | H3.3 · `OperationsState` v4 | **[R]** | ✅ **Complete** |
 | **H3.5** | **Courier directory + manual selection** — a **country-scoped** directory; coverage measured against the countries on current confirmed Execution Briefs | 7 | H3.4 · `OperationsState` v5 | **[R]** | ✅ **Complete** |
 | **H3.6** | **Fulfilment tracking** — dispatch → delivered → proof, with failure and redelivery paths. **Proof is metadata; no file is stored** | 8 | H3.5 · **ADR-012** · both prerequisite corrections complete | **[R]** | ✅ |
-| **H3.7** | **Recognition Order + commercial tracking** — budget, estimates, actuals, derived margin | 9 | H3.6 · **CP-U3 / OPS-U3** · **CP-U4** | **[R]** | ⬅️ **Next — not begun, and gated** |
+| **H3.7** | **Recognition Order + commercial tracking** — budget, estimates, actuals, derived margin | 9 | H3.6 · **ADR-013** | **[R]** | ⬅️ **Next — governance resolved, not begun** |
 | **H3.8** | **Confirmation + Memory** — the Moment closes; a Memory record enters the relationship timeline | 10 | H3.7 | **[R]** | ⬜ |
 
 **[R]** = required for the first closed loop. Checkpoint Part 2 classifies every H3 milestone above as **[R]**.
@@ -257,7 +257,8 @@ inline.
 
 **No carriage ceiling was invented.** A courier cost above the vendor quote or above the approved
 budget is allowed: the budget governs what the *recipient* receives (ADR-004), and relating carriage
-to it is a commercial decision **CP-U3 / OPS-U3** has not made. Zero is allowed — a courier absorbing a leg is a
+to it is a commercial decision nobody has made — and **ADR-013 confirms** the approved budget is not
+automatically a ceiling on vendor or courier cost. Zero is allowed — a courier absorbing a leg is a
 real quote. Negative is not. Every quote must use the item's exact currency; quotes are never
 converted (ADR-007).
 
@@ -472,13 +473,13 @@ until a Council decision closes it.**
 |---|----------|--------|--------|
 | **CP-U1** | **Does the pilot involve more than one organization?** If yes, more of H5.1 must land before H4.1 — the client-side model cannot isolate tenants | 🟠 **H4.1** | Checkpoint open question 1 |
 | **CP-U2** | **Does any near-term customer require policy approval?** If not, `Approval` stays deferred indefinitely | ⚪ Not blocking — `Approval` is unscheduled | Checkpoint open question 2 |
-| **CP-U3** | **Is Aniyé the merchant of record, or an agent?** It changes what `actualCustomerCharge` legally means. ADR-007 reserves `commercialRole` for the answer | 🟠 **H3.7** | Checkpoint open question 3 · ADR-007 |
-| **CP-U4** | **What is the first pilot currency?** If single-currency, FX snapshots defer entirely | 🟠 **H3.7**, and H4.1 scope | Checkpoint open question 4 |
+| ~~**CP-U3**~~ | ~~Is Aniyé the merchant of record, or an agent?~~ | ✅ **Resolved** — [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md), 2026-07-30: `MerchantOfRecord`, as a platform and pilot posture. Professional confirmation still required before an external pilot | Checkpoint open question 3 · ADR-007 |
+| ~~**CP-U4**~~ | ~~What is the first pilot currency?~~ | ✅ **Resolved** — [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md), 2026-07-30: **NGN**. FX snapshots stay deferred from H3.7 | Checkpoint open question 4 |
 | **LEDGER-C2** | **Class lifecycle fields** — code has `isDefault`/`isActive`; Atlas §4 specifies `isCustom` + `Draft/Active/Archived` | ⚪ Not blocking — H2 shipped on the implemented model | Ledger conflict **C2**, open |
 | **LEDGER-C5** | **Default class seed list** — whether to seed more than 11 classes, and whether `Staff` should be `Employees` | ⚪ Not blocking — a product question, not a structural one | Ledger conflict **C5**, open |
 
-**Two entries in this register now block H3.7: CP-U3 / OPS-U3 and CP-U4.** The operational
-unresolved items are classified the same way in
+**Nothing in this register blocks H3.7.** CP-U3 / OPS-U3 and CP-U4 were closed by ADR-013 on
+2026-07-30. The operational unresolved items are classified the same way in
 [`RELATIONSHIP_OPERATIONS_ATLAS.md`](RELATIONSHIP_OPERATIONS_ATLAS.md) §9 — where **OPS-U4a is
 resolved and implemented** by ADR-012 and **OPS-U4b is deferred**.
 
@@ -518,17 +519,35 @@ and **actual proof-file storage**.
 is exactly why ADR-012 stores none, and why Atlas §15b's *"confirmation + curated proof"* promise is
 still future architecture rather than something H3.6 delivered.
 
-### Before H3.7 may begin
+### Before H3.7 — closed
 
-**Two questions must be closed first.** Both are recorded above and neither is H3.7's to assume:
+**Both blocking questions were answered by Council on 2026-07-30**, in
+[ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md):
 
-| # | Question | Why it blocks |
-|---|----------|---------------|
-| **CP-U3 / OPS-U3** | Is Aniyé the **merchant of record**, or an agent? | It changes what `actualCustomerCharge` legally means, and ADR-007 reserves `commercialRole` for the answer. A commercial model built on the wrong one is not a refactor |
-| **CP-U4** | What is the **first pilot currency**? | If the pilot is single-currency, FX snapshots defer entirely. ADR-007 forbids implicit conversion, so this decides whether an FX model is needed at all |
+| # | Question | Decision |
+|---|----------|----------|
+| **CP-U3 / OPS-U3** | Is Aniyé the **merchant of record**, or an agent? | ✅ **`MerchantOfRecord`** — Aniyé contracts for the complete managed outcome and procures vendor and courier fulfilment as its own cost. **A platform and pilot posture, not a legal opinion** |
+| **CP-U4** | What is the **first pilot currency**? | ✅ **NGN**, for every amount on a pilot order. A non-NGN supplier cost puts the order outside the approved architecture — never converted, never defaulted, never compared implicitly |
 
-**H3.7 has not begun.** No `RecognitionOrder`, no vendor or courier *actual* cost, no customer charge,
-no revenue and no derived margin exists anywhere in the repository.
+**What ADR-013 also fixes.** FX stays out of H3.7 entirely. `estimatedCustomerCharge` is a **manual
+per-order quotation** — no formula, no percentage, no rate card, no pricing engine, and no payment or
+cash-received assumption. `estimatedItemCost` is superseded by `estimatedVendorCost` from the
+confirmed `VendorSelection` Decision. `grossMargin` stays derived on read and never stored. Vendor
+commission, sender service fee, corporate subscription, payment margin and featured placement are
+**deferred and non-authoritative** for H3.7.
+
+**The first pilot** is one corporate organization, Lagos fulfilment, city-first — a domestic
+closed-loop pilot. **Nigeria → Cameroon remains the intended first cross-border corridor**, sequenced
+after it. That plan is **not abandoned and not superseded**; the corridor needs its own architecture
+decision, because the implemented H3.3–H3.5 chain refuses currency mismatch by design.
+
+**Still required before any external pilot:** Nigerian legal, tax and accounting confirmation of the
+commercial posture, plus ADR-010's unchanged backend, authentication, multi-tenancy and secure
+file-storage gate.
+
+**H3.7 has not begun.** No `RecognitionOrder`, no `commercialRole` field, no vendor or courier
+*actual* cost, no customer charge, no revenue and no derived margin exists anywhere in the
+repository.
 
 ### H3.5 country coverage — decided
 
@@ -547,7 +566,8 @@ A future country model requires **its own milestone and its own architecture rev
 
 ---
 
-*Master Roadmap v2.0 — Aniyé Africa — 30 July 2026*
+*Master Roadmap v2.1 — Aniyé Africa — 30 July 2026*
+*v2.1: **H3.6 → H3.7 commercial governance closure — documentation only. No code, schema, migration, validation, route or UI changed.** [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) is **accepted and not implemented**, and closes both questions that blocked H3.7. **CP-U3 / OPS-U3 → `MerchantOfRecord`**: Aniyé contracts with the corporate customer for the complete managed outcome and procures vendor and courier fulfilment as its own cost — a **platform and pilot posture, not a legal opinion**, with Nigerian legal, tax and accounting confirmation still required before any external pilot. **CP-U4 → NGN** for every amount on a pilot `RecognitionOrder`; a non-NGN supplier cost puts the order outside the approved architecture and is never converted, defaulted or implicitly compared. **FX stays out of H3.7 entirely.** `estimatedCustomerCharge` is a **manual per-order quotation** — no formula, percentage, rate card or pricing engine, and no payment, cash-only or settlement assumption. `estimatedItemCost` is superseded for H3.7 by `estimatedVendorCost` from the confirmed `VendorSelection` Decision. `grossMargin` remains derived on read, never stored, and is an internal operational measure rather than accounting revenue or complete profitability. Vendor commission, sender service fee, corporate subscription, payment margin, featured placement and percentage pricing are **preserved historically but deferred and non-authoritative**; subscription is account-level and can never be a `RecognitionOrder` field. First pilot: one corporate organization, **Lagos fulfilment, city-first**; **Nigeria → Cameroon remains the first cross-border corridor, sequenced after it and not abandoned**. Current-state drift corrected: the basis footer now reads `OperationsState` **v7**. Baselines are unchanged and were **not rerun** — 504 checks across twelve suites, lint 47 (26 errors, 21 warnings), build 30 routes. Milestone count stays **24 of 37**; H3 stays **6 of 8**; **H3.7 has not begun**.*
 *v2.0: **H3.6 — Fulfilment tracking complete. [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) is implemented.** `OperationsState` **v6 → v7** is additive: an empty `fulfilments` collection, inventing no Fulfilment and touching no existing record; a v1 payload still walks every rung to v7. Workspace unchanged at **v7** — both counters now read 7, which is coincidence rather than coupling, and the two checks that asserted independence by asserting inequality have been corrected to test separate persistence instead. **One Fulfilment per Moment, created only on confirmed dispatch, with no persisted draft**; three statuses (`Dispatched`, `DeliveryFailed`, `Delivered`); **`Redelivery` is the only Decision**, requiring a human reason; `ProofReceived` follows `Delivered` only and changes no status. **Proof is metadata — no file, URL, data URI, base64 or Blob** — refused at the write boundary on the payload *and* on the Event itself, and the operator surface states plainly that the evidence file is not retained. Current state is a projection: `replayFulfilment()` walks each Fulfilment's Events in persisted order and structural validation refuses any record disagreeing with its own replay. A pre-v6 Moment is refused at dispatch with an honest recovery that does **not** promise a re-preparation the idempotency rules cannot perform. New suite **`validate:fulfilments` (50 checks)**; **504 checks across twelve suites** (verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47, operations 54, selection 71, vendors 92, couriers 53, fulfilments 50); typecheck clean; lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.6 baseline; build succeeds with **30 routes** (two intentional additions). Milestone count **24 of 37**; H3 is **6 of 8**. ⚠️ **No browser verification was performed** — the two new operator surfaces are covered by automated checks and static review only, and no responsive, keyboard or overflow behaviour has been observed running. Real-device testing remains outstanding and is not claimed. **H3.7 has not begun and is gated on CP-U3 / OPS-U3 and CP-U4.** `QAException`, OPS-U4b adjudication, disputes, `Returned`, `Escalation`, tracking, webhooks and actual proof-file storage remain deferred.*
 *v1.9: **Pre-H3.6 policy-resolution snapshot correction complete.** `OperationsState` **v5 → v6** is a pure additive version rung: existing Moments, Decisions, Events and copied brief snapshots are not rewritten or backfilled. Newly generated Moments capture the resolved policy's `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired`; all four are optional only as one legacy-compatible group, so absence remains "not recorded" while partial or malformed presence is refused. Confirmation-time fingerprints treat every delivery promise as material. Operations validation **50 → 54**; **454 checks across eleven suites**; typecheck clean; lint unchanged at **47 problems (26 errors, 21 warnings)**; build succeeds with **28 routes**. No UI or route changed, so no browser run was performed. **H3.6 has not begun**; ADR-012 remains accepted and not implemented; Workspace remains **v7**.*
 *v1.8: **H3.3/H3.4-D1 malformed runtime-container correction complete.** `commitItemSelection()` / `verifyItemSelection()` and `commitVendorSelection()` / `verifyVendorSelection()` now apply the existing `isPlainRecord` runtime boundary before destructuring or property access; H3.4 additionally requires `offers` to be an array and every submitted offer to be a plain record before exact-key or field checks. TypeScript interfaces were not weakened. Fourteen new checks exercise both repository and direct-verifier paths and prove no throw, the existing review-again recovery, zero writes, byte-identical state and honest one-write commits: selection **65 → 71**, vendors **84 → 92**, **450 checks across eleven suites**. Typecheck clean; lint unchanged at **47 problems (26 errors, 21 warnings)**; build succeeds with **28 routes**. No UI, route, schema or migration changed; Workspace remains **v7**, `OperationsState` remains **v5**, H3.6 has not begun, and the separate policy-snapshot **v5 → v6** migration is now the only remaining prerequisite.*
@@ -560,4 +580,4 @@ A future country model requires **its own milestone and its own architecture rev
 *v1.1: Council corrections. H0 restated as an approved retrospective label for real completed work. H4 renamed **Learn** and renumbered — pre-pilot [P] set becomes H4.0, pilot H4.1, intelligence H4.2–H4.5. **All external connectors moved to H5.4 — Integrations**; the intermediate H4.4/H4.5 placement is removed entirely. Milestone count published (37/19) with the 31/15 discrepancy surfaced rather than resolved. Every unresolved item classified by what it blocks. **The claim that the ADR-010 gate binds from H3.4 is withdrawn** — no governing document establishes it; the gate binds at the pilot and at any grant of external access.*
 *v1.0: Created by the governance reconciliation (R6) under Council decisions of 2026-07-28.*
 *Supersedes the H3 sequences in `RECOVERY_LEDGER.md` §0 and §10 for roadmap reporting.*
-*Basis: Workspace schema v7, `OperationsState` v6, System Atlas v3.11, ADR-001 … ADR-012.*
+*Basis: Workspace schema v7, `OperationsState` v7, System Atlas v3.13, ADR-001 … ADR-013.*

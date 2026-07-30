@@ -7,6 +7,14 @@
 
 > Accepted by Council on 2026-07-27, subject to the conditions recorded below.
 
+> ➡️ **Clarified by [ADR-013](ADR-013-commercial-role-pilot-currency-and-recognition-order.md),
+> accepted 2026-07-30.** ADR-013 selects **`MerchantOfRecord`** from the `commercialRole` set
+> reserved below, fixes **NGN** as the first pilot currency, keeps FX snapshots deferred, and
+> supersedes **`estimatedItemCost` for H3.7** in favour of `estimatedVendorCost`. Everything else
+> here — integer minor units, the pinned exponent table, the prohibition on implicit conversion, one
+> `RecognitionOrder` per Moment, and **gross margin derived and never stored** — is unchanged. **This
+> record is not rewritten**; it stands as what was decided on 2026-07-27.
+
 ## Council conditions on acceptance
 
 - Money is `{ amountMinor: integer, currency: ISO 4217 }` with a **pinned currency exponent table**.
@@ -36,9 +44,21 @@ interface Money {
 
 **Required for the prototype:** `id`, `workspaceId`, `momentId`, `executionBriefId`, `approvedBudget`, `estimatedItemCost`, `estimatedCourierCost`, `estimatedCustomerCharge`, `actualVendorCost`, `actualCourierCost`, `actualCustomerCharge`, `status`, timestamps.
 
+> ➡️ **`estimatedItemCost` is superseded for H3.7** by
+> [ADR-013](ADR-013-commercial-role-pilot-currency-and-recognition-order.md) §7, in favour of
+> **`estimatedVendorCost`** read from the confirmed `VendorSelection` Decision. The catalog item price
+> answers what the gift is worth against the approved budget; what the vendor will charge Aniyé is a
+> different number, obtained by asking a vendor, and it is already recorded as `quotedVendorCost`.
+> Carrying both would create two answers to one question. ADR-013 also fixes
+> **`estimatedCustomerCharge` as a manual per-order quotation** — no formula, no rate card, no
+> pricing engine — and adds an immutable **`commercialRole`** snapshot.
+
 **Deferred:** packaging, taxes and duties, service fee, contingency, other costs, amount paid, refunds, FX snapshots, reconciliation timestamp.
 
-`grossMargin` is **derived, never stored** — same reasoning as `memberCount` (conflict C3).
+`grossMargin` is **derived, never stored** — same reasoning as `memberCount` (conflict C3). **ADR-013
+does not change this**, and states the pilot formula as
+`actualCustomerCharge − actualVendorCost − actualCourierCost`, computed on read, with no second
+"update margin" write.
 
 ## Why not the alternatives
 
