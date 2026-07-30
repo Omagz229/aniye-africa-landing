@@ -32,7 +32,7 @@
 | — | **H3.3 — Minimum Catalog + manual item selection** | ✅ **Complete** — OperationsState v3 | H3.3 |
 | — | **H3.4 — Vendor directory + hand-entered offers** | ✅ **Complete** — OperationsState v4 | H3.4 |
 | — | **H3.5 — Courier directory + manual selection** | ✅ **Complete** — OperationsState v5 | H3.5 |
-| — | **H3.6 — Fulfilment tracking** | ⚠️ **Next — gated on unresolved U4** (QA/exception taxonomy) | — |
+| — | **H3.6 — Fulfilment tracking** | ⬜ **Not begun.** Governance resolved by **ADR-012**; two corrections must land first | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -1021,7 +1021,7 @@ routes, automated quote requests, APIs, couriers, fulfilment, proof of delivery,
 `RecognitionOrder`, customer charge or margin. WhatsApp remains a channel an
 operator records by hand.
 
-**U5 was not invented.** Partner onboarding is unresolved and the Operations
+**OPS-U5 was not invented.** Partner onboarding is unresolved and the Operations
 Atlas §9 says in terms that H3.4 builds *a directory an operator types into,
 which needs no onboarding process*. No ADR was raised, because none was needed.
 
@@ -1582,18 +1582,154 @@ performed or claimed.
 > than discovered later, and it should be closed by a Council-scoped correction
 > covering both.
 
-#### ⚠️ H3.6 is gated
+#### ✅ H3.6 governance — resolved 2026-07-30
 
-**U4 — the exception and QA taxonomy — binds at H3.6 and is unresolved.**
-Operations Atlas §9 records that `QAException` survives only as a proposed
-Decision name: *"No taxonomy survives. It is first needed at delivery
-confirmation."* H3.6 **is** delivery confirmation. **Raise an ADR before building
-the proof and dispute paths.**
+**Was:** *"gated on unresolved U4."* **Now:** resolved by
+[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), with the
+adjudication half deferred. See the governance closure entry below.
 
-**Secure file storage also becomes relevant.** ADR-010 lists it among the pilot
-prerequisites specifically *"before proof of delivery exists"* — which is H3.6's
-outcome. Whether a browser-storage prototype may hold proof at all is a Council
-decision, not an implementation assumption.
+### ✅ H3.5 → H3.6 governance decision closure — 2026-07-30
+
+**Documentation only.** No code, schema, migration, validation script, route or
+UI changed. `git diff` touches documentation and `CLAUDE.md` and nothing else.
+
+Council decisions on the checkpoint prepared at `4c16f0c`
+([`H3_5_H3_6_GOVERNANCE_CHECKPOINT.md`](H3_5_H3_6_GOVERNANCE_CHECKPOINT.md)).
+
+#### A · H3.5 country coverage — implemented authority accepted
+
+The completion test is **rewritten**:
+
+> *"A courier is selectable for every country represented by a current confirmed
+> Execution Brief, or the gap is named."*
+
+`WorkspaceState.operatingCountries` **remains a free-text assessment and
+marketing field and is not operational country authority.** No normalization, no
+name-to-code mapping, no canonical country collection, **no Workspace v8**. A
+future country model requires its own milestone and its own architecture review.
+
+#### B · ADR-012 — accepted
+
+[ADR-012 — Fulfilment lifecycle and the proof-receipt boundary](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md).
+
+| | Decision |
+|---|---|
+| Object | **One Fulfilment per Moment.** No persisted `Pending` or draft. Created **only** when initial dispatch is confirmed |
+| States | Exactly three — `Dispatched` · `DeliveryFailed` · `Delivered` |
+| Initial dispatch | Atomically creates the Fulfilment at `Dispatched` and appends `Dispatched`. **No Decision invented** where no judgement between alternatives occurred |
+| Failure | Atomically sets `DeliveryFailed` and appends `DeliveryFailed`. **Not Event-only** — the current actionable state must identify that redelivery is required |
+| Redelivery | Allowed **only** from `DeliveryFailed`. Atomically records a Confirmed **`Redelivery` Decision** with a required human reason, returns state to `Dispatched`, and appends `Dispatched` with the **next attempt number** |
+| Delivery | Allowed **only** from `Dispatched`. Atomically sets `Delivered` and appends `Delivered` |
+| Proof | `ProofReceived` appended **only after** `Delivered`. **Not a Fulfilment status** |
+| Invariants | Decisions immutable, Events append-only and ordered. The Fulfilment holds **current state**; the ordered Event history is **historical truth** |
+| Excluded | `Returned`, `Escalation`, `QAException`, dispute adjudication, courier webhooks, tracking integrations |
+
+ADR-006's confirmation, atomicity and append-only rules continue to govern.
+
+#### C · Proof storage — metadata only
+
+**H3.6 records receipt metadata and stores no proof file.** `ProofReceived` may
+record only: proof kind or kinds constrained to **`Photo` · `Document` ·
+`Signature`**; channel/source; actor; `occurredAt` and `recordedAt`; and the
+identifiers binding it to the Fulfilment and Moment.
+
+> **It must not store** image or document bytes, a URL pretending the file is
+> durable, a data URI, base64, Blob content, or recipient-home photographs and
+> other proof content in `localStorage`.
+
+**The operator experience must say honestly** that the prototype records that
+proof was received and does **not** retain the evidence file.
+
+**The customer-facing promise is corrected.** *"Confirmation + curated proof"* is
+**future accepted architecture**, not delivered by the metadata-only H3.6
+prototype. Secure, access-controlled file storage remains mandatory before actual
+proof files exist and before the external pilot.
+
+#### D · The former Operations U4, split
+
+| | |
+|---|---|
+| **OPS-U4a** — lifecycle and proof recording | ✅ **Resolved** by ADR-012 |
+| **OPS-U4b** — QA exceptions, adjudication, disputes, what the customer is told | 🟠 **Deferred.** H3.6 must not introduce `QAException` or a dispute path |
+
+**The present single-operator internal prototype has no second party with whom to
+adjudicate a dispute.** OPS-U4b becomes blocking at the earliest of: a
+customer-facing delivery, proof or exception view; a customer-visible operational
+audit trail; any second party submitting or disputing delivery evidence; **H4.0**
+customer-facing Moment visibility; or the external pilot.
+
+#### E · The `U4` identifier collision, resolved
+
+**Two documents used bare `U4` for different questions**, and two used bare `U5`
+the same way:
+
+| Bare | Operations Atlas meant | Master Roadmap meant |
+|---|---|---|
+| `U4` | Exception and QA taxonomy | *What is the first pilot currency?* |
+| `U5` | Vendor and courier onboarding | *Class lifecycle fields* |
+
+Identifiers are now **source-scoped, preserving provenance**, and **nothing was
+renumbered**:
+
+- **`CP-U1 … CP-U4`** — checkpoint open questions (Master Roadmap register)
+- **`LEDGER-C2`, `LEDGER-C5`** — ledger conflicts, previously numbered U5/U6 in that register
+- **`OPS-U1 … OPS-U10`** — Operations Atlas §9, with `OPS-U4` split into `a` and `b`
+
+The collision table is recorded in `RELATIONSHIP_OPERATIONS_ATLAS.md` §9 and the
+Master Roadmap's *Unresolved* register.
+
+#### F · Policy-resolution snapshot defect — **four** fields, not three
+
+**Accepted.** The checkpoint identified three missing delivery fields; the Council
+records **four**. All are configurable customer promises, shown back to the
+customer in `PolicyForm`'s Review step, and **absent from
+`PolicyResolutionSnapshot`**:
+
+1. `deliveryRequirement`
+2. `preferredDeliveryWindow`
+3. `signatureRequired`
+4. `proofRequired`
+
+**The required correction:**
+
+| # | Requirement |
+|---|---|
+| 1 | A **separate additive `OperationsState` v5 → v6 migration** |
+| 2 | Newly generated Moments capture **all four** from the resolved policy |
+| 3 | Existing Moments are **not** backfilled |
+| 4 | Absence means **"not recorded when this Moment was prepared"** |
+| 5 | **Never** default absence to `Standard`, an empty delivery window, or `false` for either flag |
+| 6 | H3.6 must **refuse** a legacy Moment lacking required delivery context, with a named recovery — never infer current policy state |
+| 7 | Policy id + version **cannot** recover the history: the policy is edited in place at the same id and version |
+| 8 | **`OperationsState` remains v5 in this commit.** v6 is planned and must not be reported as landed |
+
+> This is the **third** instance of the same class — `excludedCategories` at H3.3,
+> and now four delivery fields. Every Moment generated before the migration lands
+> is permanently unable to say whether proof was required.
+
+#### G · H3.3/H3.4 malformed-container correction — recorded, not implemented
+
+**Verified pending correction**, covering `commitItemSelection` /
+`verifyItemSelection` and `commitVendorSelection` / `verifyVendorSelection`.
+
+They must apply the exported **`isPlainRecord`** pattern **before destructuring or
+property access**. H3.4 must additionally establish that **`offers` is an array**
+and that **each newly submitted offer is a plain record** before any exact-key or
+field checks.
+
+**Independent, no schema change, and it must land before the v5 → v6 migration.**
+Not implemented in this documentation task.
+
+#### State after this commit
+
+| | |
+|---|---|
+| H3.5 | ✅ **Complete** |
+| H3.6 | ⬜ **Not begun.** Governance resolved |
+| Workspace schema | **v7** |
+| `OperationsState` | **v5** — v6 planned, **not landed** |
+| Must land before H3.6 | H3.3/H3.4 container correction, then the v5 → v6 snapshot migration |
+| Still deferred | Actual proof-file storage · OPS-U4b adjudication |
 
 ### ⛔ The hard gate before an external pilot
 
@@ -2150,3 +2286,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the remaining H3.4 runtime-shape correction (H3.4-D2) — D1 over-claimed on two counts, both corrected in its own entry above. `isIsoInstant()` accepted second precision, one- and two-digit fractions, and **impossible calendar dates**, because `Date.parse` normalizes rather than refuses; it now requires `YYYY-MM-DDTHH:mm:ss.sssZ` **and** an exact `toISOString()` round trip. Exactness was outer-level only, so extra keys inside `vendorSnapshot`, `itemSnapshot`, `price`, `quotedVendorCost` and `approvedBudget` survived whenever duplicated consistently; exact `Money`, `VendorSnapshot` and `CatalogItemSnapshot` validators are now applied recursively at every newly submitted location, compared against a projection rebuilt from live truth. `validateOperationsState()` now applies the shared `isVendorEmailShape()` rule, so a malformed stored address no longer reads as valid. Two superseded comparators deleted. One earlier assertion amended and declared. 10 new checks (vendors 74 → 84); **383 checks across ten suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 26 routes. No schema change — `OperationsState` **v4**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.4 browser evidence stands and no new browser run was performed.** Reporting correction: commit `9670fce` changed six files, not five.*
 *Updated after H3.5 (Courier directory and manual selection, per country) — `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record). Workspace unchanged at **v7**. Only a manual per-country directory and one recorded carriage cost exist: no rate APIs, tracking, optimization, scoring, ranking, routing, courier accounts or portals, and **U5 partner onboarding was again not invented**. Selection is shaped like H3.3 rather than H3.4 because courier alternatives are knowable — the considered set is recomputed, not typed in. Event named **`CourierSelected`**, a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. **A conflict is surfaced rather than resolved:** coverage is measured against confirmed briefs because `WorkspaceState.operatingCountries` are free-text names and no name-to-code mapping exists anywhere in the repository. No carriage ceiling was invented; zero is valid, negative is not, currency must match exactly. One builder defect caught by the suite (a deactivated courier passed the id-membership check). **429 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. Verified live at 1440px, 768px and 400px, including the v4 → v5 migration running in the browser; **real-device testing still not done**. ⚠️ **H3.6 is gated on unresolved U4** — the QA and exception taxonomy — and secure file storage becomes relevant there. System Atlas v3.9, Master Roadmap v1.6, Relationship Operations Atlas v1.6.*
 *Updated after the H3.5 courier runtime-boundary correction (H3.5-D1) — the boundary enforced exact keys only after receiving a valid object, and `extraKeys` reports no extras for `null`, so malformed containers passed the key check and **threw** on the property reads beneath it. A thrown exception is not a refusal: it returns no `StoreResult`, names no recovery, and leaves the operator unable to say whether anything was written. `isPlainRecord` is now exported from `lib/operations/types.ts` (the private `isPlainObject` became an alias of it), and both `commitCourierSelection()` and `verifyCourierSelection()` validate the write bundle, Decision, Event, `Decision.inputs` and `Event.payload` are plain records **before** reading any property. TypeScript types were not weakened. 7 new checks (couriers 46 → 53), each asserting no throw, the review-again recovery, zero writes and byte-identical collections, exercised through both the repository and the verifier directly. **436 checks across eleven suites**, typecheck clean, lint 47 (26 errors, 21 warnings) at baseline, build 28 routes. No schema change — `OperationsState` **v5**, Workspace **v7**, migration chain and existing records untouched. **No UI change, so the existing H3.5 browser evidence stands.** ⚠️ **The same latent shape exists on the H3.3 and H3.4 boundaries and was deliberately left out of scope — recorded for a Council-scoped correction.***
+*Updated after the H3.5 → H3.6 governance decision closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** H3.5's completion test rewritten to name confirmed Execution Briefs as the operational country authority; `operatingCountries` stays a free-text assessment field and no Workspace v8 is added. **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) accepted** — one Fulfilment per Moment, no persisted draft, exactly three states, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only, and **proof recorded as metadata with no file stored**; `Returned`, `Escalation`, `QAException`, disputes, webhooks and tracking all excluded. The former Operations `U4` is split — **OPS-U4a resolved**, **OPS-U4b deferred** with a five-point trigger, since a single-operator prototype has no second party to adjudicate with. Unresolved identifiers are now source-scoped (`CP-Un`, `OPS-Un`, `LEDGER-Cn`) after two documents were found using bare `U4` and bare `U5` for different questions; **nothing was renumbered**. The policy-snapshot defect is accepted at **four** missing delivery fields, not three. The H3.3/H3.4 malformed-container correction is recorded as pending and must land **before** the v5 → v6 migration. **H3.5 remains complete; H3.6 has not begun; Workspace stays v7 and `OperationsState` stays v5.** System Atlas v3.10, Master Roadmap v1.7, Relationship Operations Atlas v1.7, ADR-012 accepted.*

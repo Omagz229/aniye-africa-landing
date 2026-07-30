@@ -28,6 +28,12 @@
 | [ADR-009](ADR-009-policy-lifecycle.md) | Policy lifecycle stays three states | **Accepted** | 2026-07-27 |
 | [ADR-010](ADR-010-operational-persistence-boundary.md) | Operational records live outside WorkspaceState | **Accepted** | 2026-07-27 |
 | [ADR-011](ADR-011-recipient-address.md) | Recipient address is customer-owned; operator overrides are per-brief | **Accepted** | 2026-07-28 |
+| [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) | Fulfilment lifecycle and the proof-receipt boundary | **Accepted** | 2026-07-30 |
+
+**ADR-012 resolves OPS-U4a** (the Fulfilment lifecycle and proof-receipt boundary) and explicitly
+**defers OPS-U4b** (QA, adjudication and disputes) with a recorded trigger. See
+[`../RELATIONSHIP_OPERATIONS_ATLAS.md`](../RELATIONSHIP_OPERATIONS_ATLAS.md) §9 for the source-scoped
+unresolved register.
 
 Every accepted record carries the **Council conditions** attached at acceptance. Those conditions are
 binding and in several cases narrow the original draft — ADR-004 most notably, where a Program now
@@ -50,6 +56,7 @@ itself is the authority.
 | ADR-009 | ✅ Yes — no code change was required |
 | ADR-010 | ✅ Yes — H3.1, `OperationsState` v1 (now v2) |
 | ADR-011 | ✅ Yes — H3.2, Workspace schema v7 + `OperationsState` v2 |
+| ADR-012 | ⬜ **No — accepted, not implemented.** H3.6 has not begun. `OperationsState` remains v5 |
 
 ---
 

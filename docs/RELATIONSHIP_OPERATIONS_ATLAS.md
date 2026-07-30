@@ -106,7 +106,7 @@ Integer minor units with a pinned exponent table (ADR-007, `lib/money.ts`).
 - **Gross margin is derived, never stored** — the same reasoning as `memberCount`.
 
 ⚠️ **Margin is an operational figure, not accounting revenue**, and must not be presented as the
-latter until Aniyé's commercial role is legally resolved. *(ADR-007 Council condition; see §9 U3.)*
+latter until Aniyé's commercial role is legally resolved. *(ADR-007 Council condition; see §9 **OPS-U3**.)*
 
 ---
 
@@ -237,7 +237,7 @@ defined this object, so nothing is being re-issued: H3.4 defines it, as small as
 ⚠️ **Deliberately absent, and not oversights:** scores, ratings, reliability, capacity, lead-time
 policy, quality grades, price lists, categories, preferred status, contracts, SLAs, onboarding or
 offboarding state. Vendor *Intelligence* is **H4.4**, gated on the pilot; partner onboarding is
-unresolved **U5**. A directory an operator types into needs neither.
+unresolved **OPS-U5**. A directory an operator types into needs neither.
 
 **Vendors are deactivated, never deleted.** A vendor who quoted last quarter has to stay resolvable
 from the offers that name them, so there is no hard delete anywhere in the repository. Ordinary
@@ -309,14 +309,14 @@ not silently change who was asked to carry what.
 
 **No carriage ceiling was invented.** A quote above the vendor cost or the approved budget is
 allowed — the budget governs what the *recipient* receives (ADR-004), and relating carriage to it is
-a commercial decision **U3** has not made. Zero is a valid quote; negative is not; the currency must
+a commercial decision **OPS-U3** has not made. Zero is a valid quote; negative is not; the currency must
 match the item exactly.
 
 ### Accepted, not implemented
 
 | Object | Milestone | Authority |
 |--------|-----------|-----------|
-| **Fulfillment** — dispatch → delivered → proof | H3.6 | Atlas §4, §13 · Checkpoint milestone 8 |
+| **Fulfillment** — dispatch → delivered → proof | H3.6 | **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)**, accepted 2026-07-30 — supersedes the Atlas §4 draft status enum and `proofUrl` |
 | **RecognitionOrder** — one per Moment; margin derived | H3.7 | ADR-007 |
 | **Memory** — append-only relationship timeline entry | H3.8 | Atlas §4 |
 
@@ -334,7 +334,7 @@ reviews and re-issues its field list:
 | Object | Reviewed and fixed by |
 |---|---|
 | ~~`Gift / Item`~~ | ✅ **H3.3 — re-issued above.** Atlas §4's field list is superseded |
-| `Fulfilment` | H3.6 |
+| ~~`Fulfilment`~~ | ✅ **ADR-012 re-issued it** — three states, no `Returned`, no `proofUrl`. Not yet implemented |
 | `Memory` | H3.8 |
 | `Insight` | H4.5 |
 
@@ -477,8 +477,8 @@ Full table: checkpoint Part 2. Milestone identifiers: [`MASTER_ROADMAP.md`](MAST
 | Item selected | Catalog Item snapshot on the Decision | `ItemSelection` | `ItemSelected` | H3.3 ✅ |
 | Vendor offer selected | VendorOffer | `VendorSelection` | `VendorSelected` | H3.4 ✅ |
 | Courier selected | `CourierSelection` Decision | `CourierSelection` | **`CourierSelected`** | H3.5 ✅ |
-| Fulfilment tracked | Fulfillment | `Redelivery` / `Escalation` | `Dispatched`, `DeliveryFailed` | H3.6 |
-| Delivery confirmed | Fulfillment | `QAException` if disputed | `Delivered`, `ProofReceived` | H3.6 |
+| Fulfilment tracked | Fulfillment | **`Redelivery` only** | `Dispatched`, `DeliveryFailed` | H3.6 — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) |
+| Delivery confirmed | Fulfillment | **none** | `Delivered`, `ProofReceived` *(metadata only)* | H3.6 — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) |
 | Cost recorded | RecognitionOrder | — | — | H3.7 |
 | Moment closed | Moment, Memory | — | `MomentClosed` | H3.8 |
 
@@ -497,7 +497,7 @@ milestone that builds each one fixes its final name.
 | Vendor offer selected | **Nothing** |
 | Courier selected | **Nothing** |
 | Fulfilment tracked | Status only |
-| Delivery confirmed | Confirmation + curated proof |
+| Delivery confirmed | Confirmation + curated proof — ⚠️ **future architecture.** The metadata-only H3.6 prototype delivers the confirmation and **not** the proof file ([ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)) |
 | Cost recorded | **Their charge only** — never cost or margin |
 | Moment closed | Timeline entry |
 
@@ -602,26 +602,62 @@ from repository evidence.** Each is recorded as absent rather than invented. **I
 these, it does not exist — raise an ADR.** None of them is resolved here, and none may be
 back-filled by inference.
 
+### ⚠️ Identifiers are source-scoped — Council, 2026-07-30
+
+**Two documents used bare `U4` for different questions**, and two used bare `U5` the same way. The
+collision was live in the roadmap, this Atlas, the Recovery Ledger and `CLAUDE.md`.
+
+| Bare identifier | This Atlas meant | The Master Roadmap meant |
+|---|---|---|
+| `U4` | Exception and QA taxonomy | *What is the first pilot currency?* |
+| `U5` | Vendor and courier onboarding | *Class lifecycle fields* |
+| `U3` | Aniyé's commercial role | The **same** question — checkpoint open question 3 |
+
+**Every identifier is now prefixed by its source, and nothing has been renumbered.**
+
+| Prefix | Source | Register |
+|---|---|---|
+| **`OPS-Un`** | This Atlas §9 | Below |
+| **`CP-Un`** | `H2_H3_ARCHITECTURE_CHECKPOINT.md` open questions | [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) *Unresolved* |
+| **`LEDGER-Cn`** | `RECOVERY_LEDGER.md` conflicts | [`RECOVERY_LEDGER.md`](RECOVERY_LEDGER.md) |
+
+`OPS-U4` is now split: **`OPS-U4a`** is resolved by ADR-012, **`OPS-U4b`** is deferred.
+
 **Dependency classification** — every item carries exactly one:
 
 | Marker | Meaning |
 |---|---|
-| 🔴 | **Blocks H3.2** — the Execution Brief cannot be built correctly without it |
+| ✅ | **Resolved** — by a named accepted ADR |
+| 🔴 | **Blocks the next milestone** |
 | 🟠 | **Blocks a later named milestone** — named explicitly, and only that one |
 | ⚪ | **Does not currently block implementation** |
 
 | # | Unresolved | Blocks | Why it is not written here |
 |---|---|---|---|
-| **U1** | **Operator roles and permissions** — who may prepare, confirm, override, cancel, or view commercial detail | 🟠 **H5.1** | ADR-005 says Operations has "separate roles"; **no role model exists in code or in any accepted ADR**. ADR-010 confirms authorization is absent. Not an H3 blocker: H3 runs as an internal prototype where every operator is trusted by construction. Inventing a role table would encode an unmade decision |
-| **U2** | **Operational SLAs** — lead times, escalation thresholds, how late a brief may sit | ⚪ | No evidence anywhere. Checkpoint milestone 4 defers the brief's non-address constraints entirely, and its completion test names only address completeness. A brief renders without an SLA |
-| **U3** | **Aniyé's commercial role** — merchant of record or agent | 🟠 **H3.7** | Checkpoint open question 3, **explicitly unanswered**. It changes what `actualCustomerCharge` legally means. ADR-007 reserves `commercialRole: Unspecified \| MerchantOfRecord \| Agent` so the answer needs no migration of meaning |
-| **U4** | **Exception and QA taxonomy** — what counts as a QA exception, who adjudicates, what the customer is told | 🟠 **H3.6** | `QAException` appears only as a proposed Decision name in checkpoint Part 2. No taxonomy survives. It is first needed at delivery confirmation |
-| **U5** | **Vendor and courier onboarding** — qualification, contracting, performance thresholds, offboarding | 🟠 **H4.1** | H3.4/H3.5 build *directories* an operator types into, which needs no onboarding process. Onboarding becomes real when partners are engaged for the pilot |
-| **U6** | **Recurring and Triggered generation semantics** — cadence, de-duplication window, cycle component of the `sourceKey` | 🟠 **H4.0** | ADR-004 accepts all three modes; **only Campaign is implemented**, and Campaign closes the loop on its own. The checkpoint proposes 14 days' lead time de-duplicated per person per occasion per year as a *default*, not a decision |
-| **U7** | **Correction proposals crossing the boundary** — the object an operator raises and an administrator accepts | ⚪ | ADR-005 requires Operations to *propose* rather than write. **ADR-011 settles the address case by avoiding the crossing entirely** — the operator overrides one brief and never writes back — so H3.2 needs no general mechanism. It becomes necessary the first time a correction must actually reach configuration |
-| **U8** | **Read-only customer-workspace access by internal users** | ⚪ | ADR-005 permits it and requires it to emit an Operational Event visible in the customer's own audit trail. **Neither the view nor a customer-facing audit trail exists**, and no milestone currently requires either |
-| **U9** | **Pricing and customer charge derivation** — how `estimatedCustomerCharge` is computed | 🟠 **H3.7** | ADR-007 lists the fields and defers the arithmetic. Depends on U3 |
-| **U10** | **Multi-organization operator workflow** — how one operator works across tenants | 🟠 **H4.1** | Depends on U1 and the absent backend. Checkpoint open question 1 — *does the pilot involve more than one organization?* — is unanswered, and it decides how much of H5.1 must precede the pilot |
+| **OPS-U1** | **Operator roles and permissions** — who may prepare, confirm, override, cancel, or view commercial detail | 🟠 **H5.1** | ADR-005 says Operations has "separate roles"; **no role model exists in code or in any accepted ADR**. ADR-010 confirms authorization is absent. Not an H3 blocker: H3 runs as an internal prototype where every operator is trusted by construction. Inventing a role table would encode an unmade decision |
+| **OPS-U2** | **Operational SLAs** — lead times, escalation thresholds, how late a brief may sit | ⚪ | No evidence anywhere. Checkpoint milestone 4 defers the brief's non-address constraints entirely, and its completion test names only address completeness. A brief renders without an SLA |
+| **OPS-U3** | **Aniyé's commercial role** — merchant of record or agent | 🟠 **H3.7** | Checkpoint open question 3, **explicitly unanswered**. It changes what `actualCustomerCharge` legally means. ADR-007 reserves `commercialRole: Unspecified \| MerchantOfRecord \| Agent` so the answer needs no migration of meaning |
+| **OPS-U4a** | **Fulfilment lifecycle and proof recording** — states, whether failure is Event-only, how redelivery is recorded, whether proof files may be stored | ✅ **Resolved** — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), 2026-07-30 | Three states, one Fulfilment per Moment, no persisted draft, `Redelivery` the only Decision, proof recorded as **metadata only** |
+| **OPS-U4b** | **QA and adjudication taxonomy** — what constitutes a QA exception, who adjudicates, how disputes are resolved, what the customer is told | 🟠 **Deferred — see the trigger below** | Still no taxonomy. **H3.6 must not introduce `QAException` or a dispute path.** The present single-operator internal prototype has **no second party with whom to adjudicate a dispute** |
+| **OPS-U5** | **Vendor and courier onboarding** — qualification, contracting, performance thresholds, offboarding | 🟠 **H4.1** | H3.4/H3.5 build *directories* an operator types into, which needs no onboarding process. Onboarding becomes real when partners are engaged for the pilot |
+| **OPS-U6** | **Recurring and Triggered generation semantics** — cadence, de-duplication window, cycle component of the `sourceKey` | 🟠 **H4.0** | ADR-004 accepts all three modes; **only Campaign is implemented**, and Campaign closes the loop on its own. The checkpoint proposes 14 days' lead time de-duplicated per person per occasion per year as a *default*, not a decision |
+| **OPS-U7** | **Correction proposals crossing the boundary** — the object an operator raises and an administrator accepts | ⚪ | ADR-005 requires Operations to *propose* rather than write. **ADR-011 settles the address case by avoiding the crossing entirely** — the operator overrides one brief and never writes back — so H3.2 needs no general mechanism. It becomes necessary the first time a correction must actually reach configuration |
+| **OPS-U8** | **Read-only customer-workspace access by internal users** | ⚪ | ADR-005 permits it and requires it to emit an Operational Event visible in the customer's own audit trail. **Neither the view nor a customer-facing audit trail exists**, and no milestone currently requires either |
+| **OPS-U9** | **Pricing and customer charge derivation** — how `estimatedCustomerCharge` is computed | 🟠 **H3.7** | ADR-007 lists the fields and defers the arithmetic. Depends on U3 |
+| **OPS-U10** | **Multi-organization operator workflow** — how one operator works across tenants | 🟠 **H4.1** | Depends on U1 and the absent backend. Checkpoint open question 1 — *does the pilot involve more than one organization?* — is unanswered, and it decides how much of H5.1 must precede the pilot |
+
+### ⏳ OPS-U4b — when the deferral ends
+
+**Deferred is not the same as ignored.** OPS-U4b becomes **blocking** at the earliest of:
+
+1. a customer-facing delivery, proof or exception view;
+2. a customer-visible operational audit trail;
+3. any second party submitting or disputing delivery evidence;
+4. **H4.0** customer-facing Moment visibility;
+5. the external pilot.
+
+Until one of those is true there is **no second party with whom to adjudicate a dispute**. Building
+the taxonomy now would encode an unmade decision about a conversation that cannot yet happen.
 
 ### 🔴 Nothing in this register blocks H3.2
 
@@ -660,7 +696,8 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v1.6 — Aniyé Africa — 30 July 2026*
+*Relationship Operations Atlas v1.7 — Aniyé Africa — 30 July 2026*
+*v1.7: **Governance decision closure before H3.6 — documentation only; no code, schema, migration or validation changed.** §9 identifiers are now **source-scoped** — `OPS-Un` here, `CP-Un` for checkpoint open questions, `LEDGER-Cn` for ledger conflicts — because bare `U4` and bare `U5` each meant two different questions across this Atlas and the Master Roadmap. **Nothing was renumbered**; the collision is documented in §9. `OPS-U4` is split: **`OPS-U4a`** (Fulfilment lifecycle and proof recording) is **resolved by [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)**; **`OPS-U4b`** (QA, adjudication and disputes) is **deferred** with a five-point trigger, because a single-operator internal prototype has no second party to adjudicate with. §3 records ADR-012 as re-issuing the Atlas §4 `Fulfilment` draft; §6 narrows the loop table to `Redelivery` as the only fulfilment Decision and marks `ProofReceived` metadata-only; the customer-sees table records that **"confirmation + curated proof" is future architecture**, not delivered by H3.6. H3.6 has **not** begun; `OperationsState` remains **v5**.*
 *v1.6: **H3.5 — courier directory and manual selection implemented.** §3 gains the `Courier` definition — ten fields, scoped to **one country**, with no rate cards, tracking, service levels, zones, scoring or routing, all excluded in terms by checkpoint milestone 7. §3 records why selection is shaped like H3.3 rather than H3.4 (courier alternatives are knowable, vendor quotes are not), that the delivery country comes from the live brief, that no carriage ceiling was invented, and how the completion test's *named gap* is answered — **against confirmed briefs, not `operatingCountries`**, because those are free-text names with no code mapping in the repository. §5 gains the carriage step and the five-state next action. §6 marks the courier step done and records **`CourierSelected`** — a **declared departure** from the checkpoint, which proposes no Event for this step; ADR-006's own test says assigning a carrier changes a Moment's execution. Persistence restated as Workspace v7 / `OperationsState` **v5**.*
 *v1.5: **H3.4 — vendor directory, hand-entered offers and manual vendor selection implemented.** §3 gains the `Vendor` and `VendorOffer` definitions — six fields and no scores, and Atlas §4 never defined either, so nothing was re-issued. §3 records that vendors are deactivated rather than deleted, that directory maintenance is neither a Decision nor an Event, that `quotedVendorCost` is an estimate of what a vendor will charge Aniyé and is never derived from the catalog price, that zero is a valid quote and negative is not, and that delivery context and the chosen item come from **different** sources on purpose. §4 restates the recording rule with the three-quote case. §5 gains the vendor step and the four-state next action. §6 marks the vendor step done and fixes the Event name as **`VendorSelected`**, not the checkpoint's `VendorContacted` — Aniyé contacts nobody. §7 **withdraws the claim that no Operations route has ever had a live visual check**; a real-device pass remains genuinely outstanding. Persistence restated as Workspace v7 / `OperationsState` **v4**.*
 *v1.4: **H3.3 — minimum catalog and item selection implemented.** §3 gains the Catalog Item definition and the four eligibility rules, and **re-issues Atlas §4's `Gift / Item` field list**, which is superseded — not one of its six speculative fields survived. §3 records why a pre-H3.3 record blocks selection: a policy is edited in place at the same version, so equivalence is not provable and an empty exclusion list may never be invented. §4 records that browsing a catalog writes nothing. §5 gains the brief → item workflow and the state-computed next action. §6 marks the item step done and fixes the Event name as **`ItemSelected`**, not the checkpoint's `ItemPrepared` — nothing is prepared there. `ItemSubstitution` is explicitly not implemented. Persistence restated as Workspace v7 / `OperationsState` **v3**.*
@@ -668,5 +705,5 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 *v1.2: H3.2 — the Execution Brief moves from accepted to **implemented**. §3 gains its definition, the address gate, override and revision rules; §6 marks the brief step done; Decision and Event type lists extended; persistence restated as Workspace v7 / OperationsState v2.*
 *v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
 *v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
-*Basis: Workspace schema v7, `OperationsState` v5, System Atlas v3.9, ADR-001 … ADR-011.*
+*Basis: Workspace schema v7, `OperationsState` v5, System Atlas v3.10, ADR-001 … ADR-012.*
 *Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection · H3.4 vendor directory, offers and selection · H3.5 courier directory and selection. Everything from fulfilment onward is accepted architecture only.*

@@ -598,7 +598,7 @@ A partner Aniyé buys from. **Implemented at H3.4** in `lib/operations/types.ts`
 
 > ⚠️ **No scores, ratings, reliability, capacity, lead-time policy, quality grades, price lists,
 > preferred status, contracts, SLAs or onboarding state.** Vendor *Intelligence* is **H4.4**, gated
-> on the pilot; partner onboarding is unresolved **U5**. A directory an operator types into needs
+> on the pilot; partner onboarding is unresolved **OPS-U5**. A directory an operator types into needs
 > neither, and there is no vendor account, portal or vendor-facing route.
 
 ### VendorOffer
@@ -651,19 +651,30 @@ vendor quotes. The delivery country comes from the live confirmed brief.
 
 Tracks delivery execution. The Fulfillment Object is the system of record. WhatsApp and other communication channels are execution tools only.
 
+> ⚠️ **The field list below is the superseded pre-H3.6 draft**, retained for provenance.
+> **[ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), accepted 2026-07-30, re-issues it.** Do not implement against the table as written.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | — |
 | `momentId` | UUID | — |
 | `vendorOrderId` | string? | External vendor reference |
-| `status` | enum | Pending / Confirmed / Dispatched / Delivered / Failed / Returned |
+| ~~`status`~~ | ~~enum~~ | ⚠️ **Superseded.** ADR-012 fixes exactly three states: `Dispatched` · `DeliveryFailed` · `Delivered`. `Pending`, `Confirmed` and `Returned` are **not** implemented |
 | `channel` | enum | Platform / WhatsApp / Email / Phone / Manual |
-| `trackingUrl` | string? | — |
+| ~~`trackingUrl`~~ | ~~string?~~ | ⚠️ Tracking integration is excluded by checkpoint milestone 8 |
 | `estimatedDeliveryDate` | ISO date? | — |
 | `deliveredAt` | ISO timestamp? | — |
-| `proofUrl` | string? | Photo, signature, or document |
+| ~~`proofUrl`~~ | ~~string?~~ | ⚠️ **Superseded.** ADR-012 records proof as **metadata only** — kind (`Photo` · `Document` · `Signature`), channel, actor, timestamps. **No file, no URL, no bytes, no data URI** |
 | `notes` | string? | Internal ops notes |
 | `updatedAt` | ISO timestamp | Last status change |
+
+**Under ADR-012** there is **one Fulfilment per Moment**, created only when initial dispatch is
+confirmed — there is no persisted draft. The Fulfilment holds **current state**; the ordered Event
+history is the **historical truth**. `Redelivery` is the only Decision the lifecycle produces.
+
+⚠️ **`MOMENT_STATUSES` is not expanded.** Fulfilment state belongs to the Fulfilment (Atlas §15e).
+
+⚠️ **Accepted, not implemented.** H3.6 has not begun; `OperationsState` remains **v5**.
 
 ---
 
@@ -1614,7 +1625,7 @@ These capabilities are not built yet. They are documented here to ensure archite
 >
 > | Implemented | Accepted but not implemented |
 > |-------------|------------------------------|
-> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, the minimum flat Catalog and manual item selection, the manual Vendor directory, hand-entered VendorOffers and manual vendor selection, **the per-country Courier directory and manual courier selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, vendor or courier accounts and portals, courier rate APIs and tracking, Fulfilment, Recognition Order, Approval, roles and authentication, production backend |
+> | Organization Profile, Relationship Class, Recognition Policy, Policy Assignment, Person, People Source, Money, Program (Campaign mode), Moment (generation), Decision, Operational Event, the `/operations` shell, recipient address, Execution Brief, the minimum flat Catalog and manual item selection, the manual Vendor directory, hand-entered VendorOffers and manual vendor selection, **the per-country Courier directory and manual courier selection** | Program (Recurring, Triggered), **Catalog/Gift/Vendor Intelligence**, vendor or courier accounts and portals, courier rate APIs and tracking, Fulfilment *(ADR-012 accepted, not implemented)*, Recognition Order, Approval, roles and authentication, production backend, **secure file storage for proof** |
 
 > **The authoritative roadmap is [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md).** The horizon table below
 > is the thematic summary; `MASTER_ROADMAP.md` carries the canonical H3.1 … H3.8 milestone
@@ -1662,6 +1673,7 @@ Full records for ADR-004 onward live in [`adr/`](adr/). Accepted decisions are b
 | **ADR-009** | Policy lifecycle stays three states | Accepted 2026-07-27 | **Yes** — no code change was required |
 | **ADR-010** | Operational records live outside `WorkspaceState` | Accepted 2026-07-27 | **Yes** — H3.1, `OperationsState` v1 (§15d) |
 | **ADR-011** | Recipient address is customer-owned; operator overrides are per-brief | Accepted 2026-07-28 | **Yes** — H3.2, Workspace schema v7 + `OperationsState` v2 (§15f) |
+| **ADR-012** | Fulfilment lifecycle and the proof-receipt boundary | Accepted 2026-07-30 | ⬜ **No** — H3.6 not begun; `OperationsState` remains v5 (§4 *Fulfillment*) |
 
 #### ⚠️ ADR-003 — retired
 
@@ -1767,8 +1779,9 @@ Before implementing any feature, answer all five questions. If any answer is unc
 
 ---
 
-*System Atlas v3.9 — Aniyé Africa — July 2026*
+*System Atlas v3.10 — Aniyé Africa — July 2026*
 *Maintained alongside the codebase. Update this document whenever platform direction changes.*
+*v3.10: **H3.5 → H3.6 governance decision closure — documentation only.** No code, schema, migration, validation, route or UI changed. **§4 `Fulfillment` is re-issued by [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)** — the draft status enum is superseded by exactly three states (`Dispatched` · `DeliveryFailed` · `Delivered`), `proofUrl` and `trackingUrl` are superseded, and proof is recorded as **metadata only with no file stored**. One Fulfilment per Moment, created only on confirmed dispatch; `Redelivery` is the only Decision; `MOMENT_STATUSES` unchanged at three. §18 registers ADR-012 as **accepted and not implemented**. §17 records secure file storage for proof among the not-implemented set. **H3.6 has not begun**; Workspace remains **v7** and `OperationsState` remains **v5** — v6 is planned, not landed*
 *v3.9: H3.5 — the per-country Courier directory and manual courier selection implemented. `OperationsState` **v5** (additive: `couriers`; invents nothing, touches no existing record); Workspace unchanged at **v7**. **§4 gains `Courier`** — it did not exist in this document before, so nothing was re-issued; it lives in `OperationsState` and is never projected into Workspace. §15d updated to v7/v5; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. No rate APIs, tracking, optimization, scoring, routing, courier account or portal was built; fulfilment tracking remains H3.6 and is gated on unresolved U4. ADR-010 remains the external-pilot gate*
 *v3.8: H3.4 — the manual Vendor directory, hand-entered VendorOffers and manual vendor selection implemented. `OperationsState` **v4** (additive: `vendors`, `vendorOffers`; invents nothing, touches no existing record); Workspace schema unchanged at **v7**. **§4 gains `Vendor` and `VendorOffer`** — neither existed in this document before, so nothing was re-issued; both live in `OperationsState` and are never projected into Workspace. §15d updated to v7/v4; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Vendor Intelligence remains deferred to H4.4; no scoring, routing, API, portal, vendor account, courier, fulfilment or commerce was built. ADR-010 remains the external-pilot gate*
 *v3.7: H3.3 — minimum Catalog and manual item selection implemented. `OperationsState` **v3** (additive: `policyResolutionSnapshot.excludedCategories`, invented on no existing record); Workspace schema unchanged at **v7**. **§4 `Gift / Item` re-issued** — its pre-H3.3 field list is superseded, and none of `vendorId`, `intent`, `collectionIds`, `vendorCost`, `availableCountries`, `images` or `tags` survived; the implemented object has six fields and lives in `lib/catalog.ts`, never in `WorkspaceState`. §15d updated to v7/v3; §17 reading block and implemented/not-implemented split restated. `MOMENT_STATUSES` unchanged at three. Catalog, Gift and Vendor Intelligence remain deferred to H4.2–H4.4, behind the pilot; ADR-010 remains the external-pilot gate*
