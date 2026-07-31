@@ -30,9 +30,14 @@
 | [ADR-011](ADR-011-recipient-address.md) | Recipient address is customer-owned; operator overrides are per-brief | **Accepted** | 2026-07-28 |
 | [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) | Fulfilment lifecycle and the proof-receipt boundary | **Accepted · Implemented** | 2026-07-30 |
 | [ADR-013](ADR-013-commercial-role-pilot-currency-and-recognition-order.md) | Commercial role, pilot currency and the RecognitionOrder financial model | **Accepted · Implemented** | 2026-07-30 |
+| [ADR-014](ADR-014-moment-closure-memory-and-safe-timeline.md) | Moment closure, Memory ownership and the safe relationship timeline | **Accepted · Not implemented** | 2026-07-31 |
 
 **ADR-013 resolves CP-U3 / OPS-U3 and CP-U4** — the commercial role and the first pilot currency — and
 was **implemented at H3.7**.
+
+**ADR-014 governs H3.8** — the terminal `Closed` Moment status, the eleven-field canonical `Memory`,
+the nine-field safe timeline projection and the closure Event/Decision model. **Accepted and not
+implemented** — it authorizes the next milestone; it does not build it.
 
 **ADR-012 resolves OPS-U4a** (the Fulfilment lifecycle and proof-receipt boundary), was implemented at H3.6, and explicitly
 **defers OPS-U4b** (QA, adjudication and disputes) with a recorded trigger. See
@@ -67,6 +72,7 @@ itself is the authority.
 | ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v8** |
 | ADR-013 | ✅ Yes — H3.7, **landed at `OperationsState` v8** (additive `recognitionOrders`). Every decision implemented without variance; `MerchantOfRecord` is a **platform and pilot posture, not a legal opinion**, and the professional confirmations still bind before any external pilot |
 | ADR-012 | ✅ Yes — H3.6, **landed at `OperationsState` v7** (additive `fulfilments`). Every Council condition held; proof is metadata with **no file stored**. `QAException` and OPS-U4b adjudication remain deferred, and proof-file storage is still an ADR-010 pilot prerequisite |
+| ADR-014 | ⬜ **Not implemented — accepted 2026-07-31, governs H3.8.** No `Memory` type, `Closed` status, `MomentClosed` Event, closure repository operation or timeline route exists. `OperationsState` stays **v8** and Workspace stays **v7** until implementation lands the additive v9 rung |
 
 ---
 

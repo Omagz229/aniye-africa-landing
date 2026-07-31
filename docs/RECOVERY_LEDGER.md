@@ -37,7 +37,8 @@
 | — | **H3.6 — Fulfilment tracking** | ✅ **Complete** — OperationsState v7; ADR-012 implemented | H3.6 |
 | — | **H3.6 → H3.7 commercial governance closure** | ✅ **Complete** — ADR-013 accepted; documentation only | Governance |
 | — | **H3.7 — Recognition Order + commercial tracking** | ✅ **Complete** — OperationsState v8; ADR-013 implemented | H3.7 |
-| — | **H3.8 — Confirmation + Memory** | ⬜ **Not begun** | — |
+| — | **H3.7 → H3.8 confirmation-and-memory governance closure** | ✅ **Complete** — ADR-014 accepted; documentation only | Governance |
+| — | **H3.8 — Confirmation + Memory** | ⬜ **Architecture governed by ADR-014; implementation not begun** | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -2134,7 +2135,55 @@ no `MomentClosed` Event exists. **Still gating an external pilot:** the ADR-013 
 confirmations (Nigerian legal, tax, accounting and payments) and ADR-010's production backend,
 authentication, multi-tenancy and secure file storage. **OPS-U4b** remains deferred.
 
+### ✅ H3.7 → H3.8 confirmation-and-memory governance closure — 2026-07-31
 
+**Documentation only. No code, schema, migration, validation, route or UI changed.**
+
+**Starting commit `e7a34b2e27172700b3a0a1631d3c1c02ae626428`** — *feat: track recognition order
+financials*, parent `dcb36fa5351180eb455216f6f12896dd7721c523` — *docs: close H3.7 commercial
+governance*. Verified as the local `HEAD` and the `origin/recovery/h3-reconstruction` tip before this
+entry was written; worktree clean; `stash@{0}` and all 11 tags preserved untouched.
+
+**[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) accepted, and not implemented.**
+It resolves the architecture required to close a Moment and create its relationship Memory, so H3.8
+can be built without inventing semantics from the unreconciled legacy Memory draft:
+
+- **Confirmation** at H3.8 is an operator confirming a delivered, reconciled recognition is complete —
+  distinct from `Delivered`, `ProofReceived` and RecognitionOrder reconciliation. **Recipient
+  acknowledgement is unsupported and excluded**, not architecturally impossible: a future governance
+  decision could introduce an operator-recorded one.
+- The terminal Moment status is **`Closed`**, superseding the checkpoint's `Fulfilled`, entered only
+  from `ReadyForExecution`, and **irreversible**.
+- **Domain ownership is explicit and separate from storage location:** the Relationship Engine owns
+  the Moment's current state; Knowledge owns Memory and `MomentClosed`; Operations only orchestrates
+  the atomic write; `OperationsState` is the shared prototype persistence envelope, not a domain
+  boundary.
+- The canonical **Memory** is re-issued as exactly eleven fields, superseding the Atlas §4 draft in
+  full — `type`, `summary`, ambiguous `date` and generic `createdBy` are not implemented; occasion,
+  target date, recipient identity and gift category are referenced, never copied.
+- The safe recipient timeline is a **nine-field exact-key whitelist projection**, gift category
+  required and resolved through the RecognitionOrder's immutable `itemSelectionDecisionId`, never
+  through whichever `ItemSelection` happens to be live.
+- **Three separate prohibition boundaries** are defined — persisted Memory, the `MomentClosed` Event
+  payload, and the timeline projection — replacing an earlier contradictory single list that would
+  have forbidden `workspaceId` and `recognitionOrderId` even as internal Memory fields.
+- Closure appends one `MomentClosed` Event and **records no Decision** — ADR-006's own judgement test,
+  already applied by ADR-012 to dispatch and delivery, applies the same way here; `DECISION_TYPES` is
+  unchanged.
+- The later implementation adds one additive rung, `OperationsState` **v8 → v9** (`memories: []`, no
+  backfill, no Moment rewritten); Workspace stays **v7**.
+- The checkpoint's *"envelope consumption final"* is recorded as **unsupported by the current
+  architecture**, not implemented — no Workspace write, no mutable Program total, no financial ledger.
+
+**No implementation occurred.** No `Memory` type or collection, no `Closed` Moment status, no
+`MomentClosed` Event, no closure repository operation and no recipient-timeline route exist after this
+entry. `OperationsState` remains **v8**; Workspace remains **v7**; milestone count stays **25 of 37**;
+H3 stays **7 of 8**. Baselines are unchanged and were **not rerun** — 551 checks across thirteen
+suites, lint 47 (26 errors, 21 warnings), build 32 routes.
+
+**The resulting governance commit becomes H3.8's required starting commit** for any later
+implementation of this architecture. System Atlas v3.15, Master Roadmap v2.3, Relationship Operations
+Atlas v2.3.
 
 
 
@@ -2701,3 +2750,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after H3.6 (Fulfilment tracking) — `OperationsState` **v7** (additive `fulfilments`; invents no Fulfilment, touches no existing record; a v1 payload still walks every rung). Workspace unchanged at **v7**, and the two counters now coincide without being coupled — the two checks that asserted independence by asserting inequality were corrected to test separate persistence instead. ADR-012 implemented as accepted: one Fulfilment per Moment created only on confirmed dispatch, no persisted draft, three statuses, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only and changing no status. Proof is metadata — no file, URL, data URI, base64 or blob — refused on the payload **and** on the Event itself, and proven absent from storage. Current state is checked against a replay of each fulfilment's own Events. A pre-v6 Moment is refused at dispatch with a recovery that does not promise a re-preparation the idempotency rules cannot perform. New suite `validate:fulfilments` (50); **504 checks across twelve suites**; typecheck clean; lint 47 (26 errors, 21 warnings); build 30 routes. **No browser verification was performed**; real-device testing remains outstanding. H3.7 has not begun and is gated on CP-U3 / OPS-U3 and CP-U4.*
 *Updated after the H3.6 → H3.7 commercial governance closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) created and accepted, closing **CP-U3 / OPS-U3** (`commercialRole = MerchantOfRecord`, a platform and pilot posture rather than a legal opinion) and **CP-U4** (**NGN** for every amount on a pilot `RecognitionOrder`). FX stays out of H3.7 entirely; `estimatedCustomerCharge` is a **manual per-order quotation** with no formula, percentage, rate card or pricing engine and no payment or cash assumption; ADR-007's `estimatedItemCost` is superseded for H3.7 by `estimatedVendorCost` from the confirmed `VendorSelection` quote; `grossMargin` stays derived on read and never stored. Vendor commission, sender service fee, corporate subscription, payment margin, featured placement and percentage pricing are preserved historically but **deferred and non-authoritative**. First pilot is one corporate organization with **Lagos fulfilment, city-first**; **Nigeria → Cameroon remains the first cross-border corridor, sequenced after it and not abandoned**. Current-state drift corrected across the ADR registry, both Atlases and the roadmap basis footer; dated historical entries left intact. Baselines unchanged and **not rerun** — 504 checks across twelve suites, lint 47 (26 errors, 21 warnings), build 30 routes. Workspace **v7**, `OperationsState` **v7**, **24 of 37**, H3 **6 of 8**. **H3.7 is unblocked by governance and has not begun.***
 *Updated after H3.7 (Recognition Order and commercial tracking) — `OperationsState` **v8** (additive `recognitionOrders`; invents no order for any Moment or already-dispatched Fulfilment; a v1 payload still walks every rung). Workspace unchanged at **v7**. ADR-013 implemented as accepted: one order per Moment, `Committed` → `Reconciled`, **no draft and no cancellation**; `commercialRole` immutable and **only `MerchantOfRecord` writable**; **every amount NGN**, refused rather than converted, with no FX anywhere; **the customer quotation typed by an operator and never prefilled or derived**; estimates from the confirmed vendor and courier quotes rather than the catalog price; **`grossMargin` derived on read and never stored**, so correcting a cost changes it with **no second write**; corrections **supersede** the live reconciliation without rewriting it. **A committed order is required before a new initial dispatch**; legacy Fulfilments keep their history and are never backfilled. New suite `validate:orders` (47); **551 checks across thirteen suites**; typecheck clean; lint 47 (26 errors, 21 warnings); build 32 routes. **Verified live in a browser** at measured widths of 1440px, 768px and a browser-clamped 500px, including a v5 → v8 migration on first write, zero-write cancellation, single-write confirmations and margin following two corrections; real-device testing remains outstanding. Milestone count **25 of 37**; H3 **7 of 8**. **H3.8 has not begun.***
+*Updated after the H3.7 → H3.8 confirmation-and-memory governance closure (2026-07-31) — **documentation only; no code, schema, migration, validation, route or UI changed.** [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) created and accepted, governing H3.8: **Confirmation** means an operator confirming a delivered, reconciled recognition is complete, distinct from `Delivered`, `ProofReceived` and RecognitionOrder reconciliation, with **recipient acknowledgement unsupported and excluded** rather than ruled out permanently. The terminal Moment status is **`Closed`**, superseding the checkpoint's `Fulfilled`, entered only from `ReadyForExecution` and **irreversible**. **Domain ownership is explicit**: the Relationship Engine owns the Moment's current state, Knowledge owns Memory and `MomentClosed`, Operations only orchestrates the atomic write, and `OperationsState` is the shared prototype persistence envelope rather than a domain boundary. The canonical **Memory** is re-issued as exactly eleven fields, superseding the Atlas §4 draft in full; the safe recipient timeline is a **nine-field exact-key whitelist projection**, with gift category required and resolved through the RecognitionOrder's immutable `itemSelectionDecisionId`. **Three separate prohibition boundaries** govern persisted Memory, the `MomentClosed` Event payload and the projection. Closure appends one `MomentClosed` Event and **records no Decision** — ADR-006's own judgement test, already applied by ADR-012 to dispatch and delivery. The later implementation adds `OperationsState` **v8 → v9** (additive `memories: []`, no backfill); the checkpoint's *"envelope consumption final"* is recorded as unsupported by the current architecture. **The starting commit for this closure was `e7a34b2e27172700b3a0a1631d3c1c02ae626428`, and the resulting commit becomes H3.8's required starting commit.** Baselines unchanged and **not rerun** — 551 checks across thirteen suites, lint 47 (26 errors, 21 warnings), build 32 routes. Milestone count stays **25 of 37**; H3 stays **7 of 8**; `OperationsState` stays **v8**; Workspace stays **v7**. **H3.8 is architecture-governed and has not begun.** System Atlas v3.15, Master Roadmap v2.3, Relationship Operations Atlas v2.3.*
