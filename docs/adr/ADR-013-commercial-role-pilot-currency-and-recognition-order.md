@@ -3,13 +3,14 @@
 **Status: Accepted**
 **Date drafted:** 2026-07-30
 **Date accepted:** 2026-07-30 — Council
-**Implementation status: ⬜ Not implemented — H3.7 has not begun**
+**Implementation status: ✅ Implemented at H3.7 — `OperationsState` v8, 2026-07-31**
 **Full analysis:** H3.6 → H3.7 Commercial Governance Council, 2026-07-30 · builds on
 [ADR-007](ADR-007-money-and-financial-spine.md) and
 [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md) open questions 3 and 4
 
 > Accepted by Council on 2026-07-30. This record resolves **CP-U3 / OPS-U3** and **CP-U4**, the two
-> questions that blocked H3.7. **Accepting it does not implement H3.7.**
+> questions that blocked H3.7. Acceptance did not implement H3.7; **the implementation landed at H3.7
+> on 2026-07-31** and is recorded at the end of this document.
 
 ## Context
 
@@ -368,15 +369,51 @@ facts and record no proof.
 Nothing else is superseded. The earlier founders' revenue proposals are **deferred, not superseded**
 — they remain available to a future account-level commercial decision.
 
-## Acceptance does not implement H3.7
+## Acceptance did not implement H3.7
 
-**This record is governance, not implementation.** At acceptance:
+**This record was governance, not implementation.** At acceptance no `RecognitionOrder`,
+`commercialRole` field, actual amount or margin calculation existed; `OperationsState` was **v7**;
+and the roadmap read **24 of 37** with H3 at **6 of 8**.
 
-- no `RecognitionOrder` exists;
-- no `commercialRole` field exists in code;
-- no actual vendor cost, courier cost or customer charge exists;
-- no margin calculation exists;
-- `OperationsState` remains **v7** and Workspace remains **v7**;
-- the roadmap remains **24 of 37**, with H3 at **6 of 8**.
+## Implementation record — H3.7, 2026-07-31
 
-**H3.7 is governance-ready and has not begun.**
+> **This section records what was built. It does not amend the decisions above**, every one of which
+> was implemented without variance. `OperationsState` is now **v8** — the additive
+> `recognitionOrders` rung. Workspace remains **v7**.
+
+| Decision | Where it is held |
+|---|---|
+| `MerchantOfRecord` only | `PILOT_COMMERCIAL_ROLE`; the write boundary and structural validation both refuse `Agent` and `Unspecified` |
+| Immutable per-order snapshot | `commercialRole` is set at creation and no operation can change it |
+| NGN only, never converted | `ORDER_CURRENCY`; `exactNgnMoney()` at the boundary and a currency check on every stored amount |
+| No FX anywhere | No rate source, snapshot, conversion or settlement currency exists in H3.7 |
+| Manual quotation | The field starts empty and nothing prefills it; `validateQuotation()` derives nothing |
+| `estimatedVendorCost` from the confirmed quote | Read from the live `VendorSelection` Decision, never from `CatalogItem.price` |
+| Budget is not a ceiling | No rule relates the quotation or the costs to `approvedBudget` |
+| Margin derived, never stored | `grossMargin()` computes on read; `FORBIDDEN_ORDER_FIELDS` refuses it by name |
+| One order per Moment | Refused at the boundary and in `validateOperationsState` |
+| No payments or settlement | Every payment-shaped field name is refused explicitly |
+
+**Two things the implementation added**, both narrower than the decision rather than wider:
+
+- **A dispatch gate.** A new initial dispatch requires a committed order, because a quotation is a
+  human judgement that cannot be reconstructed after the parcel has gone. It gates **creation only**:
+  Fulfilments dispatched before H3.7 keep their full history, remain structurally valid, and are
+  never given an invented order — the surface names that limitation instead.
+- **Reconciliation as a superseding Decision.** The order's actuals are a projection of the live
+  `CostReconciliation`; a correction appends a new one carrying the previous values and marks the
+  prior one `Superseded` without rewriting it.
+
+**One judgement this record left open — Events.** ADR-006's test is whether something changes the
+state of a Moment's execution. **Committing the order does**, because dispatch now requires it, and
+every other gating step records an Event; so `RecognitionOrderCommitted` was added. **Reconciliation
+and correction record no Event**: they capture amounts after execution has finished. Declared rather
+than assumed.
+
+**Not built, as required:** payments, collections, invoicing, settlement, reconciliation with a
+provider, refunds, chargebacks, taxes, duties, service fees, FX, multi-currency orders, rate cards,
+pricing engines, percentage pricing, vendor commission, sender service fee, corporate subscription,
+payment margin, featured placement, `actualOtherCosts` and stored margin.
+
+**The professional confirmations above still bind before any external pilot**, and ADR-010's gate is
+unchanged.

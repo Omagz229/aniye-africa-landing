@@ -47,6 +47,7 @@ import type { NormalizedOffer } from '../lib/operations/vendor-selection';
 import { buildCourier, validateCourierDraft } from '../lib/operations/couriers';
 import type { CourierDraft } from '../lib/operations/couriers';
 import { buildCourierSelection } from '../lib/operations/courier-selection';
+import { buildOrderCommitment } from '../lib/operations/recognition-order';
 import {
   buildDelivery,
   buildDeliveryFailure,
@@ -119,6 +120,7 @@ const ids = {
   brief: () => `brief-${++n}`,
   offer: () => `offer-${++n}`,
   fulfilment: () => `fulfilment-${++n}`,
+  order: () => `order-${++n}`,
 };
 
 function ngn(major: number): Money { return { amountMinor: major * 100, currency: 'NGN' }; }
@@ -282,6 +284,20 @@ function preparedWorkspace(over: { legacySnapshot?: boolean; partialSnapshot?: b
   assert(builtCourier.ok, `Fixture failed to choose a courier: ${builtCourier.ok ? '' : builtCourier.reason}`);
   assert(repo.commitCourierSelection(WS, builtCourier.value, NOW).ok, 'Fixture failed to commit a courier selection.');
 
+  // H3.7 — an initial dispatch now requires committed commercial authority
+  // (ADR-013). The quotation is manual, so the fixture supplies one.
+  const s3 = repo.load(WS);
+  assert(s3.ok && s3.value, 'Fixture state unreadable.');
+  const builtOrder = buildOrderCommitment({
+    moment, brief,
+    decisions: s3.value!.decisions.filter(d => d.momentId === moment.id),
+    orders: [], fulfilments: [],
+    quotation: { estimatedCustomerCharge: ngn(62_000), reason: 'Agreed rate for this programme.' },
+    now: NOW, ids, actorId: 'operator-1',
+  });
+  assert(builtOrder.ok, `Fixture failed to commit an order: ${builtOrder.ok ? '' : builtOrder.reason}`);
+  assert(repo.commitRecognitionOrder(WS, builtOrder.value, NOW).ok, 'Fixture failed to store the order.');
+
   return { repo, storage, moment, brief, courier, vendor };
 }
 
@@ -298,6 +314,7 @@ function ctx(fx: Fx) {
     decisions: s.decisions.filter(d => d.momentId === fx.moment.id),
     fulfilments: s.fulfilments,
     events: s.events.filter(e => e.momentId === fx.moment.id),
+    orders: s.recognitionOrders,
   };
 }
 
@@ -402,6 +419,7 @@ function verifyDirect(fx: Fx, kind: FulfilmentWriteKind, write: unknown) {
     workspaceId: WS, moment: c.moment,
     briefs: c.brief ? [c.brief] : [],
     decisions: c.decisions, fulfilments: c.fulfilments, events: c.events,
+    orders: c.orders,
     write, kind,
   });
 }
@@ -410,8 +428,8 @@ console.log('\nH3.6 — fulfilment lifecycle\n');
 
 // ─── Part 1: persistence and migration ───────────────────────────────────────
 
-check('1. The operations schema is at v7, and Workspace is untouched by it', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 7, 'Operations schema is not at v7.');
+check('1. The operations schema is at or beyond v7, and Workspace is untouched by it', () => {
+  assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 7, 'Operations schema regressed below v7.');
   const fresh = freshWorkspace();
   assert(!('fulfilments' in (fresh as unknown as Record<string, unknown>)), 'Fulfilments reached WorkspaceState.');
 });
@@ -427,7 +445,7 @@ check('2. The v6 → v7 rung adds only an empty fulfilment collection', () => {
   const result = migrateOperationsState(JSON.parse(before));
   assert(result.status === 'migrated', 'A v6 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 7, 'The migration did not reach v7.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'The migration did not reach the current schema.');
   assert(Array.isArray(result.state.fulfilments), 'The v6 → v7 rung did not add fulfilments.');
   assertEqual(result.state.fulfilments.length, 0, 'The migration invented a fulfilment.');
 
@@ -442,7 +460,7 @@ check('2. The v6 → v7 rung adds only an empty fulfilment collection', () => {
   assert((result.state as unknown as Record<string, unknown>).aFutureKey !== undefined, 'An unknown key was dropped.');
 });
 
-check('3. A v1 payload walks every rung to v7 without losing history', () => {
+check('3. A v1 payload walks every rung to the current schema without losing history', () => {
   const v1 = {
     schemaVersion: 1, workspaceId: WS,
     moments: [{ id: 'm-old', sourceKey: 'k' }], decisions: [{ id: 'd-old' }], events: [{ id: 'e-old' }],
@@ -451,7 +469,7 @@ check('3. A v1 payload walks every rung to v7 without losing history', () => {
   const result = migrateOperationsState(v1);
   assert(result.status === 'migrated', 'A v1 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 7, 'Migration did not reach v7.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach the current schema.');
   assert(Array.isArray(result.state.executionBriefs), 'The v1 → v2 rung did not run.');
   assert(Array.isArray(result.state.vendors), 'The v3 → v4 rung did not run.');
   assert(Array.isArray(result.state.couriers), 'The v4 → v5 rung did not run.');
@@ -462,9 +480,12 @@ check('3. A v1 payload walks every rung to v7 without losing history', () => {
   assert((result.state as unknown as Record<string, unknown>).aFutureKey !== undefined, 'An unknown key was dropped.');
 });
 
-check('4. A v8 payload is still refused rather than downgraded', () => {
-  const v8 = { schemaVersion: 8, workspaceId: WS, moments: [], decisions: [], events: [] };
-  const result = migrateOperationsState(v8);
+check('4. A newer-than-current payload is still refused rather than downgraded', () => {
+  const future = {
+    schemaVersion: CURRENT_OPERATIONS_SCHEMA_VERSION + 1,
+    workspaceId: WS, moments: [], decisions: [], events: [],
+  };
+  const result = migrateOperationsState(future);
   assertEqual(result.status, 'invalid', 'A future version was adopted.');
 });
 

@@ -33,7 +33,7 @@ exist to defend it — the first as a product and routing boundary, the second a
 | Scope | One organization | Across all organizations |
 | Route tree | `/workspace/*` | `/operations/*` |
 | Shell | `WorkspaceShell` | `OperationsShell` — shares nothing |
-| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v7** |
+| Persistence | `WorkspaceState`, key `aniye_workspace`, **v7** | `OperationsState`, key `aniye_operations_v1`, **v8** |
 | Nature of records | Configuration, edited freely | Operational history, accumulating |
 | Growth | Bounded by organization size | Unbounded |
 | Vocabulary | "recognition program", "upcoming recognition" | "campaign", "job", "brief" |
@@ -112,8 +112,8 @@ but that is a **platform and pilot posture, not a legal opinion**, so the caveat
 professional review is complete. Because taxes, duties, service fees, refunds and payment costs all
 remain deferred, the derived figure is also **not the company's complete profitability**.
 
-**The accepted pilot financial model** ([ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md),
-accepted and **not implemented** — H3.7 has not begun):
+**The pilot financial model, implemented at H3.7**
+([ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md)):
 
 - **Every amount on a pilot `RecognitionOrder` is NGN.** A non-NGN supplier cost puts the order
   outside the approved architecture. It is never converted, defaulted or implicitly compared.
@@ -131,7 +131,7 @@ accepted and **not implemented** — H3.7 has not begun):
 
 ## 3. Operational objects
 
-### Implemented — H3.1 through H3.6
+### Implemented — H3.1 through H3.7
 
 Defined in `lib/operations/types.ts`. Access is through `OperationsRepository`
 (`lib/operations/store.ts`). Construction is pure, in `lib/operations/generation.ts` (Moments),
@@ -395,11 +395,49 @@ promises, and **cannot be dispatched**. It also cannot be repaired: the promises
 because generation refuses a `sourceKey` that already exists and cancelling does not release it. The
 recovery says exactly that rather than offering an action that would fail.
 
+### `RecognitionOrder` — H3.7
+
+**[ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) governs this object.**
+Nineteen fields, one per Moment, in `OperationsState` only.
+
+| Field | Note |
+|---|---|
+| `id`, `workspaceId`, `momentId` | **One order per Moment.** Never two |
+| `executionBriefId`, `briefRevision` | The confirmed brief that governed it |
+| `itemSelectionDecisionId`, `vendorSelectionDecisionId`, `courierSelectionDecisionId` | The three live Decisions — immutable authority for what was bought |
+| `commercialRole` | Snapshotted at creation, **immutable**, and only ever `MerchantOfRecord` |
+| `approvedBudget` | Frozen from the brief. **Not the customer charge, and not a ceiling on cost** |
+| `estimatedVendorCost`, `estimatedCourierCost` | From the confirmed selection quotes. **Never the catalog price** |
+| `estimatedCustomerCharge` | **The manual quotation.** Typed, confirmed, then immutable |
+| `actualVendorCost`, `actualCourierCost`, `actualCustomerCharge` | Optional; all three arrive together |
+| `status` | `Committed` or `Reconciled`. No draft, no cancellation |
+| `createdAt`, `updatedAt` | — |
+
+**Two Decisions, one Event.** `RecognitionOrderCommitment` records the quotation judgement;
+`CostReconciliation` records the actuals, and a correction supersedes the live one while preserving
+its figures and reason. **`RecognitionOrderCommitted` is the only Event** — committing changes what
+may happen to the Moment next, because dispatch now requires it. Reconciliation and correction append
+**no Event**: they record amounts after execution finished and change nothing about the Moment's
+execution.
+
+⚠️ **`grossMargin` is not a field.** It is derived on read, which is why correcting a cost needs no
+second write. ⚠️ **Deliberately absent:** `estimatedItemCost`, `estimatedTotalCost`,
+`actualOtherCosts`, `amountPaid`, `paymentStatus`, `paymentMethod`, `invoiceId`, `settlementStatus`,
+`serviceFee`, `commission`, `subscription`, `refund`, `tax`, `duty`, `fxRate`, `exchangeRate` and
+`settlementCurrency` — each refused **by name** at the write boundary.
+
+**No amount asserts that money moved.** `actualCustomerCharge` is what Aniyé charges, not what Aniyé
+received.
+
+**The dispatch gate.** A new initial dispatch requires a committed order, because a quotation is a
+human judgement that cannot be reconstructed after the parcel has gone. **A Fulfilment dispatched
+before H3.7 keeps its full history and can never receive an invented order** — the surface names that
+limitation rather than offering an action that would fabricate evidence.
+
 ### Accepted, not implemented
 
 | Object | Milestone | Authority |
 |--------|-----------|-----------|
-| **RecognitionOrder** — one per Moment; margin derived | H3.7 | ADR-007 |
 | **Memory** — append-only relationship timeline entry | H3.8 | Atlas §4 |
 
 ### ⚠️ Draft, not specification
@@ -561,7 +599,8 @@ Full table: checkpoint Part 2. Milestone identifiers: [`MASTER_ROADMAP.md`](MAST
 | Courier selected | `CourierSelection` Decision | `CourierSelection` | **`CourierSelected`** | H3.5 ✅ |
 | Fulfilment tracked | Fulfilment | **`Redelivery` only** | `Dispatched`, `DeliveryFailed` | H3.6 ✅ |
 | Delivery confirmed | Fulfilment | **none** | `Delivered`, `ProofReceived` *(metadata only)* | H3.6 ✅ |
-| Cost recorded | RecognitionOrder | — | — | H3.7 |
+| Order committed | RecognitionOrder | **`RecognitionOrderCommitment`** | **`RecognitionOrderCommitted`** | H3.7 ✅ |
+| Costs reconciled | RecognitionOrder | **`CostReconciliation`** | **none** — bookkeeping after execution | H3.7 ✅ |
 | Moment closed | Moment, Memory | — | `MomentClosed` | H3.8 |
 
 **Decision and Event names beyond H3.1 are the checkpoint's proposals, not implemented enums.** The
@@ -778,7 +817,8 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v2.1 — Aniyé Africa — 30 July 2026*
+*Relationship Operations Atlas v2.2 — Aniyé Africa — 31 July 2026*
+*v2.2: **H3.7 — Recognition Order and commercial tracking implemented; [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) is built as accepted.** Persistence is now `OperationsState` **v8** (additive `recognitionOrders`; invents no order for any Moment or already-dispatched Fulfilment); Workspace stays **v7**. §3 gains the built nineteen-field `RecognitionOrder` and moves it out of *accepted, not implemented*. §2 Money records the financial model as implemented rather than accepted. §6 gains two rows: **order committed** (`RecognitionOrderCommitment` + `RecognitionOrderCommitted`) and **costs reconciled** (`CostReconciliation`, **no Event** — it records amounts after execution finished and changes nothing about the Moment's execution). One order per Moment, `Committed` → `Reconciled`, **no draft and no cancellation**; `commercialRole` immutable and only ever `MerchantOfRecord`; **every amount NGN**, refused rather than converted; **the customer quotation is typed by an operator and never prefilled or derived**; **`grossMargin` derived on read and never stored**. **A committed order is required before a new initial dispatch**, and legacy Fulfilments keep their history and are never backfilled. **OPS-U4b remains deferred.** H3.8 has not begun.*
 *v2.1: **H3.6 → H3.7 commercial governance closure — documentation only; no code, schema, migration, validation, route or UI changed.** §9 records **OPS-U3 as resolved** by [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md): `commercialRole = MerchantOfRecord`, accepted as the **platform and pilot posture rather than a legal opinion**, with Nigerian legal, tax and accounting confirmation required before any external pilot and a **new governance decision** required if an Agent model is later needed. §2 Money records the accepted pilot financial model — **NGN-only orders**, FX excluded from H3.7, **`estimatedCustomerCharge` as a manual per-order quotation** with no formula or pricing engine, `estimatedVendorCost` from the confirmed `VendorSelection` quote superseding ADR-007's `estimatedItemCost`, an immutable per-order `commercialRole` snapshot, and the earlier revenue proposals deferred and non-authoritative. **OPS-U4b remains deferred.** The implemented-state footer, which stopped at H3.5, now records **H3.6** and states that everything from the RecognitionOrder onward is accepted architecture only. **H3.7 has not begun**; `OperationsState` remains **v7** and Workspace remains **v7**.*
 *v2.0: **H3.6 — fulfilment tracking implemented. [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md) is built as accepted.** Persistence is now `OperationsState` **v7** (additive `fulfilments`; invents no Fulfilment); Workspace stays **v7**. §3 moves `Fulfilment` out of *accepted, not implemented* and records the re-issued field list as built. §6 marks both fulfilment rows ✅ — `Redelivery` is the only Decision, and `Dispatched` / `DeliveryFailed` / `Delivered` / `ProofReceived` are the four Events. The customer-sees table is unchanged: **"confirmation + curated proof" remains future architecture**, because H3.6 stores no proof file. §9 records **OPS-U4a as resolved *and implemented***, and **OPS-U4b as still deferred** — H3.6 introduced no `QAException`, no dispute path, no `Returned` and no `Escalation`. **OPS-U3 (merchant of record) now binds on the next milestone**, H3.7, together with CP-U4. ⚠️ **No browser verification was performed for H3.6**; its two operator surfaces are covered by automated checks and static review only.*
 *v1.9: **Pre-H3.6 policy-resolution snapshot correction implemented.** Persistence is now `OperationsState` **v6**. Newly generated Moment snapshots capture the resolved policy's four delivery promises; existing Moments and copied brief snapshots are not backfilled, and absence remains unknown rather than becoming a default. Partial or malformed delivery context is structurally refused, and confirmation revalidation treats each promise as material. H3.6 has not begun; no Fulfilment, lifecycle type, Event, Decision, route or UI was added.*
@@ -791,5 +831,5 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 *v1.2: H3.2 — the Execution Brief moves from accepted to **implemented**. §3 gains its definition, the address gate, override and revision rules; §6 marks the brief step done; Decision and Event type lists extended; persistence restated as Workspace v7 / OperationsState v2.*
 *v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
 *v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
-*Basis: Workspace schema v7, `OperationsState` v7, System Atlas v3.13, ADR-001 … ADR-013.*
-*Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection · H3.4 vendor directory, offers and selection · H3.5 courier directory and selection · H3.6 fulfilment lifecycle. Everything from the RecognitionOrder onward is accepted architecture only — [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) is accepted and **not implemented**, and H3.7 has not begun.*
+*Basis: Workspace schema v7, `OperationsState` v8, System Atlas v3.14, ADR-001 … ADR-013.*
+*Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection · H3.4 vendor directory, offers and selection · H3.5 courier directory and selection · H3.6 fulfilment lifecycle · H3.7 Recognition Order and commercial tracking. Everything from Moment closure and Memory onward is accepted architecture only — **H3.8 has not begun**.*

@@ -32,6 +32,7 @@ import type {
   Moment,
   OperationalEvent,
   ProofKind,
+  RecognitionOrder,
 } from './types';
 import {
   EVENT_SOURCES,
@@ -131,6 +132,7 @@ export interface FulfilmentBlocker {
     | 'no-item-selection'
     | 'no-vendor-selection'
     | 'no-courier-selection'
+    | 'no-recognition-order'
     | 'authority-disagrees'
     | 'delivery-context-missing';
   message: string;
@@ -180,6 +182,8 @@ export interface FulfilmentContext {
   decisions: readonly Decision[];
   fulfilments: readonly Fulfilment[];
   events: readonly OperationalEvent[];
+  /** H3.7 — required before a *new* dispatch; irrelevant to an existing one. */
+  orders?: readonly RecognitionOrder[];
 }
 
 function readName(decision: Decision | null, key: string): string | null {
@@ -288,6 +292,16 @@ export function previewFulfilment(context: FulfilmentContext): FulfilmentPreview
       message: 'No courier has been chosen for this moment yet.',
       recovery: 'Arrange carriage first — dispatch is confirming that the courier has it.',
       href: `/operations/moments/${moment.id}/courier`,
+    });
+  } else if (!(context.orders ?? []).some(o => o.momentId === moment.id)) {
+    // H3.7 — ADR-013. Commercial authority precedes dispatch, because a
+    // quotation cannot be reconstructed after the parcel has gone.
+    blockers.push({
+      code: 'no-recognition-order',
+      message: 'No Recognition Order has been committed for this moment yet.',
+      recovery:
+        'Commit the commercial authority first — the approved budget, the vendor and courier estimates and your customer quotation. It cannot be recorded after dispatch.',
+      href: `/operations/moments/${moment.id}/order`,
     });
   }
 
@@ -678,6 +692,16 @@ export interface VerifyFulfilmentInput {
   decisions: readonly Decision[];
   fulfilments: readonly Fulfilment[];
   events: readonly OperationalEvent[];
+  /**
+   * H3.7 — the Recognition Orders in this workspace.
+   *
+   * **Optional, and deliberately so.** An initial dispatch requires a committed
+   * order (ADR-013); every *later* transition does not, because a Fulfilment
+   * dispatched before H3.7 existed is valid history and its failures,
+   * deliveries and proofs must still be recordable. Omitting it is read as
+   * "no orders", which refuses new dispatches and permits nothing else new.
+   */
+  orders?: readonly RecognitionOrder[];
   write: unknown;
   kind: FulfilmentWriteKind;
 }
@@ -1000,6 +1024,41 @@ function verifyInitialDispatch(
       reason:
         'This moment was prepared before delivery promises were recorded, so what was promised is unknown. It cannot be dispatched here, and it cannot be prepared again — nothing was recorded.',
     };
+  }
+
+  /**
+   * **H3.7 — commercial authority precedes dispatch (ADR-013).**
+   *
+   * A parcel that goes out with no committed order has no recorded budget,
+   * estimate or customer quotation behind it, and none can be reconstructed
+   * afterwards: the quotation is a human judgement that no formula may invent.
+   * So the order is required *before* the dispatch rather than chased after it.
+   *
+   * ⚠️ This gates **creation only.** Fulfilments dispatched before H3.7 existed
+   * remain valid, readable and fully advanceable — their failures, redeliveries,
+   * deliveries and proof receipts all still record. Structural validation does
+   * not require an order for them, and the migration invents none.
+   */
+  const order = (input.orders ?? []).find(o => o.momentId === moment.id) ?? null;
+  if (!order) {
+    return {
+      ok: false,
+      reason:
+        'This moment has no committed Recognition Order, and commercial authority must be recorded before dispatch. Create the order first — nothing was recorded.',
+    };
+  }
+  if (order.workspaceId !== workspaceId) {
+    return refuse('That recognition order belongs to a different workspace.');
+  }
+  if (order.executionBriefId !== brief.id || order.briefRevision !== brief.revision) {
+    return refuse('The recognition order was committed against a different brief revision.');
+  }
+  if (
+    order.itemSelectionDecisionId !== itemDecision.id ||
+    order.vendorSelectionDecisionId !== vendorDecision.id ||
+    order.courierSelectionDecisionId !== courierDecision.id
+  ) {
+    return refuse('The recognition order was committed against a different item, vendor or courier.');
   }
 
   if (!isIsoInstant(submitted.createdAt) || submitted.createdAt !== submitted.updatedAt) {

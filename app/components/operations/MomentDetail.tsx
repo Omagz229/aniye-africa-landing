@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getWorkspace } from '@/lib/workspace';
 import { formatMoney } from '@/lib/money';
-import type { Decision, ExecutionBrief, Fulfilment, Moment, OperationalEvent } from '@/lib/operations/types';
+import type { Decision, ExecutionBrief, Fulfilment, Moment, OperationalEvent, RecognitionOrder } from '@/lib/operations/types';
 import { browserOperationsRepository } from '@/lib/operations/local-store';
 import { buildCancellation } from '@/lib/operations/generation';
 import { findLiveSelectionDecision } from '@/lib/operations/selection';
 import { findLiveVendorSelection } from '@/lib/operations/vendor-selection';
 import { findLiveCourierSelection } from '@/lib/operations/courier-selection';
 import { humanFulfilmentStatus } from '@/lib/operations/fulfilment';
+import { findOrderForMoment } from '@/lib/operations/recognition-order';
 
 export default function MomentDetail({ momentId }: { momentId: string }) {
   const [moment, setMoment] = useState<Moment | null>(null);
@@ -18,6 +19,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [events, setEvents] = useState<OperationalEvent[]>([]);
   const [fulfilments, setFulfilments] = useState<Fulfilment[]>([]);
+  const [orders, setOrders] = useState<RecognitionOrder[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -51,6 +53,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)),
       );
       setFulfilments(state.value.fulfilments.filter(f => f.momentId === momentId));
+      setOrders(state.value.recognitionOrders.filter(o => o.momentId === momentId));
     }
   }
 
@@ -109,7 +112,15 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
    */
   const courierSelection = findLiveCourierSelection(decisions, moment.id);
   const fulfilment = fulfilments.find(f => f.momentId === moment.id) ?? null;
-  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'dispatch' | 'fulfilment' =
+  const order = findOrderForMoment(orders, moment.id);
+  /**
+   * H3.7 inserts the commercial commitment **between carriage and dispatch** —
+   * a quotation cannot be reconstructed once a parcel has gone (ADR-013).
+   * A Moment dispatched before H3.7 existed has no order and never will, so it
+   * skips straight to its fulfilment rather than being sent to an order screen
+   * that can only refuse it.
+   */
+  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'order' | 'dispatch' | 'fulfilment' | 'reconcile' | 'closed' =
     !brief || brief.status !== 'Confirmed'
       ? 'brief'
       : !selection
@@ -118,17 +129,26 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           ? 'vendor'
           : !courierSelection
             ? 'courier'
-            : !fulfilment
-              ? 'dispatch'
-              : 'fulfilment';
+            : !order && !fulfilment
+              ? 'order'
+              : !fulfilment
+                ? 'dispatch'
+                : fulfilment.status === 'Delivered' && order && order.status !== 'Reconciled'
+                  ? 'reconcile'
+                  : order?.status === 'Reconciled'
+                    ? 'closed'
+                    : 'fulfilment';
 
   const NEXT: Record<typeof nextAction, { href: string; label: string; primary: boolean }> = {
     brief: { href: `/operations/moments/${moment.id}/brief`, label: 'Open the brief', primary: true },
     item: { href: `/operations/moments/${moment.id}/item`, label: 'Choose an item', primary: true },
     vendor: { href: `/operations/moments/${moment.id}/vendor`, label: 'Compare vendor offers', primary: true },
     courier: { href: `/operations/moments/${moment.id}/courier`, label: 'Arrange carriage', primary: true },
-    dispatch: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'Confirm dispatch', primary: true },
+    order: { href: `/operations/moments/${moment.id}/order`, label: 'Create Recognition Order', primary: true },
+    dispatch: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'Continue to fulfilment', primary: true },
     fulfilment: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'View fulfilment', primary: false },
+    reconcile: { href: `/operations/moments/${moment.id}/order`, label: 'Record actual amounts', primary: true },
+    closed: { href: `/operations/moments/${moment.id}/order`, label: 'View the order', primary: false },
   };
   const next = NEXT[nextAction];
 
@@ -238,9 +258,15 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
                   ? 'An item has been chosen. Recording vendor quotes and picking one is the next step.'
                   : nextAction === 'courier'
                     ? 'A vendor has been chosen. Arranging who carries it is the next step.'
-                    : nextAction === 'dispatch'
-                      ? 'Item, vendor and courier are all chosen. Confirming that the courier has it is the next step.'
-                      : `This is ${humanFulfilmentStatus(fulfilment!.status).toLowerCase()} at attempt ${fulfilment!.attempt}. The fulfilment screen holds its full history.`}
+                    : nextAction === 'order'
+                      ? 'Item, vendor and courier are all chosen. Committing the Recognition Order is next — it fixes the budget and estimates and records the customer quotation, and it must exist before dispatch.'
+                      : nextAction === 'dispatch'
+                        ? 'The Recognition Order is committed. Confirming that the courier has it is the next step.'
+                        : nextAction === 'reconcile'
+                          ? 'This was delivered. Confirming the actual vendor, courier and customer amounts is the next step.'
+                          : nextAction === 'closed'
+                            ? 'Delivered and reconciled. Closing the moment and writing its Memory is the next milestone and is not built yet — nothing further can be done with this moment in this build.'
+                            : `This is ${humanFulfilmentStatus(fulfilment!.status).toLowerCase()} at attempt ${fulfilment!.attempt}. The fulfilment screen holds its full history.`}
           </p>
         </div>
       )}
@@ -354,6 +380,7 @@ function humanEvent(type: string): string {
     case 'DeliveryFailed': return 'Delivery failed';
     case 'Delivered': return 'Delivered';
     case 'ProofReceived': return 'Proof received';
+    case 'RecognitionOrderCommitted': return 'Recognition order committed';
     default: return type;
   }
 }

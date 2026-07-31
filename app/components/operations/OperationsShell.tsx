@@ -31,6 +31,7 @@ const NAV_ITEMS = [
   { label: 'Vendors', href: '/operations/vendors', exact: false, built: true },
   { label: 'Couriers', href: '/operations/couriers', exact: false, built: true },
   { label: 'Fulfilments', href: '/operations/fulfilments', exact: false, built: true },
+  { label: 'Orders', href: '/operations/orders', exact: false, built: true },
 ];
 
 /**

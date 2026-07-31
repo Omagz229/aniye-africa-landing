@@ -36,7 +36,8 @@
 | — | **Pre-H3.6 — policy-resolution delivery snapshot** | ✅ **Complete** — OperationsState v6 | Snapshot v6 |
 | — | **H3.6 — Fulfilment tracking** | ✅ **Complete** — OperationsState v7; ADR-012 implemented | H3.6 |
 | — | **H3.6 → H3.7 commercial governance closure** | ✅ **Complete** — ADR-013 accepted; documentation only | Governance |
-| — | **H3.7 — Recognition Order + commercial tracking** | ⬜ **Not begun.** Governance resolved by [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) | — |
+| — | **H3.7 — Recognition Order + commercial tracking** | ✅ **Complete** — OperationsState v8; ADR-013 implemented | H3.7 |
+| — | **H3.8 — Confirmation + Memory** | ⬜ **Not begun** | — |
 | — | **Production backend + authentication** | ⛔ **Mandatory before any external pilot** | — |
 
 > **Reconstruction is complete.** Every milestone this ledger was opened to recover has landed.
@@ -2045,6 +2046,96 @@ anywhere in the repository. Milestone count stays **24 of 37**; H3 stays **6 of 
 posture, and ADR-010's unchanged production backend, authentication, multi-tenancy and secure
 file-storage requirements. **OPS-U4b** (QA and adjudication) remains deferred.
 
+---
+
+### ✅ H3.7 — Recognition Order and commercial tracking — 2026-07-31
+
+**New build, not recovery. `OperationsState` v7 → v8.**
+[ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) is implemented as
+accepted, with every decision held and no variance. Workspace remains **v7**.
+
+**What was built.** One `RecognitionOrder` per Moment, created **only** on explicit confirmation —
+there is no draft, and no cancellation. Two statuses: `Committed`, then `Reconciled` once all three
+actual amounts are confirmed. `commercialRole` is snapshotted at creation, immutable, and **only
+`MerchantOfRecord` may ever be written** — `Agent` and `Unspecified` exist as ADR-007's reserved
+values and are refused at the write boundary and in structural validation.
+
+**Every amount is NGN, and a non-NGN amount is refused rather than converted.** There is no exchange
+rate, no snapshot, no conversion and no settlement currency anywhere in H3.7.
+
+**The quotation is a judgement, not a calculation.** `estimatedCustomerCharge` is typed by an
+operator and confirmed with a reason. The field starts empty and **nothing prefills or suggests it**:
+no budget-derived figure, no percentage, no margin target, no rate card, no pricing engine. A quote
+below cost, above budget, or zero is accepted, because no accepted rule prohibits any of them and
+inventing one would be a commercial decision nobody has made.
+
+**The estimates come from the confirmed quotes, not the catalog.** `estimatedVendorCost` reads the
+live `VendorSelection` Decision and `estimatedCourierCost` the `CourierSelection` — ADR-007's
+`estimatedItemCost` is superseded. The live browser run demonstrated the distinction concretely: the
+chosen item was **NGN 38,000** and the vendor quoted **NGN 34,000**, and the order carries the quote.
+
+**Margin is derived on read and never stored.** `grossMargin()` computes
+`actualCustomerCharge − actualVendorCost − actualCourierCost` in integer minor units, returns nothing
+until all three exist, and refuses a currency mismatch rather than converting. **Correcting a cost
+therefore needs no second write** — there is nothing stored to update, which is exactly why ADR-007
+forbids storing it.
+
+**Corrections supersede; they never rewrite.** Actuals are confirmed as one set after `Delivered`. A
+correction appends a new `CostReconciliation` carrying the previous values and marks the prior one
+`Superseded`, leaving its amounts, reason and summary byte-identical. Two corrections leave three
+records in persisted order.
+
+**A committed order is now required before a new initial dispatch.** A quotation is a human judgement
+that cannot be reconstructed once a parcel has gone, so the commercial authority is recorded before
+the dispatch rather than chased afterwards.
+
+⚠️ **Legacy Fulfilments were not backfilled, and never will be.** A Fulfilment dispatched before H3.7
+keeps its complete history, remains structurally valid, and can still record failures, redeliveries,
+deliveries and proof. The migration invents no order for it, and the surface states the limitation
+verbatim: *"Commercial authority was not recorded before this fulfilment began, so a Recognition
+Order cannot be reconstructed safely."*
+
+**One judgement the brief left to the architecture review — Events.** ADR-006's test is whether
+something changes the state of a Moment's execution. Committing the order **does**, because dispatch
+now requires it, and every other gating step records an Event; without one the timeline would read
+"Courier chosen · …nothing… · Dispatched", the exact gap H3.5 added `CourierSelected` to close. So
+**`RecognitionOrderCommitted` was added**. **Reconciliation and correction append no Event** — they
+record amounts after execution has finished. Declared rather than assumed.
+
+**Not built, as required:** payments, collections, invoicing, settlement, refunds, chargebacks,
+taxes, duties, service fees, FX, multi-currency orders, rate cards, pricing engines, percentage
+pricing, vendor commission, sender service fee, corporate subscription, payment margin, featured
+placement, `actualOtherCosts`, stored margin, Moment closure and Memory. `MOMENT_STATUSES` is
+unchanged at three; Workspace schema and configuration are untouched.
+
+**Gates.** New suite `validate:orders` — **47 checks**. **551 checks across thirteen suites**
+(verification 9, migration 18, assignments 20, people 30, money 25, programs 35, briefs 47,
+operations 54, selection 71, vendors 92, couriers 53, fulfilments 50, orders 47). Typecheck clean.
+Lint **47 problems — 26 errors, 21 warnings**, exactly the pre-H3.7 baseline. Build succeeds with
+**32 routes** (two intentional additions: `/operations/orders` and
+`/operations/moments/[id]/order`).
+
+**Browser verification — performed.** The full flow was run live against a workspace whose stored
+operations payload was still at **v5**, which migrated to **v8** on the first write with
+`recognitionOrders: []` and no backfill. Courier selected → dispatch refused with a named recovery →
+quotation typed and cancelled (**zero writes**) → committed (**one write**) → refreshed and the
+authority persisted → dispatched → delivered → actuals confirmed (**one write**, margin NGN 24,500) →
+vendor cost corrected (**one write**, margin NGN 27,500) → courier cost corrected (**one write**,
+margin NGN 27,000) → three reconciliations preserved in order, two superseded. An invalid amount
+produced a named error with **zero writes** and unchanged state. Measured `window.innerWidth`:
+**1440px**, **768px** and a browser-clamped **500px** — 390px was requested and the browser did not
+grant it. No page or clipped inner overflow at any width; every new control ≥ 44px; the gold focus
+ring present and `:focus-visible` matching; Tab order correct through the forms.
+
+⚠️ **Real-device testing remains outstanding** and is not claimed.
+
+**H3.8 — Confirmation + Memory is next and has not begun.** No Moment closure, no `Memory` record and
+no `MomentClosed` Event exists. **Still gating an external pilot:** the ADR-013 professional
+confirmations (Nigerian legal, tax, accounting and payments) and ADR-010's production backend,
+authentication, multi-tenancy and secure file storage. **OPS-U4b** remains deferred.
+
+
+
 
 
 ---
@@ -2609,3 +2700,4 @@ All reconstruction work is performed on **`recovery/h3-reconstruction`**.
 *Updated after the pre-H3.6 policy-resolution delivery snapshot correction — `OperationsState` **v6** captures `deliveryRequirement`, `preferredDeliveryWindow`, `signatureRequired` and `proofRequired` on newly generated Moments. The v5 → v6 migration is a pure version bump: existing records are not backfilled, legacy absence remains unknown, and partial or malformed delivery context is refused. Confirmation revalidation treats every delivery promise as material. Operations validation **50 → 54**; **454 checks across eleven suites**; typecheck clean; lint unchanged at **47 (26 errors, 21 warnings)**; build **28 routes**. No UI or route changed, so no browser run was performed. Workspace remains **v7**; H3.6 has not begun; both prerequisites are now complete. System Atlas v3.11, Master Roadmap v1.9, Relationship Operations Atlas v1.9.*
 *Updated after H3.6 (Fulfilment tracking) — `OperationsState` **v7** (additive `fulfilments`; invents no Fulfilment, touches no existing record; a v1 payload still walks every rung). Workspace unchanged at **v7**, and the two counters now coincide without being coupled — the two checks that asserted independence by asserting inequality were corrected to test separate persistence instead. ADR-012 implemented as accepted: one Fulfilment per Moment created only on confirmed dispatch, no persisted draft, three statuses, `Redelivery` the only Decision, `ProofReceived` after `Delivered` only and changing no status. Proof is metadata — no file, URL, data URI, base64 or blob — refused on the payload **and** on the Event itself, and proven absent from storage. Current state is checked against a replay of each fulfilment's own Events. A pre-v6 Moment is refused at dispatch with a recovery that does not promise a re-preparation the idempotency rules cannot perform. New suite `validate:fulfilments` (50); **504 checks across twelve suites**; typecheck clean; lint 47 (26 errors, 21 warnings); build 30 routes. **No browser verification was performed**; real-device testing remains outstanding. H3.7 has not begun and is gated on CP-U3 / OPS-U3 and CP-U4.*
 *Updated after the H3.6 → H3.7 commercial governance closure (2026-07-30) — **documentation only; no code, schema, migration, validation, route or UI changed.** [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) created and accepted, closing **CP-U3 / OPS-U3** (`commercialRole = MerchantOfRecord`, a platform and pilot posture rather than a legal opinion) and **CP-U4** (**NGN** for every amount on a pilot `RecognitionOrder`). FX stays out of H3.7 entirely; `estimatedCustomerCharge` is a **manual per-order quotation** with no formula, percentage, rate card or pricing engine and no payment or cash assumption; ADR-007's `estimatedItemCost` is superseded for H3.7 by `estimatedVendorCost` from the confirmed `VendorSelection` quote; `grossMargin` stays derived on read and never stored. Vendor commission, sender service fee, corporate subscription, payment margin, featured placement and percentage pricing are preserved historically but **deferred and non-authoritative**. First pilot is one corporate organization with **Lagos fulfilment, city-first**; **Nigeria → Cameroon remains the first cross-border corridor, sequenced after it and not abandoned**. Current-state drift corrected across the ADR registry, both Atlases and the roadmap basis footer; dated historical entries left intact. Baselines unchanged and **not rerun** — 504 checks across twelve suites, lint 47 (26 errors, 21 warnings), build 30 routes. Workspace **v7**, `OperationsState` **v7**, **24 of 37**, H3 **6 of 8**. **H3.7 is unblocked by governance and has not begun.***
+*Updated after H3.7 (Recognition Order and commercial tracking) — `OperationsState` **v8** (additive `recognitionOrders`; invents no order for any Moment or already-dispatched Fulfilment; a v1 payload still walks every rung). Workspace unchanged at **v7**. ADR-013 implemented as accepted: one order per Moment, `Committed` → `Reconciled`, **no draft and no cancellation**; `commercialRole` immutable and **only `MerchantOfRecord` writable**; **every amount NGN**, refused rather than converted, with no FX anywhere; **the customer quotation typed by an operator and never prefilled or derived**; estimates from the confirmed vendor and courier quotes rather than the catalog price; **`grossMargin` derived on read and never stored**, so correcting a cost changes it with **no second write**; corrections **supersede** the live reconciliation without rewriting it. **A committed order is required before a new initial dispatch**; legacy Fulfilments keep their history and are never backfilled. New suite `validate:orders` (47); **551 checks across thirteen suites**; typecheck clean; lint 47 (26 errors, 21 warnings); build 32 routes. **Verified live in a browser** at measured widths of 1440px, 768px and a browser-clamped 500px, including a v5 → v8 migration on first write, zero-write cancellation, single-write confirmations and margin following two corrections; real-device testing remains outstanding. Milestone count **25 of 37**; H3 **7 of 8**. **H3.8 has not begun.***

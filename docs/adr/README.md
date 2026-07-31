@@ -29,10 +29,10 @@
 | [ADR-010](ADR-010-operational-persistence-boundary.md) | Operational records live outside WorkspaceState | **Accepted** | 2026-07-27 |
 | [ADR-011](ADR-011-recipient-address.md) | Recipient address is customer-owned; operator overrides are per-brief | **Accepted** | 2026-07-28 |
 | [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) | Fulfilment lifecycle and the proof-receipt boundary | **Accepted · Implemented** | 2026-07-30 |
-| [ADR-013](ADR-013-commercial-role-pilot-currency-and-recognition-order.md) | Commercial role, pilot currency and the RecognitionOrder financial model | **Accepted** | 2026-07-30 |
+| [ADR-013](ADR-013-commercial-role-pilot-currency-and-recognition-order.md) | Commercial role, pilot currency and the RecognitionOrder financial model | **Accepted · Implemented** | 2026-07-30 |
 
-**ADR-013 resolves CP-U3 / OPS-U3 and CP-U4** — the commercial role and the first pilot currency. It is
-**accepted and not implemented**: H3.7 has not begun.
+**ADR-013 resolves CP-U3 / OPS-U3 and CP-U4** — the commercial role and the first pilot currency — and
+was **implemented at H3.7**.
 
 **ADR-012 resolves OPS-U4a** (the Fulfilment lifecycle and proof-receipt boundary), was implemented at H3.6, and explicitly
 **defers OPS-U4b** (QA, adjudication and disputes) with a recorded trigger. See
@@ -51,8 +51,7 @@ itself is the authority.
 > **Schema versions here are stated as of this revision.** Where an ADR *introduced* or *landed at* a
 > version, that is said explicitly and the **current** version is given alongside it — a row reading
 > "now vN" goes stale the moment the next rung ships, which is how ADR-010's row came to claim v2
-> while the chain had reached v5. Current: **Workspace v7 · `OperationsState` v7** — the two counters
-> coincide without being coupled.
+> while the chain had reached v5. Current: **Workspace v7 · `OperationsState` v8**.
 
 | ADR | Implemented |
 |-----|-------------|
@@ -60,13 +59,13 @@ itself is the authority.
 | ADR-002 | ✅ Yes — schema v2 |
 | ADR-004 | ⚠️ Partly — Campaign mode only, schema v6. Recurring and Triggered not implemented |
 | ADR-005 | ⚠️ Partly — H3.1. Separate route tree, shell and navigation exist. **No roles, no authentication** |
-| ADR-006 | ⚠️ **Partly — through H3.6.** Decisions and Events cover Moment generation, brief confirmation and address override, item selection, vendor selection, courier selection, and the fulfilment lifecycle. **Partly** because commercial tracking (H3.7) and Moment closure (H3.8) are not built |
+| ADR-006 | ⚠️ **Partly — through H3.7.** Decisions and Events cover Moment generation, brief confirmation and address override, item selection, vendor selection, courier selection, the fulfilment lifecycle, and commercial commitment and reconciliation. **Partly** because Moment closure and Memory (H3.8) are not built |
 | ADR-007 | ⚠️ Partly — Money implemented, schema v5. `RecognitionOrder` deferred to H3.7 |
 | ADR-008 | ✅ Yes — schema v5 |
 | ADR-009 | ✅ Yes — no code change was required |
-| ADR-010 | ✅ Yes — H3.1, **introduced `OperationsState` v1**. Current `OperationsState` is **v7** |
-| ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v7** |
-| ADR-013 | ⬜ **No — accepted, not implemented.** H3.7 has not begun: no `RecognitionOrder`, no `commercialRole` field, no actuals and no margin calculation exist. `OperationsState` remains **v7** |
+| ADR-010 | ✅ Yes — H3.1, **introduced `OperationsState` v1**. Current `OperationsState` is **v8** |
+| ADR-011 | ✅ Yes — H3.2, **landed at** Workspace schema v7 + `OperationsState` v2. Current `OperationsState` is **v8** |
+| ADR-013 | ✅ Yes — H3.7, **landed at `OperationsState` v8** (additive `recognitionOrders`). Every decision implemented without variance; `MerchantOfRecord` is a **platform and pilot posture, not a legal opinion**, and the professional confirmations still bind before any external pilot |
 | ADR-012 | ✅ Yes — H3.6, **landed at `OperationsState` v7** (additive `fulfilments`). Every Council condition held; proof is metadata with **no file stored**. `QAException` and OPS-U4b adjudication remain deferred, and proof-file storage is still an ADR-010 pilot prerequisite |
 
 ---

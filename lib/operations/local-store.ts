@@ -22,6 +22,8 @@ import { canonicalCourier } from './couriers';
 import { verifyCourierSelection } from './courier-selection';
 import { verifyFulfilmentWrite } from './fulfilment';
 import type { FulfilmentWriteKind } from './fulfilment';
+import { verifyOrderWrite } from './recognition-order';
+import type { OrderWriteKind } from './recognition-order';
 import type {
   BriefWrite,
   DispatchWrite,
@@ -30,6 +32,8 @@ import type {
   MomentBatch,
   CourierSelectionWrite,
   OperationsRepository,
+  OrderCommitmentWrite,
+  ReconciliationWrite,
   RedeliveryWrite,
   StoreResult,
   VendorSelectionWrite,
@@ -43,6 +47,7 @@ import type {
   OperationalEvent,
   OperationsState,
   Courier,
+  RecognitionOrder,
   Vendor,
   VendorOffer,
 } from './types';
@@ -210,6 +215,10 @@ export function createLocalOperationsRepository(
       decisions: state.value.decisions,
       fulfilments: state.value.fulfilments,
       events: state.value.events,
+      // H3.7 — an initial dispatch now requires committed commercial authority.
+      // Existing Fulfilments written before H3.7 have none, and remain valid:
+      // this gate applies to *creation*, not to stored history.
+      orders: state.value.recognitionOrders,
       write,
       kind,
     });
@@ -245,6 +254,103 @@ export function createLocalOperationsRepository(
     );
     if (!written.ok) return written;
     return { ok: true, value: verified.fulfilment };
+  }
+
+  /**
+   * The one path every commercial write takes — H3.7.
+   *
+   * Three named repository operations, one implementation, because the shape is
+   * identical and only the rule differs: re-read state, find the Moment, hand
+   * the whole submission to the verifier, and store **what the verifier
+   * recomputed** rather than what the caller sent.
+   *
+   * ⚠️ **Shape before contents**, as at every boundary since H3.3-D1. A caller
+   * passing `null`, an array or a string gets a refusal, not an exception.
+   */
+  function commercialWrite(
+    workspaceId: string,
+    write: unknown,
+    kind: OrderWriteKind,
+    now: string,
+  ): StoreResult<RecognitionOrder> {
+    const state = require(workspaceId);
+    if (!state.ok) return state;
+
+    const refusal = 'Review the moment and try again — nothing was recorded.';
+
+    if (!isPlainRecord(write)) {
+      return { ok: false, reason: `That submission is not a record. ${refusal}` };
+    }
+    const decision = write.decision;
+    if (!isPlainRecord(decision)) {
+      return { ok: false, reason: `That submission carries no readable decision. ${refusal}` };
+    }
+
+    const moment = state.value.moments.find(m => m.id === decision.momentId);
+    if (!moment) {
+      return { ok: false, reason: 'That moment no longer exists. Review the queue — nothing was recorded.' };
+    }
+
+    /**
+     * **The trust boundary.** The Moment, the live brief, the three live
+     * selection Decisions, the stored order and the Fulfilment are re-read and
+     * recomputed, and every submitted field is compared against them — nested
+     * Money included. On success the verifier hands back rebuilt records.
+     */
+    const verified = verifyOrderWrite({
+      workspaceId,
+      moment,
+      briefs: state.value.executionBriefs,
+      decisions: state.value.decisions,
+      orders: state.value.recognitionOrders,
+      fulfilments: state.value.fulfilments,
+      write,
+      kind,
+    });
+    if (!verified.ok) return verified;
+
+    if (verified.event && state.value.events.some(e => e.id === verified.event!.id)) {
+      return { ok: false, reason: 'That step has already been recorded.' };
+    }
+
+    const orders =
+      kind === 'Commitment'
+        ? [...state.value.recognitionOrders, verified.order]
+        : state.value.recognitionOrders.map(o => (o.id === verified.order.id ? verified.order : o));
+
+    /**
+     * A correction supersedes the live reconciliation. **Only supersession
+     * metadata changes** — the original's amounts, reason and timestamps are
+     * never rewritten, exactly as brief revisions and decision supersession
+     * have worked since H3.2.
+     */
+    let decisions = state.value.decisions;
+    if (verified.supersedes) {
+      const target = verified.supersedes;
+      const prior = decisions.find(d => d.id === target);
+      if (!prior) return { ok: false, reason: 'The reconciliation being corrected no longer exists.' };
+      if (prior.status === 'Superseded') {
+        return { ok: false, reason: 'That reconciliation has already been superseded.' };
+      }
+      decisions = decisions.map(d =>
+        d.id === target
+          ? { ...d, status: 'Superseded' as const, supersededAt: now, supersededByDecisionId: verified.decision.id }
+          : d,
+      );
+    }
+
+    // One transaction, over a proposed state validated in full (ADR-006).
+    const written = commit(
+      {
+        ...state.value,
+        recognitionOrders: orders,
+        decisions: [...decisions, verified.decision],
+        events: verified.event ? [...state.value.events, verified.event] : state.value.events,
+      },
+      now,
+    );
+    if (!written.ok) return written;
+    return { ok: true, value: verified.order };
   }
 
   return {
@@ -996,6 +1102,32 @@ export function createLocalOperationsRepository(
 
     commitProofReceipt(workspaceId, write: FulfilmentEventWrite, now) {
       return transitionFulfilment(workspaceId, write, 'ProofReceived', now);
+    },
+
+    // ── Recognition Order (H3.7) ──
+
+    listRecognitionOrders(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.recognitionOrders ?? [] };
+    },
+
+    findRecognitionOrderForMoment(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.recognitionOrders.find(o => o.momentId === momentId) ?? null };
+    },
+
+    commitRecognitionOrder(workspaceId, write: OrderCommitmentWrite, now) {
+      return commercialWrite(workspaceId, write, 'Commitment', now);
+    },
+
+    reconcileRecognitionOrder(workspaceId, write: ReconciliationWrite, now) {
+      return commercialWrite(workspaceId, write, 'Reconciliation', now);
+    },
+
+    correctRecognitionOrderActuals(workspaceId, write: ReconciliationWrite, now) {
+      return commercialWrite(workspaceId, write, 'Reconciliation', now);
     },
 
     validate(workspaceId) {

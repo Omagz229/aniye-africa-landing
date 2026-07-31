@@ -11,6 +11,7 @@ import type {
   Moment,
   OperationalEvent,
   ProofKind,
+  RecognitionOrder,
 } from '@/lib/operations/types';
 import { EVENT_SOURCES, PROOF_KINDS } from '@/lib/operations/types';
 import {
@@ -69,6 +70,7 @@ export default function FulfilmentPanel({ momentId }: { momentId: string }) {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [fulfilments, setFulfilments] = useState<Fulfilment[]>([]);
   const [events, setEvents] = useState<OperationalEvent[]>([]);
+  const [orders, setOrders] = useState<RecognitionOrder[]>([]);
 
   // ── Draft state. UI only; none of it is persisted. ──
   const [confirming, setConfirming] = useState<Confirming>(null);
@@ -118,6 +120,8 @@ export default function FulfilmentPanel({ momentId }: { momentId: string }) {
     setDecisions(state.value?.decisions.filter(d => d.momentId === momentId) ?? []);
     setEvents(state.value?.events.filter(e => e.momentId === momentId) ?? []);
     setFulfilments(state.value?.fulfilments.filter(f => f.momentId === momentId) ?? []);
+    // H3.7 — a new dispatch requires a committed order (ADR-013).
+    setOrders(state.value?.recognitionOrders.filter(o => o.momentId === momentId) ?? []);
     setPhase('ready');
   }
 
@@ -142,7 +146,7 @@ export default function FulfilmentPanel({ momentId }: { momentId: string }) {
   }
 
   function context() {
-    return { moment: moment!, brief, decisions, fulfilments, events };
+    return { moment: moment!, brief, decisions, fulfilments, events, orders };
   }
 
   function handleDispatch() {

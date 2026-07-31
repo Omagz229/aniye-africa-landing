@@ -183,6 +183,20 @@ export const DECISION_TYPES = [
   // to try again matters months later. So it carries a required human reason,
   // exactly as every other Decision does.
   'Redelivery',
+  // H3.7 — ADR-013. Two judgements, and only two.
+  //
+  // `RecognitionOrderCommitment` records the **manual customer quotation**. It is
+  // a genuine judgement between alternatives: no formula produced the number,
+  // and the operator could have quoted differently. ADR-013 §5 forbids deriving
+  // it from the budget, the costs, a percentage or a rate card, which is exactly
+  // why it needs a reason — a quotation nobody can explain later is not
+  // evidence.
+  //
+  // `CostReconciliation` records the **final operator-confirmed actuals**. A
+  // correction supersedes the live one with a new Decision of the same type,
+  // carrying the previous values; the original is never rewritten.
+  'RecognitionOrderCommitment',
+  'CostReconciliation',
 ] as const;
 export type DecisionType = (typeof DECISION_TYPES)[number];
 
@@ -263,6 +277,21 @@ export const EVENT_TYPES = [
   'DeliveryFailed',
   'Delivered',
   'ProofReceived',
+  // H3.7 — **one Event, deliberately.**
+  //
+  // Committing the order changes what may happen to the Moment next: from H3.7
+  // onward an initial dispatch requires one. By ADR-006's own test — "does it
+  // change the state of a Moment's execution?" — that is an occurrence, and
+  // every other gating step (brief, item, vendor, courier) records one. Without
+  // it the timeline would read "Courier chosen · …nothing… · Dispatched",
+  // which is the exact gap H3.5 added `CourierSelected` to close.
+  //
+  // ⚠️ **Reconciliation and correction append no Event.** They record amounts
+  // after execution has finished and change nothing about the Moment's
+  // execution — the `CostReconciliation` Decisions carry the judgement, the
+  // reason and the history. Adding Events would fill the timeline with
+  // bookkeeping and make the genuine occurrences harder to find.
+  'RecognitionOrderCommitted',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -598,6 +627,119 @@ export interface Fulfilment {
   updatedAt: string;
 }
 
+// ─── RecognitionOrder ────────────────────────────────────────────────────────
+
+/**
+ * The three values ADR-007 reserved, so the eventual legal answer needs no
+ * migration of meaning.
+ *
+ * ⚠️ **H3.7 writes `MerchantOfRecord` and nothing else** (ADR-013 §1). `Agent`
+ * and `Unspecified` exist here because the reserved set is part of the accepted
+ * architecture, not because either may be stored — the write boundary refuses
+ * both. If professional advice later requires `Agent`, that needs a **new
+ * governance decision**, never a silent relabelling of orders already written.
+ */
+export const COMMERCIAL_ROLES = ['Unspecified', 'MerchantOfRecord', 'Agent'] as const;
+export type CommercialRole = (typeof COMMERCIAL_ROLES)[number];
+
+/** The only role H3.7 may write. */
+export const PILOT_COMMERCIAL_ROLE = 'MerchantOfRecord' satisfies CommercialRole;
+
+/**
+ * The only currency an H3.7 order may carry, in any field (ADR-013 §3).
+ *
+ * A supplier quote in another currency does not make the order convertible — it
+ * makes the order **outside the approved architecture**. There is no FX in
+ * H3.7, so an XAF cost beside an NGN charge could only ever be compared by
+ * inventing a rate nobody approved.
+ */
+export const ORDER_CURRENCY = 'NGN';
+
+/**
+ * Two statuses, and no cancellation.
+ *
+ * `Committed` — the commercial authority is fixed and dispatch may proceed.
+ * `Reconciled` — all three actuals are confirmed.
+ *
+ * ⚠️ There is deliberately **no `Draft`, `Cancelled`, `Invoiced`, `Paid` or
+ * `Settled`.** A draft would persist an intention nobody confirmed (ADR-006);
+ * the rest presuppose payments, which ADR-013 excludes from H3.7 entirely.
+ */
+export const RECOGNITION_ORDER_STATUSES = ['Committed', 'Reconciled'] as const;
+export type RecognitionOrderStatus = (typeof RECOGNITION_ORDER_STATUSES)[number];
+
+/**
+ * What one Moment cost Aniyé and what Aniyé charged for it — H3.7, implementing
+ * [ADR-013](../../docs/adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md).
+ *
+ * **One per Moment** (ADR-007). It lives only in `OperationsState` and is never
+ * projected into Workspace: cost, margin and partner identity stop at the
+ * boundary (ADR-005).
+ *
+ * ─── What is immutable, and why ──────────────────────────────────────────────
+ * Everything above `actual*` is fixed at creation. The estimates are **evidence
+ * of what was expected**, and editing them to match what happened would destroy
+ * the only thing that makes a variance legible. Corrections apply to actuals
+ * alone, through a superseding Decision.
+ *
+ * ⚠️ **`grossMargin` is not a field and must never become one.** It is derived
+ * on read (ADR-007, ADR-013 §8) — which is also why correcting a cost needs no
+ * second write: there is nothing stored to update.
+ *
+ * ⚠️ **Deliberately absent, and not oversights:** `estimatedItemCost` (superseded
+ * by `estimatedVendorCost` — the catalog price is not Aniyé's cost),
+ * `estimatedTotalCost`, `actualOtherCosts`, `amountPaid`, `paymentStatus`,
+ * `paymentMethod`, `invoiceId`, `settlementStatus`, `serviceFee`, `commission`,
+ * `subscription`, `refund`, `tax`, `duty`, `fxRate`, `exchangeRate` and
+ * `settlementCurrency`. Each is refused by name at the write boundary.
+ *
+ * ⚠️ **No amount here asserts that money moved.** `actualCustomerCharge` is what
+ * Aniyé charges, not what Aniyé received.
+ */
+export interface RecognitionOrder {
+  id: string;
+  workspaceId: string;
+  momentId: string;
+
+  /** The confirmed brief that governed this order, and its exact revision. */
+  executionBriefId: string;
+  briefRevision: number;
+  /** The three live selection Decisions — immutable authority for what was bought. */
+  itemSelectionDecisionId: string;
+  vendorSelectionDecisionId: string;
+  courierSelectionDecisionId: string;
+
+  /** Snapshotted at creation and immutable. `MerchantOfRecord` for the pilot. */
+  commercialRole: CommercialRole;
+
+  /**
+   * The frozen recipient-recognition budget, copied from the confirmed brief.
+   *
+   * **Not the customer charge**, and **not automatically a ceiling** on vendor
+   * or courier cost (ADR-013 §7) — it governs what the *recipient* receives.
+   */
+  approvedBudget: Money;
+  /** From the confirmed `VendorSelection` quote. Never the catalog price. */
+  estimatedVendorCost: Money;
+  /** From the confirmed `CourierSelection` quote. */
+  estimatedCourierCost: Money;
+  /**
+   * **The manual per-order quotation** (ADR-013 §5). Entered deliberately by an
+   * operator, explicitly confirmed, then immutable. Never calculated from the
+   * budget, the costs, a percentage, a margin target or a rate card.
+   */
+  estimatedCustomerCharge: Money;
+
+  /** Present only once reconciled. All three arrive together. */
+  actualVendorCost?: Money;
+  actualCourierCost?: Money;
+  actualCustomerCharge?: Money;
+
+  status: RecognitionOrderStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
 /**
@@ -611,12 +753,13 @@ export interface Fulfilment {
  * **v6 (pre-H3.6 correction)** admits the four policy delivery promises on
  * newly generated Moments. Additive, and it **adds nothing to existing records**.
  * **v7 (H3.6)** adds the `fulfilments` collection. Additive.
+ * **v8 (H3.7)** adds the `recognitionOrders` collection. Additive.
  *
  * There is no `courierSelections` collection: unlike a vendor comparison, which
  * had to persist several hand-entered quotes, a courier selection is one choice
  * with one cost and the Decision carries all of it.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 7;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 8;
 
 /**
  * The storage *location*, not a version assertion.
@@ -649,6 +792,8 @@ export interface OperationsState {
   couriers: Courier[];
   /** H3.6, additive at operations schema v7. */
   fulfilments: Fulfilment[];
+  /** H3.7, additive at operations schema v8. */
+  recognitionOrders: RecognitionOrder[];
   createdAt: string;
   updatedAt: string;
 }
@@ -665,6 +810,7 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     vendorOffers: [],
     couriers: [],
     fulfilments: [],
+    recognitionOrders: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -788,6 +934,25 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     };
   }
 
+  // v7 → v8: add the recognition-order collection. Additive, and it **invents
+  // nothing** — no Moment, and no already-dispatched Fulfilment, receives a
+  // fabricated order.
+  //
+  // Backfilling would be the worst possible repair. An order carries a
+  // **manual customer quotation** that only an operator can supply (ADR-013 §5)
+  // and two estimates that must come from the confirmed selection quotes. A
+  // synthesised order would assert a price nobody quoted, and it would be
+  // indistinguishable in storage from one that had been. A Moment or Fulfilment
+  // without an order is prototype history from before commercial authority was
+  // recorded, and the absence is the honest fact.
+  if ((working.schemaVersion as number) === 7) {
+    working = {
+      ...working,
+      recognitionOrders: Array.isArray(working.recognitionOrders) ? working.recognitionOrders : [],
+      schemaVersion: 8,
+    };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -891,6 +1056,26 @@ export const LIFECYCLE_PAYLOAD_KEYS = ['fulfilmentId', 'attempt'] as const;
  * ADR-012 §7: H3.6 records **that** proof was received and stores no proof.
  */
 export const PROOF_PAYLOAD_KEYS = ['fulfilmentId', 'attempt', 'proofKinds'] as const;
+
+/**
+ * Field names an H3.7 `RecognitionOrder` must never carry, refused **by name**
+ * rather than by an exact-key check alone.
+ *
+ * Two reasons for naming them. First, a typed field list plus an exact-key check
+ * already refuses unknown keys — but the error then says "cannot record
+ * `fxRate`" without saying why, and the next person adds it. Second, each of
+ * these is something a reasonable engineer would think belonged here:
+ * `grossMargin` is derived (ADR-007), `estimatedItemCost` was superseded
+ * (ADR-013 §7), and everything else presupposes payments, taxes or FX, all of
+ * which ADR-013 excludes from H3.7 in terms.
+ */
+export const FORBIDDEN_ORDER_FIELDS = [
+  'grossMargin', 'margin', 'profit',
+  'estimatedItemCost', 'estimatedTotalCost', 'actualOtherCosts',
+  'amountPaid', 'paymentStatus', 'paymentMethod', 'invoiceId', 'settlementStatus',
+  'serviceFee', 'commission', 'subscription', 'refund', 'tax', 'duty',
+  'fxRate', 'exchangeRate', 'settlementCurrency',
+] as const;
 
 export type FulfilmentReplay =
   | { ok: true; status: FulfilmentStatus; attempt: number; redeliveries: number; count: number }
@@ -1034,7 +1219,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
@@ -1489,6 +1674,148 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (fulfilmentByMoment.get(event.momentId as string) !== fulfilmentId) {
       return { ok: false, reason: `Event "${String(event.id)}" names a fulfilment belonging to another moment.` };
     }
+  }
+
+  // ── Recognition Orders (H3.7, ADR-013) ──
+  const orderIds = new Set<string>();
+  const orderByMoment = new Map<string, string>();
+
+  for (const [i, order] of (raw.recognitionOrders as unknown[]).entries()) {
+    if (!isPlainObject(order)) return { ok: false, reason: `Recognition order at index ${i} is not an object.` };
+    if (!isNonEmptyString(order.id)) return { ok: false, reason: `Recognition order at index ${i} has no id.` };
+    if (orderIds.has(order.id)) return { ok: false, reason: `Duplicate recognition order id "${order.id}".` };
+    orderIds.add(order.id);
+
+    if (order.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Recognition order "${order.id}" belongs to a different workspace.` };
+    }
+    if (!momentIds.has(order.momentId as string)) {
+      return { ok: false, reason: `Recognition order "${order.id}" references an unknown moment.` };
+    }
+    // ADR-007: one RecognitionOrder per Moment. Never two.
+    const momentId = order.momentId as string;
+    if (orderByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one recognition order.` };
+    }
+    orderByMoment.set(momentId, order.id);
+
+    if (!briefIds.has(order.executionBriefId as string)) {
+      return { ok: false, reason: `Recognition order "${order.id}" references an unknown brief.` };
+    }
+    if (
+      typeof order.briefRevision !== 'number' ||
+      !Number.isInteger(order.briefRevision) ||
+      order.briefRevision < 1
+    ) {
+      return { ok: false, reason: `Recognition order "${order.id}" has an invalid brief revision.` };
+    }
+    for (const field of [
+      'itemSelectionDecisionId',
+      'vendorSelectionDecisionId',
+      'courierSelectionDecisionId',
+    ] as const) {
+      if (!decisionIds.has(order[field] as string)) {
+        return { ok: false, reason: `Recognition order "${order.id}" references an unknown ${field}.` };
+      }
+    }
+
+    // ADR-013 §1: H3.7 writes exactly one role. `Agent` and `Unspecified` are
+    // reserved values, not storable ones.
+    if (order.commercialRole !== PILOT_COMMERCIAL_ROLE) {
+      return {
+        ok: false,
+        reason: `Recognition order "${order.id}" records commercial role ${String(order.commercialRole)}; only ${PILOT_COMMERCIAL_ROLE} is accepted.`,
+      };
+    }
+    if (
+      typeof order.status !== 'string' ||
+      !(RECOGNITION_ORDER_STATUSES as readonly string[]).includes(order.status)
+    ) {
+      return { ok: false, reason: `Recognition order "${order.id}" has an invalid status: ${String(order.status)}.` };
+    }
+
+    // ADR-013 §3: every amount is NGN, and never negative. Zero is permitted —
+    // a complimentary order is a real one, and refusing it would invent a
+    // commercial rule nobody decided.
+    for (const field of [
+      'approvedBudget',
+      'estimatedVendorCost',
+      'estimatedCourierCost',
+      'estimatedCustomerCharge',
+    ] as const) {
+      const amount = order[field];
+      if (!isValidMoney(amount) || amount.amountMinor < 0) {
+        return { ok: false, reason: `Recognition order "${order.id}" has an invalid ${field}.` };
+      }
+      if (amount.currency !== ORDER_CURRENCY) {
+        return {
+          ok: false,
+          reason: `Recognition order "${order.id}" records ${field} in ${amount.currency}; H3.7 orders are ${ORDER_CURRENCY} only.`,
+        };
+      }
+    }
+
+    // The three actuals arrive together, and their presence defines the status.
+    const actuals = ['actualVendorCost', 'actualCourierCost', 'actualCustomerCharge'] as const;
+    const present = actuals.filter(f => order[f] !== undefined);
+    if (present.length !== 0 && present.length !== actuals.length) {
+      return { ok: false, reason: `Recognition order "${order.id}" has a partial set of actual amounts.` };
+    }
+    for (const field of present) {
+      const amount = order[field];
+      if (!isValidMoney(amount) || amount.amountMinor < 0) {
+        return { ok: false, reason: `Recognition order "${order.id}" has an invalid ${field}.` };
+      }
+      if (amount.currency !== ORDER_CURRENCY) {
+        return {
+          ok: false,
+          reason: `Recognition order "${order.id}" records ${field} in ${amount.currency}; H3.7 orders are ${ORDER_CURRENCY} only.`,
+        };
+      }
+    }
+    if ((order.status === 'Reconciled') !== (present.length === actuals.length)) {
+      return {
+        ok: false,
+        reason: `Recognition order "${order.id}" is ${String(order.status)} but its actual amounts say otherwise.`,
+      };
+    }
+
+    // `grossMargin` is derived and must never reach storage under any name.
+    for (const forbidden of FORBIDDEN_ORDER_FIELDS) {
+      if (order[forbidden] !== undefined) {
+        return { ok: false, reason: `Recognition order "${order.id}" cannot record ${forbidden}.` };
+      }
+    }
+
+    for (const field of ['createdAt', 'updatedAt'] as const) {
+      if (!isIsoInstant(order[field])) {
+        return { ok: false, reason: `Recognition order "${order.id}" has an unreadable ${field}.` };
+      }
+    }
+  }
+
+  // Every commercial Decision must belong to a Moment that has an order.
+  for (const decision of raw.decisions as Record<string, unknown>[]) {
+    if (decision.decisionType !== 'RecognitionOrderCommitment' && decision.decisionType !== 'CostReconciliation') {
+      continue;
+    }
+    if (!orderByMoment.has(decision.momentId as string)) {
+      return {
+        ok: false,
+        reason: `Commercial decision "${String(decision.id)}" belongs to a moment with no recognition order.`,
+      };
+    }
+  }
+
+  // At most one live `CostReconciliation` per Moment. Corrections supersede.
+  const liveReconciliationByMoment = new Set<string>();
+  for (const decision of raw.decisions as Record<string, unknown>[]) {
+    if (decision.decisionType !== 'CostReconciliation' || decision.status !== 'Confirmed') continue;
+    const momentId = decision.momentId as string;
+    if (liveReconciliationByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one live cost reconciliation.` };
+    }
+    liveReconciliationByMoment.add(momentId);
   }
 
   // Every `Redelivery` Decision must correspond to exactly one confirmed

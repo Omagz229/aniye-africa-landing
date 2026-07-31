@@ -18,6 +18,7 @@ import type {
   OperationalEvent,
   OperationsState,
   Courier,
+  RecognitionOrder,
   Vendor,
   VendorOffer,
 } from './types';
@@ -102,6 +103,31 @@ export interface FulfilmentEventWrite {
 export interface RedeliveryWrite {
   decision: Decision;
   event: OperationalEvent;
+}
+
+/**
+ * What committing a Recognition Order writes, atomically (H3.7).
+ *
+ * The order is **created here and nowhere else** — there is no draft, and the
+ * manual quotation exists only in component state until this call.
+ */
+export interface OrderCommitmentWrite {
+  order: RecognitionOrder;
+  decision: Decision;
+  event: OperationalEvent;
+}
+
+/**
+ * What a reconciliation or a correction writes: **one Decision, and no Event.**
+ *
+ * The three actual amounts travel in `decision.inputs`, and the order's actuals
+ * are recomputed from them by the implementation — deliberately not submitted,
+ * so no caller can move an order's amounts without the Decision that explains
+ * them. Reconciliation records figures after execution has finished and changes
+ * nothing about the Moment's execution, so it appends no Event.
+ */
+export interface ReconciliationWrite {
+  decision: Decision;
 }
 
 export interface OperationsRepository {
@@ -367,6 +393,70 @@ export interface OperationsRepository {
     write: FulfilmentEventWrite,
     now: string,
   ): StoreResult<Fulfilment>;
+
+  // ── Recognition Order (H3.7) ──
+  //
+  // Three named transitions. Deliberately **not** one `updateOrder(fields)`: a
+  // generic setter would let any caller rewrite an estimate or the commercial
+  // role, which is the exact immutability ADR-013 exists to hold. Each operation
+  // re-reads state, recomputes authority, validates the full proposed state, and
+  // performs **one** write.
+
+  listRecognitionOrders(workspaceId: string): StoreResult<RecognitionOrder[]>;
+
+  /** The one order for a Moment, or null. Never more than one. */
+  findRecognitionOrderForMoment(
+    workspaceId: string,
+    momentId: string,
+  ): StoreResult<RecognitionOrder | null>;
+
+  /**
+   * Commit the order — **the only operation that creates one.**
+   *
+   * Refuses, with a named recovery and zero writes, unless the Moment is
+   * `ReadyForExecution` in this workspace with no order and **no Fulfilment**
+   * already, its live confirmed brief and all three live selection Decisions
+   * exist and agree with each other, and the budget and both quotes are NGN.
+   *
+   * The customer quotation arrives from the operator and is **never derived**;
+   * every other amount is recomputed from the brief and the selection Decisions,
+   * and a submission disagreeing with any of them is refused.
+   */
+  commitRecognitionOrder(
+    workspaceId: string,
+    write: OrderCommitmentWrite,
+    now: string,
+  ): StoreResult<RecognitionOrder>;
+
+  /**
+   * Confirm all three actual amounts. `Committed` → `Reconciled`.
+   *
+   * Permitted only once the Moment's Fulfilment is `Delivered`. The order's
+   * actuals are a **projection** of the live `CostReconciliation` Decision, which
+   * carries the operator's reason.
+   */
+  reconcileRecognitionOrder(
+    workspaceId: string,
+    write: ReconciliationWrite,
+    now: string,
+  ): StoreResult<RecognitionOrder>;
+
+  /**
+   * Correct one or more actual amounts on a reconciled order.
+   *
+   * Appends a new Confirmed `CostReconciliation` Decision carrying the previous
+   * values, marks the prior one `Superseded` **without rewriting its content**,
+   * and re-projects the order. Estimates, `commercialRole`, `approvedBudget` and
+   * every authority reference are untouchable.
+   *
+   * ⚠️ There is deliberately **no margin update** — margin is derived, so a
+   * corrected cost changes it with no second write.
+   */
+  correctRecognitionOrderActuals(
+    workspaceId: string,
+    write: ReconciliationWrite,
+    now: string,
+  ): StoreResult<RecognitionOrder>;
 
   /** Structural check of the stored state, without modifying it. */
   validate(workspaceId: string): StoreResult<true>;
