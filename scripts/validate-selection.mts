@@ -836,14 +836,15 @@ check('42. H3.3 adds exactly one decision type and one event type, and no more',
   // `Dispatched` and `Delivered` left this list at H3.6, the milestone that
   // produces them. `ItemPrepared` and `VendorContacted` never arrive — each was
   // renamed for what actually happens.
-  for (const t of ['ItemPrepared', 'VendorContacted', 'MomentClosed']) {
+  assert((EVENT_TYPES as readonly string[]).includes('MomentClosed'), 'H3.8 MomentClosed is missing.');
+  for (const t of ['ItemPrepared', 'VendorContacted']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
 });
 
 check('43. Moment statuses are unchanged — selection adds none', () => {
-  assertEqual(MOMENT_STATUSES.length, 3, 'MOMENT_STATUSES changed length.');
-  for (const s of ['NeedsReview', 'ReadyForExecution', 'Cancelled']) {
+  assertEqual(MOMENT_STATUSES.length, 4, 'MOMENT_STATUSES changed beyond the governed lifecycle.');
+  for (const s of ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed']) {
     assert((MOMENT_STATUSES as readonly string[]).includes(s), `${s} is missing.`);
   }
   for (const s of ['ItemSelected', 'Sourcing', 'Dispatched', 'Fulfilled']) {

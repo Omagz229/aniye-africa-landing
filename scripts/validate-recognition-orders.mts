@@ -393,15 +393,15 @@ console.log('\nH3.7 — Recognition Order and commercial tracking\n');
 
 // ─── Part 1: persistence and migration ───────────────────────────────────────
 
-check('1. The operations schema is at v8, and Workspace is untouched by it', () => {
-  assertEqual(CURRENT_OPERATIONS_SCHEMA_VERSION, 8, 'Operations schema is not at v8.');
+check('1. The operations schema is at or beyond v8, and Workspace is untouched by it', () => {
+  assert(CURRENT_OPERATIONS_SCHEMA_VERSION >= 8, 'Operations schema regressed below v8.');
   const fresh = freshWorkspace() as unknown as Record<string, unknown>;
   for (const key of ['recognitionOrders', 'orders', 'commercialRole', 'grossMargin']) {
     assert(!(key in fresh), `${key} reached WorkspaceState.`);
   }
 });
 
-check('2. The v7 → v8 rung adds only an empty order collection', () => {
+check('2. The v7 → v8 order rung remains additive on the path to current', () => {
   const v7 = {
     schemaVersion: 7, workspaceId: WS,
     moments: [{ id: 'm-old', sourceKey: 'k' }], decisions: [{ id: 'd-old' }], events: [{ id: 'e-old' }],
@@ -413,9 +413,10 @@ check('2. The v7 → v8 rung adds only an empty order collection', () => {
   const result = migrateOperationsState(JSON.parse(before));
   assert(result.status === 'migrated', 'A v7 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 8, 'The migration did not reach v8.');
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'The migration did not reach current.');
   assert(Array.isArray(result.state.recognitionOrders), 'The v7 → v8 rung did not add recognitionOrders.');
   assertEqual(result.state.recognitionOrders.length, 0, 'The migration invented an order.');
+  assertEqual(result.state.memories.length, 0, 'A later rung invented a Memory.');
 
   const original = JSON.parse(before) as Record<string, unknown>;
   for (const k of [
@@ -430,7 +431,7 @@ check('2. The v7 → v8 rung adds only an empty order collection', () => {
   assert((result.state as unknown as Record<string, unknown>).aFutureKey !== undefined, 'An unknown key was dropped.');
 });
 
-check('3. A v1 payload walks every rung to v8 without losing history', () => {
+check('3. A v1 payload walks every rung to current without losing history', () => {
   const v1 = {
     schemaVersion: 1, workspaceId: WS,
     moments: [{ id: 'm-old', sourceKey: 'k' }], decisions: [{ id: 'd-old' }], events: [{ id: 'e-old' }],
@@ -439,8 +440,8 @@ check('3. A v1 payload walks every rung to v8 without losing history', () => {
   const result = migrateOperationsState(v1);
   assert(result.status === 'migrated', 'A v1 payload was not migrated.');
   if (result.status !== 'migrated') return;
-  assertEqual(result.state.schemaVersion, 8, 'Migration did not reach v8.');
-  for (const k of ['executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders'] as const) {
+  assertEqual(result.state.schemaVersion, CURRENT_OPERATIONS_SCHEMA_VERSION, 'Migration did not reach current.');
+  for (const k of ['executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders', 'memories'] as const) {
     assert(Array.isArray((result.state as unknown as Record<string, unknown>)[k]), `The rung adding ${k} did not run.`);
   }
   assertEqual(result.state.moments.length, 1, 'A moment was lost in migration.');
@@ -465,9 +466,9 @@ check('4. Migration never backfills an order for a dispatched moment', () => {
   assertEqual(result.state.fulfilments.length, 1, 'The migration altered the fulfilment.');
 });
 
-check('5. A v9 payload is refused rather than downgraded', () => {
-  const v9 = { schemaVersion: 9, workspaceId: WS, moments: [], decisions: [], events: [] };
-  assertEqual(migrateOperationsState(v9).status, 'invalid', 'A future version was adopted.');
+check('5. A v10 payload is refused rather than downgraded', () => {
+  const v10 = { schemaVersion: 10, workspaceId: WS, moments: [], decisions: [], events: [] };
+  assertEqual(migrateOperationsState(v10).status, 'invalid', 'A future version was adopted.');
 });
 
 check('6. Reads never rewrite storage', () => {
@@ -1200,11 +1201,12 @@ check('44. H3.7 declares two decision types, one event and two statuses', () => 
     assert((DECISION_TYPES as readonly string[]).includes(t), `${t} is not a declared decision type.`);
   }
   assert((EVENT_TYPES as readonly string[]).includes('RecognitionOrderCommitted'), 'RecognitionOrderCommitted is not declared.');
-  // H3.8 and the excluded commercial mechanisms must not be pre-empted.
+  // H3.8 adds no Decision; excluded commercial mechanisms remain absent.
   for (const t of ['MomentClosure', 'MemoryWritten', 'PaymentReceived', 'InvoiceIssued', 'RefundIssued']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone or is excluded.`);
   }
-  for (const e of ['MomentClosed', 'PaymentReceived', 'InvoiceIssued', 'OrderCancelled']) {
+  assert((EVENT_TYPES as readonly string[]).includes('MomentClosed'), 'H3.8 MomentClosed is missing.');
+  for (const e of ['PaymentReceived', 'InvoiceIssued', 'OrderCancelled']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(e), `${e} belongs to a later milestone or is excluded.`);
   }
 

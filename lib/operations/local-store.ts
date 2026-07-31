@@ -24,6 +24,8 @@ import { verifyFulfilmentWrite } from './fulfilment';
 import type { FulfilmentWriteKind } from './fulfilment';
 import { verifyOrderWrite } from './recognition-order';
 import type { OrderWriteKind } from './recognition-order';
+import { verifyMomentClosure } from './closure';
+import type { ClosureBundle } from './closure';
 import type {
   BriefWrite,
   DispatchWrite,
@@ -42,6 +44,7 @@ import type {
   Decision,
   ExecutionBrief,
   Fulfilment,
+  Memory,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -353,6 +356,65 @@ export function createLocalOperationsRepository(
     return { ok: true, value: verified.order };
   }
 
+  /** The sole H3.8 write path: Closed Moment + Memory + Event, once. */
+  function closureWrite(
+    workspaceId: string,
+    write: unknown,
+    now: string,
+  ): StoreResult<Memory> {
+    const state = require(workspaceId);
+    if (!state.ok) return state;
+
+    const refusal = 'Review the moment and try again — nothing was recorded.';
+    if (!isPlainRecord(write)) {
+      return { ok: false, reason: `That submission is not a record. ${refusal}` };
+    }
+    const event = write.event;
+    if (!isPlainRecord(event)) {
+      return { ok: false, reason: `That submission carries no readable event. ${refusal}` };
+    }
+    const moment = state.value.moments.find(value => value.id === event.momentId);
+    if (!moment) {
+      return { ok: false, reason: 'That moment no longer exists. Review the queue — nothing was recorded.' };
+    }
+
+    const verified = verifyMomentClosure({
+      workspaceId,
+      moment,
+      briefs: state.value.executionBriefs,
+      decisions: state.value.decisions,
+      fulfilments: state.value.fulfilments,
+      orders: state.value.recognitionOrders,
+      events: state.value.events,
+      memories: state.value.memories,
+      write,
+      now,
+    });
+    if (!verified.ok) return verified;
+
+    if (state.value.memories.some(value => value.id === verified.memory.id)) {
+      return { ok: false, reason: 'That Memory has already been recorded.' };
+    }
+    if (state.value.events.some(value => value.id === verified.event.id)) {
+      return { ok: false, reason: 'That closure has already been recorded.' };
+    }
+
+    // One proposed state, one structural validation, one setItem call.
+    const written = commit(
+      {
+        ...state.value,
+        moments: state.value.moments.map(value =>
+          value.id === verified.moment.id ? verified.moment : value,
+        ),
+        memories: [...state.value.memories, verified.memory],
+        events: [...state.value.events, verified.event],
+      },
+      now,
+    );
+    if (!written.ok) return written;
+    return { ok: true, value: verified.memory };
+  }
+
   return {
     load: read,
 
@@ -422,6 +484,12 @@ export function createLocalOperationsRepository(
       if (!moment) return { ok: false, reason: 'That moment no longer exists.' };
       if (moment.status === 'Cancelled') {
         return { ok: false, reason: 'A cancelled moment cannot change status.' };
+      }
+      if (moment.status === 'Closed') {
+        return { ok: false, reason: 'A closed moment cannot change status.' };
+      }
+      if (status === 'Closed') {
+        return { ok: false, reason: 'Only commitMomentClosure can close a moment.' };
       }
 
       const updated: Moment = {
@@ -1130,6 +1198,24 @@ export function createLocalOperationsRepository(
       return commercialWrite(workspaceId, write, 'Reconciliation', now);
     },
 
+    // ── Moment closure and Memory (H3.8) ──
+
+    listMemories(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.memories ?? [] };
+    },
+
+    findMemoryForMoment(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.memories.find(value => value.momentId === momentId) ?? null };
+    },
+
+    commitMomentClosure(workspaceId, write: ClosureBundle, now) {
+      return closureWrite(workspaceId, write, now);
+    },
+
     validate(workspaceId) {
       const state = read(workspaceId);
       if (!state.ok) return state;
@@ -1163,4 +1249,5 @@ export type {
   VendorOffer,
   Courier,
   Fulfilment,
+  Memory,
 };

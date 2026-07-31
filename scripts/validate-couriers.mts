@@ -727,7 +727,8 @@ check('30. `CourierSelection` and `CourierSelected` are declared; nothing later 
   }
   // The fulfilment Events left this list at H3.6, the milestone that produces
   // them. `Returned` and `Escalation` never arrive: ADR-012 refuses both.
-  for (const t of ['MomentClosed', 'Returned', 'Escalation']) {
+  assert((EVENT_TYPES as readonly string[]).includes('MomentClosed'), 'H3.8 MomentClosed is missing.');
+  for (const t of ['Returned', 'Escalation']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
 });

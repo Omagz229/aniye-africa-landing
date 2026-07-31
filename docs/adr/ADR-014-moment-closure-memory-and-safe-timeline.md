@@ -3,23 +3,21 @@
 **Status: Accepted**
 **Date drafted:** 2026-07-31
 **Date accepted:** 2026-07-31 — Council
-**Implementation status: Not implemented**
+**Implementation status: Implemented — H3.8, 2026-07-31**
 **Full analysis:** H3.8 Confirmation + Memory Architecture Review, 2026-07-31 · builds on
 [ADR-005](ADR-005-workspace-operations-boundary.md), [ADR-006](ADR-006-decision-vs-operational-event.md),
 [ADR-010](ADR-010-operational-persistence-boundary.md) and [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) ·
 [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md) Part 2 row 13 and Part 3 milestone 10
 
-> Accepted by Council on 2026-07-31. **This record is governance, not implementation.** It resolves
-> the architecture required to close a Moment and create its relationship Memory, so that H3.8 can be
-> built without inventing semantics from the unreconciled legacy Memory draft. No code, schema,
-> migration, route, component or validation file is changed by this record.
+> Accepted by Council on 2026-07-31. **The acceptance commit was governance, not implementation:** it
+> changed no code, schema, migration, route, component or validation file. H3.8 subsequently
+> implemented the accepted boundary without variance; see the implementation record below.
 
 ## Context
 
-`MASTER_ROADMAP.md` names H3.8 — Confirmation + Memory — as the next and last milestone in the H3
-closed operational loop, with no known prerequisite blocker, not yet scoped in detail, its
-architecture review coming first. Three things stood in the way of scoping it, and this record
-settles all three.
+At acceptance, `MASTER_ROADMAP.md` named H3.8 — Confirmation + Memory — as the next and last
+milestone in the H3 closed operational loop, with no known prerequisite blocker and its architecture
+review coming first. Three things stood in the way of scoping it, and this record settled all three.
 
 **First, "Confirmation" is ambiguous on its face.** The completed loop already has `Delivered`
 (H3.6), `ProofReceived` (H3.6, metadata only) and a `Reconciled` RecognitionOrder (H3.7). Checkpoint
@@ -58,8 +56,8 @@ Binding for the first Moment-closure and Memory version:
 - **Three separate prohibition boundaries** govern persisted Memory, the `MomentClosed` Event payload
   and the timeline projection — each with its own permitted and forbidden keys.
 - **Closure writes no Decision.** One `MomentClosed` Event, applying ADR-006's own test.
-- **This is a documentation-only governance record.** It authorizes a future implementation; it does
-  not perform one.
+- **The accepting commit is documentation-only governance.** It authorizes implementation but does
+  not itself perform one. This historical acceptance condition was satisfied before H3.8 began.
 
 ## Decision
 
@@ -111,7 +109,7 @@ equivalent.
 ### 3. Canonical Moment lifecycle
 
 ```
-MOMENT_STATUSES = ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed']   // 3 → 4, future work
+MOMENT_STATUSES = ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed']   // 3 → 4 at H3.8
 ```
 
 **`Closed` is the exact canonical terminal status.** It deliberately supersedes the checkpoint's
@@ -122,7 +120,7 @@ The only new transition:
 
 | From | To | Written by |
 |---|---|---|
-| `ReadyForExecution` | `Closed` | the future `commitMomentClosure` operation, and no other path |
+| `ReadyForExecution` | `Closed` | `commitMomentClosure`, and no other path |
 
 **Closure is irreversible.**
 
@@ -173,7 +171,7 @@ action that would fabricate evidence.
 
 ### 5. Persistence and migration boundary
 
-The later implementation adds one additive migration, **`OperationsState` v8 → v9**:
+H3.8 adds one additive migration, **`OperationsState` v8 → v9**:
 
 ```
 // v8 → v9: add the memory collection. Additive, and it invents nothing.
@@ -186,7 +184,7 @@ if ((working.schemaVersion as number) === 8) {
 }
 ```
 
-Binding on that future rung:
+Binding on that rung:
 
 - **No Memory backfill.** Not one is created for an existing delivered-and-reconciled Moment —
   closure was never confirmed for it.
@@ -201,8 +199,8 @@ Binding on that future rung:
 - **The storage key is unchanged.**
 - **Workspace remains v7.** No Workspace field, migration, route or configuration changes.
 
-**This governance commit performs none of the above.** `OperationsState` remains **v8** and Workspace
-remains **v7** until a future implementation milestone lands the rung.
+**The earlier governance commit performed none of the above.** H3.8 has now landed the rung:
+`OperationsState` is **v9** and Workspace remains **v7**.
 
 ### 6. Canonical Memory
 
@@ -249,8 +247,8 @@ Rules:
   error — that Event was already append-only and uncorrectable before H3.8, and this record inherits
   the limitation rather than inventing a repair for it.
 
-**Not persisted, and not to be added for compatibility** — no Memory has been implemented, so there is
-nothing to be compatible with:
+**Not persisted, and not to be added for compatibility** — no pre-H3.8 Memory implementation existed,
+so there was nothing to preserve:
 
 - `type` (the draft's Gift / Note / Call / Visit / Event / Milestone enum — five of six values are
   unreachable, the same failure `Gift / Item`'s draft made);
@@ -260,8 +258,8 @@ nothing to be compatible with:
 - generic `createdBy` (would fabricate an identity — no user model exists);
 - `occasion`, target date, recipient name or contact details (already frozen on the immutable Moment —
   a third copy of a recipient's personal data is a third thing to correct or erase);
-- item name or category (derivable from the live `ItemSelection` Decision via the RecognitionOrder —
-  copying pins a snapshot in a third place);
+- item name or category (derivable from the exact immutable `ItemSelection` Decision identified by
+  the RecognitionOrder's `itemSelectionDecisionId` — copying pins a snapshot in a third place);
 - any `Money` or commercial value.
 
 **Occasion, planned date, recipient identity and gift category are obtained through governed
@@ -285,8 +283,8 @@ references when constructing the safe projection** (§7). They are not copied in
 
 **Construction must name every field individually into a fresh object.** Object spread of an internal
 record into a projection, with fields hidden in the UI, is prohibited — hiding a field is not
-excluding it. The later implementation must enforce the exact nine-key output at a boundary, not by
-convention.
+excluding it. The H3.8 implementation enforces the exact nine-key output at the projection boundary,
+not by convention.
 
 ### 8. Three separate prohibition boundaries
 
@@ -373,7 +371,7 @@ state + Memory + Event, with no Decision**, and `DECISION_TYPES` is unchanged.
 
 ### 10. Atomic closure bundle
 
-The later implementation makes one successful confirmation **one atomic storage write** that:
+The H3.8 implementation makes one successful confirmation **one atomic storage write** that:
 
 - changes the Moment to `Closed`;
 - creates the immutable Memory;
@@ -402,14 +400,14 @@ implementation, exactly as Fulfilment status and RecognitionOrder actuals alread
 
 **H3.8 remains Operations-only.**
 
-The later implementation may add exactly two routes:
+H3.8 adds exactly two routes:
 
 | Route | Title |
 |---|---|
 | `/operations/moments/[id]/close` | *Close the moment* |
 | `/operations/timeline/[personId]` | *Relationship timeline* |
 
-It will also update `/operations/moments/[id]` (a Memory panel once closed, a terminal next-action
+It also updates `/operations/moments/[id]` (a Memory panel once closed, a terminal next-action
 state) and `/operations/moments` (a `Closed` filter). **No new top-level navigation item is
 required.**
 
@@ -419,8 +417,8 @@ browser storage. **H4.0 retains ownership of the actual customer-facing timeline
 visibility**; H3.8 proves the projection is correct and safe, H4.0 owns showing it to anyone outside
 Aniyé.
 
-**If implemented as scoped, the build would move from 32 to 34 routes.** This governance commit
-creates no routes, and the build remains **32**.
+**Implemented as scoped, the build moves from 32 to 34 routes.** The earlier governance commit
+created no routes; the H3.8 implementation creates these two and no others.
 
 ### 12. Program-envelope consequence
 
@@ -479,30 +477,18 @@ Deliberately out of scope, and **not** to be inferred from anything above:
 - Memory-derived recommendations, scoring, Insights or analytics — H4.2–H4.5.
 - Any new operator role, permission or authentication model — OPS-U1, H5.1.
 
-## Consequences of later implementation
+## Implementation consequences
 
-**Recorded as future consequences, not current facts.** Nothing below is true until a future
-implementation milestone lands.
+H3.8 has now landed the consequences recorded at acceptance:
 
-- H3 would become **8 of 8**.
-- Milestones would become **26 of 37**.
-- `OperationsState` would become **v9**.
-- Workspace would remain **v7**.
-- ADR-006 would become **fully implemented** for the H3 loop — its registry entry currently reads
-  "Partly… because Moment closure and Memory (H3.8) are not built."
-- **H4.0** would become the next milestone.
-- The H3 exit chain would read: configure → program → moment → brief → item → vendor → courier →
-  order → dispatch → deliver → proof where required → reconcile → **close → timeline**.
-
-**After this governance commit, current truth is unchanged:**
-
-- H3 is **7 of 8**.
-- **25 of 37** milestones are complete.
-- `OperationsState` is **v8**.
-- Workspace is **v7**.
-- **H3.8 is governed but unimplemented.**
-- **ADR-014 is Accepted, not Implemented.**
-- **H3.8 remains the next milestone.**
+- H3 is **8 of 8**.
+- **26 of 37** milestones are complete.
+- `OperationsState` is **v9**.
+- Workspace remains **v7**.
+- ADR-006 is **fully implemented for the H3 execution loop**; closure correctly adds no Decision.
+- **H4.0** is the next milestone.
+- The H3 exit chain reads: configure → program → moment → brief → item → vendor → courier → order →
+  dispatch → deliver → proof where required → reconcile → **close → timeline**.
 
 ## Relationship to earlier decisions
 
@@ -540,8 +526,31 @@ this ADR is the record of what was decided.
 
 ## Acceptance did not implement H3.8
 
-**This record is governance, not implementation.** At acceptance no `Memory` type or collection
-exists, no `Closed` Moment status exists, no `MomentClosed` Event exists, no closure repository
-operation exists, and no recipient-timeline route exists. `OperationsState` is **v8**; Workspace is
-**v7**; the roadmap reads **25 of 37** with H3 at **7 of 8**. **H3.8 remains unimplemented and has not
-begun.**
+**This paragraph records the acceptance-time state.** At acceptance no `Memory` type or collection
+existed, no `Closed` Moment status existed, no `MomentClosed` Event existed, no closure repository
+operation existed, and no recipient-timeline route existed. `OperationsState` was **v8**; Workspace
+was **v7**; the roadmap read **25 of 37** with H3 at **7 of 8**. The separate governance commit did
+not begin implementation.
+
+## H3.8 implementation record
+
+Implemented on 2026-07-31 from governance commit
+`4dacb080f32ce357f40e5a36eebea593321098ca`, without changing the accepted architecture:
+
+- `lib/operations/types.ts` adds `Closed`, `MomentClosed`, the exact canonical `Memory`, structural
+  invariants and the additive v8 → v9 migration.
+- `lib/operations/closure.ts` builds and verifies the confirmation bundle and constructs the exact
+  nine-key safe projection.
+- the Operations repository and local adapter expose the named atomic closure operation; direct
+  status mutation cannot set or leave `Closed`.
+- `/operations/moments/[id]/close` and `/operations/timeline/[personId]` are the only new routes;
+  Moment detail and queue surfaces expose the governed actions without a new top-level navigation
+  item.
+- the dedicated closure validator passes **48 checks**; all fourteen validation suites pass **599
+  checks**; typecheck passes; the build passes with **34 routes**; lint remains the inherited **47
+  problems (26 errors, 21 warnings)** with no new regression.
+- no browser or real-device verification was performed; H4.0 retains the external-facing and live
+  device work.
+
+Current state: `OperationsState` **v9**, Workspace **v7**, H3 **8 of 8**, milestones **26 of 37**,
+ADR-014 **Accepted · Implemented**, and H4.0 next.

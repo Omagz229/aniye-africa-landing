@@ -31,7 +31,7 @@ export default function MomentsList() {
     const all = moments ?? [];
     const filtered = filter === 'all' ? all : all.filter(m => m.status === filter);
     // Needs-review first: it is the only group requiring action.
-    const order: Record<MomentStatus, number> = { NeedsReview: 0, ReadyForExecution: 1, Cancelled: 2 };
+    const order: Record<MomentStatus, number> = { NeedsReview: 0, ReadyForExecution: 1, Closed: 2, Cancelled: 3 };
     return [...filtered].sort((a, b) =>
       order[a.status] !== order[b.status] ? order[a.status] - order[b.status] : b.createdAt.localeCompare(a.createdAt),
     );
@@ -43,6 +43,7 @@ export default function MomentsList() {
     all: moments.length,
     NeedsReview: moments.filter(m => m.status === 'NeedsReview').length,
     ReadyForExecution: moments.filter(m => m.status === 'ReadyForExecution').length,
+    Closed: moments.filter(m => m.status === 'Closed').length,
     Cancelled: moments.filter(m => m.status === 'Cancelled').length,
   };
 
@@ -78,6 +79,7 @@ export default function MomentsList() {
               ['all', `All ${counts.all}`],
               ['NeedsReview', `Needs review ${counts.NeedsReview}`],
               ['ReadyForExecution', `Ready ${counts.ReadyForExecution}`],
+              ['Closed', `Closed ${counts.Closed}`],
               ['Cancelled', `Cancelled ${counts.Cancelled}`],
             ] as const).map(([value, label]) => (
               <button key={value} type="button" onClick={() => setFilter(value as MomentStatus | 'all')}
@@ -113,9 +115,10 @@ export default function MomentsList() {
                   <span className={`font-body text-xs rounded-full px-2 py-0.5 ml-auto flex-shrink-0 ${
                     moment.status === 'ReadyForExecution' ? 'bg-gold/15 text-ink'
                     : moment.status === 'Cancelled' ? 'bg-stone/8 text-stone/50'
+                    : moment.status === 'Closed' ? 'bg-ink text-cream'
                     : 'bg-stone/15 text-ink'
                   }`}>
-                    {moment.status === 'ReadyForExecution' ? 'Ready' : moment.status === 'NeedsReview' ? 'Needs review' : 'Cancelled'}
+                    {moment.status === 'ReadyForExecution' ? 'Ready' : moment.status === 'NeedsReview' ? 'Needs review' : moment.status === 'Closed' ? 'Closed' : 'Cancelled'}
                   </span>
                 </Link>
               ))}

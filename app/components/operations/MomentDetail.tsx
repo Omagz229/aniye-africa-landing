@@ -108,7 +108,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
   /**
    * The one clear next action, **computed from state** (Doctrine §1.1): no brief
    * → confirm one; brief but no item → choose one; item but no vendor → compare
-   * quotes; vendor chosen → this is as far as the build goes.
+   * quotes; then carriage → order → fulfilment → reconciliation → closure.
    */
   const courierSelection = findLiveCourierSelection(decisions, moment.id);
   const fulfilment = fulfilments.find(f => f.momentId === moment.id) ?? null;
@@ -120,8 +120,10 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
    * skips straight to its fulfilment rather than being sent to an order screen
    * that can only refuse it.
    */
-  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'order' | 'dispatch' | 'fulfilment' | 'reconcile' | 'closed' =
-    !brief || brief.status !== 'Confirmed'
+  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'order' | 'dispatch' | 'fulfilment' | 'reconcile' | 'close' | 'complete' =
+    moment.status === 'Closed'
+      ? 'complete'
+      : !brief || brief.status !== 'Confirmed'
       ? 'brief'
       : !selection
         ? 'item'
@@ -136,7 +138,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
                 : fulfilment.status === 'Delivered' && order && order.status !== 'Reconciled'
                   ? 'reconcile'
                   : order?.status === 'Reconciled'
-                    ? 'closed'
+                    ? 'close'
                     : 'fulfilment';
 
   const NEXT: Record<typeof nextAction, { href: string; label: string; primary: boolean }> = {
@@ -148,7 +150,8 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
     dispatch: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'Continue to fulfilment', primary: true },
     fulfilment: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'View fulfilment', primary: false },
     reconcile: { href: `/operations/moments/${moment.id}/order`, label: 'Record actual amounts', primary: true },
-    closed: { href: `/operations/moments/${moment.id}/order`, label: 'View the order', primary: false },
+    close: { href: `/operations/moments/${moment.id}/close`, label: 'Close the moment', primary: true },
+    complete: { href: `/operations/timeline/${moment.personId}`, label: 'View relationship timeline', primary: false },
   };
   const next = NEXT[nextAction];
 
@@ -169,9 +172,10 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           <span className={`font-body text-xs rounded-full px-2.5 py-0.5 flex-shrink-0 ${
             moment.status === 'ReadyForExecution' ? 'bg-gold/15 text-ink'
             : moment.status === 'Cancelled' ? 'bg-stone/8 text-stone/50'
+            : moment.status === 'Closed' ? 'bg-ink text-cream'
             : 'bg-stone/15 text-ink'
           }`}>
-            {moment.status === 'ReadyForExecution' ? 'Ready' : moment.status === 'NeedsReview' ? 'Needs review' : 'Cancelled'}
+            {moment.status === 'ReadyForExecution' ? 'Ready' : moment.status === 'NeedsReview' ? 'Needs review' : moment.status === 'Closed' ? 'Closed' : 'Cancelled'}
           </span>
         </div>
       </div>
@@ -207,7 +211,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         </Panel>
       )}
 
-      {moment.status === 'ReadyForExecution' && (
+      {(moment.status === 'ReadyForExecution' || moment.status === 'Closed') && (
         <Link href={next.href}
           className={`block rounded-full px-6 py-3 font-body text-sm font-semibold text-center transition-colors ${
             next.primary
@@ -246,9 +250,11 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         Execution Brief "is not yet enabled" — true when H3.1 shipped, false
         from H3.2 onward, and it sat directly beneath a button that opened it.
       */}
-      {moment.status === 'ReadyForExecution' && (
+      {(moment.status === 'ReadyForExecution' || moment.status === 'Closed') && (
         <div className="bg-cream rounded-2xl border border-stone/20 p-5">
-          <p className="font-body text-sm font-semibold text-ink mb-1">Ready for execution</p>
+          <p className="font-body text-sm font-semibold text-ink mb-1">
+            {moment.status === 'Closed' ? 'Moment closed' : 'Ready for execution'}
+          </p>
           <p className="font-body text-sm text-stone leading-relaxed">
             {nextAction === 'brief'
               ? 'Confirm the brief next — it fixes the address and the budget an item is chosen against.'
@@ -264,8 +270,10 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
                         ? 'The Recognition Order is committed. Confirming that the courier has it is the next step.'
                         : nextAction === 'reconcile'
                           ? 'This was delivered. Confirming the actual vendor, courier and customer amounts is the next step.'
-                          : nextAction === 'closed'
-                            ? 'Delivered and reconciled. Closing the moment and writing its Memory is the next milestone and is not built yet — nothing further can be done with this moment in this build.'
+                          : nextAction === 'close'
+                            ? 'Delivered and reconciled. Confirm completion next — one atomic write closes the moment, creates its immutable Memory and records MomentClosed.'
+                            : nextAction === 'complete'
+                              ? 'This moment is closed and cannot be reopened or cancelled. Its customer-safe Memory is available on the relationship timeline.'
                             : `This is ${humanFulfilmentStatus(fulfilment!.status).toLowerCase()} at attempt ${fulfilment!.attempt}. The fulfilment screen holds its full history.`}
           </p>
         </div>
@@ -325,7 +333,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
       {error && <p className="font-body text-sm text-ink bg-gold/15 rounded-xl px-4 py-3">{error}</p>}
 
       {/* Cancellation — a judgement, so it needs a reason */}
-      {moment.status !== 'Cancelled' && (
+      {moment.status !== 'Cancelled' && moment.status !== 'Closed' && (
         cancelling ? (
           <div className="bg-white rounded-2xl border border-stone/20 p-5 space-y-3">
             <p className="font-body text-sm font-semibold text-ink">Cancel this moment?</p>
@@ -381,6 +389,7 @@ function humanEvent(type: string): string {
     case 'Delivered': return 'Delivered';
     case 'ProofReceived': return 'Proof received';
     case 'RecognitionOrderCommitted': return 'Recognition order committed';
+    case 'MomentClosed': return 'Moment closed';
     default: return type;
   }
 }

@@ -17,11 +17,13 @@ import type { DeliveryAddress, DeliveryRequirement, RelationshipType } from '../
 // ─── Moment ──────────────────────────────────────────────────────────────────
 
 /**
- * H3.1 statuses only. Fulfilment stages — dispatched, delivered, closed — do
- * not exist yet and must not be added speculatively; each needs the object that
- * produces it.
+ * The Relationship Engine's canonical Moment lifecycle.
+ *
+ * `Closed` is produced only by the H3.8 closure operation. Dispatch and
+ * delivery remain Fulfilment states and deliberately never become Moment
+ * statuses.
  */
-export const MOMENT_STATUSES = ['NeedsReview', 'ReadyForExecution', 'Cancelled'] as const;
+export const MOMENT_STATUSES = ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed'] as const;
 export type MomentStatus = (typeof MOMENT_STATUSES)[number];
 
 /**
@@ -292,6 +294,10 @@ export const EVENT_TYPES = [
   // reason and the history. Adding Events would fill the timeline with
   // bookkeeping and make the genuine occurrences harder to find.
   'RecognitionOrderCommitted',
+  // H3.8 — operator confirmation that a delivered, reconciled recognition is
+  // complete. The occurrence writes a Memory and closes the Moment atomically;
+  // it is not recipient acknowledgement and carries no Decision.
+  'MomentClosed',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -740,6 +746,34 @@ export interface RecognitionOrder {
   updatedAt: string;
 }
 
+// ─── Memory ──────────────────────────────────────────────────────────────────
+
+/** ADR-014 permits exactly one outcome in H3.8. */
+export const MEMORY_OUTCOMES = ['Delivered'] as const;
+export type MemoryOutcome = (typeof MEMORY_OUTCOMES)[number];
+
+/**
+ * The immutable Knowledge record created when a Moment closes.
+ *
+ * It keeps references and closure authority only. Occasion, target date,
+ * recipient name and gift category remain on their governed source records and
+ * are resolved through the customer-safe projection rather than duplicated.
+ */
+export interface Memory {
+  id: string;
+  workspaceId: string;
+  momentId: string;
+  personId: string;
+  fulfilmentId: string;
+  recognitionOrderId: string;
+  outcome: MemoryOutcome;
+  /** ISO date copied from the authoritative Delivered Event's `occurredAt`. */
+  outcomeDate: string;
+  createdByActorType: 'Operator';
+  createdByActorId?: string;
+  createdAt: string;
+}
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
 /**
@@ -754,12 +788,13 @@ export interface RecognitionOrder {
  * newly generated Moments. Additive, and it **adds nothing to existing records**.
  * **v7 (H3.6)** adds the `fulfilments` collection. Additive.
  * **v8 (H3.7)** adds the `recognitionOrders` collection. Additive.
+ * **v9 (H3.8)** adds the `memories` collection. Additive, with no backfill.
  *
  * There is no `courierSelections` collection: unlike a vendor comparison, which
  * had to persist several hand-entered quotes, a courier selection is one choice
  * with one cost and the Decision carries all of it.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 8;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 9;
 
 /**
  * The storage *location*, not a version assertion.
@@ -794,6 +829,8 @@ export interface OperationsState {
   fulfilments: Fulfilment[];
   /** H3.7, additive at operations schema v8. */
   recognitionOrders: RecognitionOrder[];
+  /** H3.8, additive at operations schema v9. */
+  memories: Memory[];
   createdAt: string;
   updatedAt: string;
 }
@@ -811,6 +848,7 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     couriers: [],
     fulfilments: [],
     recognitionOrders: [],
+    memories: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -953,6 +991,18 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
     };
   }
 
+  // v8 → v9: add the Memory collection. Additive, and it **invents nothing**.
+  // No delivered Moment is rewritten to Closed, and no legacy Fulfilment is
+  // given a Memory. Closure requires commercial authority and an explicit
+  // operator confirmation, neither of which a migration may fabricate.
+  if ((working.schemaVersion as number) === 8) {
+    working = {
+      ...working,
+      memories: Array.isArray(working.memories) ? working.memories : [],
+      schemaVersion: 9,
+    };
+  }
+
   return from === CURRENT_OPERATIONS_SCHEMA_VERSION
     ? { status: 'current', state: working as unknown as OperationsState }
     : { status: 'migrated', state: working as unknown as OperationsState, from };
@@ -980,6 +1030,12 @@ const isPlainObject = isPlainRecord;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 /**
@@ -1056,6 +1112,31 @@ export const LIFECYCLE_PAYLOAD_KEYS = ['fulfilmentId', 'attempt'] as const;
  * ADR-012 §7: H3.6 records **that** proof was received and stores no proof.
  */
 export const PROOF_PAYLOAD_KEYS = ['fulfilmentId', 'attempt', 'proofKinds'] as const;
+
+/** Exact payload for the sole H3.8 closure Event. */
+export const MOMENT_CLOSED_PAYLOAD_KEYS = [
+  'memoryId',
+  'fulfilmentId',
+  'recognitionOrderId',
+  'outcome',
+  'outcomeDate',
+  'previousStatus',
+] as const;
+
+/** Exact persisted Memory keys; actor id is the sole optional field. */
+export const MEMORY_REQUIRED_KEYS = [
+  'id',
+  'workspaceId',
+  'momentId',
+  'personId',
+  'fulfilmentId',
+  'recognitionOrderId',
+  'outcome',
+  'outcomeDate',
+  'createdByActorType',
+  'createdAt',
+] as const;
+export const MEMORY_OPTIONAL_KEYS = ['createdByActorId'] as const;
 
 /**
  * Field names an H3.7 `RecognitionOrder` must never carry, refused **by name**
@@ -1219,13 +1300,14 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders', 'memories'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
   }
 
   const momentIds = new Set<string>();
+  const momentById = new Map<string, Record<string, unknown>>();
   const sourceKeys = new Set<string>();
 
   for (const [i, moment] of (raw.moments as unknown[]).entries()) {
@@ -1233,6 +1315,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (!isNonEmptyString(moment.id)) return { ok: false, reason: `Moment at index ${i} has no id.` };
     if (momentIds.has(moment.id)) return { ok: false, reason: `Duplicate moment id "${moment.id}".` };
     momentIds.add(moment.id);
+    momentById.set(moment.id, moment);
 
     if (!isNonEmptyString(moment.sourceKey)) {
       return { ok: false, reason: `Moment "${moment.id}" has no sourceKey.` };
@@ -1258,8 +1341,11 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       return { ok: false, reason: `Moment "${moment.id}" has a malformed issues list.` };
     }
     // A ready Moment must be able to explain its budget.
-    if (moment.status === 'ReadyForExecution' && !isPlainObject(moment.policyResolutionSnapshot)) {
-      return { ok: false, reason: `Moment "${moment.id}" is ready but has no policy resolution snapshot.` };
+    if (
+      (moment.status === 'ReadyForExecution' || moment.status === 'Closed') &&
+      !isPlainObject(moment.policyResolutionSnapshot)
+    ) {
+      return { ok: false, reason: `Moment "${moment.id}" is executable or closed but has no policy resolution snapshot.` };
     }
     if (!excludedCategoriesValid(moment.policyResolutionSnapshot)) {
       return { ok: false, reason: `Moment "${moment.id}" has a malformed excluded-category snapshot.` };
@@ -1571,6 +1657,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
   // against a field. A Fulfilment cannot claim a lifecycle its Events do not
   // support, and its Events cannot describe one its record does not match.
   const fulfilmentIds = new Set<string>();
+  const fulfilmentById = new Map<string, Record<string, unknown>>();
   const fulfilmentByMoment = new Map<string, string>();
   const redeliveriesByFulfilment = new Map<string, number>();
 
@@ -1581,6 +1668,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       return { ok: false, reason: `Duplicate fulfilment id "${fulfilment.id}".` };
     }
     fulfilmentIds.add(fulfilment.id);
+    fulfilmentById.set(fulfilment.id, fulfilment);
 
     if (fulfilment.workspaceId !== raw.workspaceId) {
       return { ok: false, reason: `Fulfilment "${fulfilment.id}" belongs to a different workspace.` };
@@ -1678,6 +1766,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
 
   // ── Recognition Orders (H3.7, ADR-013) ──
   const orderIds = new Set<string>();
+  const orderById = new Map<string, Record<string, unknown>>();
   const orderByMoment = new Map<string, string>();
 
   for (const [i, order] of (raw.recognitionOrders as unknown[]).entries()) {
@@ -1685,6 +1774,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (!isNonEmptyString(order.id)) return { ok: false, reason: `Recognition order at index ${i} has no id.` };
     if (orderIds.has(order.id)) return { ok: false, reason: `Duplicate recognition order id "${order.id}".` };
     orderIds.add(order.id);
+    orderById.set(order.id, order);
 
     if (order.workspaceId !== raw.workspaceId) {
       return { ok: false, reason: `Recognition order "${order.id}" belongs to a different workspace.` };
@@ -1791,6 +1881,174 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       if (!isIsoInstant(order[field])) {
         return { ok: false, reason: `Recognition order "${order.id}" has an unreadable ${field}.` };
       }
+    }
+  }
+
+  // ── Memory and closure (H3.8, ADR-014) ──
+  //
+  // One atomic bundle must remain legible as one bundle after storage: a
+  // Closed Moment, one immutable Memory and one exact MomentClosed Event. A
+  // partial or cross-linked bundle is invalid state, not something reads may
+  // paper over.
+  const memoryIds = new Set<string>();
+  const memoryByMoment = new Map<string, Record<string, unknown>>();
+  const closureEventByMoment = new Map<string, Record<string, unknown>>();
+
+  for (const event of raw.events as Record<string, unknown>[]) {
+    if (event.eventType !== 'MomentClosed') continue;
+    if (closureEventByMoment.has(event.momentId as string)) {
+      return { ok: false, reason: `Moment "${String(event.momentId)}" has more than one closure event.` };
+    }
+    closureEventByMoment.set(event.momentId as string, event);
+  }
+
+  for (const [i, memory] of (raw.memories as unknown[]).entries()) {
+    if (!isPlainObject(memory)) return { ok: false, reason: `Memory at index ${i} is not an object.` };
+
+    const extra = exactPayloadKeys(memory, [...MEMORY_REQUIRED_KEYS, ...MEMORY_OPTIONAL_KEYS]);
+    if (extra.length > 0) {
+      return { ok: false, reason: `Memory at index ${i} cannot carry ${extra.join(', ')}.` };
+    }
+    for (const field of MEMORY_REQUIRED_KEYS) {
+      if (!(field in memory)) return { ok: false, reason: `Memory at index ${i} is missing ${field}.` };
+    }
+
+    if (!isNonEmptyString(memory.id)) return { ok: false, reason: `Memory at index ${i} has no id.` };
+    if (memoryIds.has(memory.id)) return { ok: false, reason: `Duplicate memory id "${memory.id}".` };
+    memoryIds.add(memory.id);
+
+    if (memory.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Memory "${memory.id}" belongs to a different workspace.` };
+    }
+    if (!isNonEmptyString(memory.momentId) || !momentIds.has(memory.momentId)) {
+      return { ok: false, reason: `Memory "${memory.id}" references an unknown moment.` };
+    }
+    if (memoryByMoment.has(memory.momentId)) {
+      return { ok: false, reason: `Moment "${memory.momentId}" has more than one Memory.` };
+    }
+    memoryByMoment.set(memory.momentId, memory);
+
+    const moment = momentById.get(memory.momentId)!;
+    if (moment.status !== 'Closed') {
+      return { ok: false, reason: `Memory "${memory.id}" belongs to a Moment that is not Closed.` };
+    }
+    if (!isNonEmptyString(memory.personId) || memory.personId !== moment.personId) {
+      return { ok: false, reason: `Memory "${memory.id}" does not match its Moment's person.` };
+    }
+
+    if (!isNonEmptyString(memory.fulfilmentId) || !fulfilmentIds.has(memory.fulfilmentId)) {
+      return { ok: false, reason: `Memory "${memory.id}" references an unknown fulfilment.` };
+    }
+    const fulfilment = fulfilmentById.get(memory.fulfilmentId)!;
+    if (fulfilment.momentId !== memory.momentId || fulfilment.status !== 'Delivered') {
+      return { ok: false, reason: `Memory "${memory.id}" is not backed by this Moment's delivered fulfilment.` };
+    }
+
+    if (!isNonEmptyString(memory.recognitionOrderId) || !orderIds.has(memory.recognitionOrderId)) {
+      return { ok: false, reason: `Memory "${memory.id}" references an unknown recognition order.` };
+    }
+    const order = orderById.get(memory.recognitionOrderId)!;
+    if (order.momentId !== memory.momentId || order.status !== 'Reconciled') {
+      return { ok: false, reason: `Memory "${memory.id}" is not backed by this Moment's reconciled order.` };
+    }
+
+    if (
+      order.executionBriefId !== fulfilment.briefId ||
+      order.briefRevision !== fulfilment.briefRevision ||
+      order.itemSelectionDecisionId !== fulfilment.itemSelectionDecisionId ||
+      order.vendorSelectionDecisionId !== fulfilment.vendorSelectionDecisionId ||
+      order.courierSelectionDecisionId !== fulfilment.courierSelectionDecisionId
+    ) {
+      return { ok: false, reason: `Memory "${memory.id}" is backed by authorities that disagree.` };
+    }
+
+    if (memory.outcome !== 'Delivered') {
+      return { ok: false, reason: `Memory "${memory.id}" has an invalid outcome.` };
+    }
+    if (!isIsoDate(memory.outcomeDate)) {
+      return { ok: false, reason: `Memory "${memory.id}" has an unreadable outcomeDate.` };
+    }
+    if (memory.createdByActorType !== 'Operator') {
+      return { ok: false, reason: `Memory "${memory.id}" was not created by an operator.` };
+    }
+    if (
+      memory.createdByActorId !== undefined &&
+      (!isNonEmptyString(memory.createdByActorId) || memory.createdByActorId.trim().length === 0)
+    ) {
+      return { ok: false, reason: `Memory "${memory.id}" has an unusable actor id.` };
+    }
+    if (!isIsoInstant(memory.createdAt)) {
+      return { ok: false, reason: `Memory "${memory.id}" has an unreadable createdAt.` };
+    }
+
+    const delivered = (raw.events as Record<string, unknown>[]).find(
+      event =>
+        event.eventType === 'Delivered' &&
+        isPlainObject(event.payload) &&
+        event.payload.fulfilmentId === memory.fulfilmentId,
+    );
+    if (!delivered || !isIsoInstant(delivered.occurredAt)) {
+      return { ok: false, reason: `Memory "${memory.id}" has no authoritative Delivered event.` };
+    }
+    if (memory.outcomeDate !== delivered.occurredAt.slice(0, 10)) {
+      return { ok: false, reason: `Memory "${memory.id}" does not use the authoritative delivery date.` };
+    }
+
+    const brief = (raw.executionBriefs as Record<string, unknown>[]).find(b => b.id === fulfilment.briefId);
+    if (!brief || brief.status !== 'Confirmed' || !isPlainObject(brief.policyResolutionSnapshot)) {
+      return { ok: false, reason: `Memory "${memory.id}" has no current confirmed brief authority.` };
+    }
+    const proofRequired = brief.policyResolutionSnapshot.proofRequired;
+    if (typeof proofRequired !== 'boolean') {
+      return { ok: false, reason: `Memory "${memory.id}" has no frozen proof requirement.` };
+    }
+    if (
+      proofRequired &&
+      !(raw.events as Record<string, unknown>[]).some(
+        event =>
+          event.eventType === 'ProofReceived' &&
+          isPlainObject(event.payload) &&
+          event.payload.fulfilmentId === memory.fulfilmentId,
+      )
+    ) {
+      return { ok: false, reason: `Memory "${memory.id}" was created without required proof.` };
+    }
+
+    const closed = closureEventByMoment.get(memory.momentId);
+    if (!closed || !isPlainObject(closed.payload)) {
+      return { ok: false, reason: `Memory "${memory.id}" has no matching MomentClosed event.` };
+    }
+    const closedPayload = closed.payload;
+    const payloadExtra = exactPayloadKeys(closedPayload, MOMENT_CLOSED_PAYLOAD_KEYS);
+    if (payloadExtra.length > 0 || MOMENT_CLOSED_PAYLOAD_KEYS.some(key => !(key in closedPayload))) {
+      return { ok: false, reason: `Memory "${memory.id}" has a malformed MomentClosed payload.` };
+    }
+    if (
+      closed.actorType !== 'Operator' ||
+      closed.source !== 'Platform' ||
+      closed.actorId !== memory.createdByActorId ||
+      closed.occurredAt !== memory.createdAt ||
+      closed.recordedAt !== memory.createdAt ||
+      closedPayload.memoryId !== memory.id ||
+      closedPayload.fulfilmentId !== memory.fulfilmentId ||
+      closedPayload.recognitionOrderId !== memory.recognitionOrderId ||
+      closedPayload.outcome !== memory.outcome ||
+      closedPayload.outcomeDate !== memory.outcomeDate ||
+      closedPayload.previousStatus !== 'ReadyForExecution'
+    ) {
+      return { ok: false, reason: `Memory "${memory.id}" and its MomentClosed event disagree.` };
+    }
+  }
+
+  for (const moment of raw.moments as Record<string, unknown>[]) {
+    const memory = memoryByMoment.get(moment.id as string);
+    const closed = closureEventByMoment.get(moment.id as string);
+    if (moment.status === 'Closed') {
+      if (!memory || !closed) {
+        return { ok: false, reason: `Closed Moment "${String(moment.id)}" has no complete closure bundle.` };
+      }
+    } else if (memory || closed) {
+      return { ok: false, reason: `Moment "${String(moment.id)}" has closure history but is not Closed.` };
     }
   }
 

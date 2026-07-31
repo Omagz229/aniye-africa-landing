@@ -13,6 +13,7 @@ import type {
   Decision,
   ExecutionBrief,
   Fulfilment,
+  Memory,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -22,6 +23,7 @@ import type {
   Vendor,
   VendorOffer,
 } from './types';
+import type { ClosureBundle } from './closure';
 
 export type StoreResult<T> = { ok: true; value: T } | { ok: false; reason: string };
 
@@ -457,6 +459,27 @@ export interface OperationsRepository {
     write: ReconciliationWrite,
     now: string,
   ): StoreResult<RecognitionOrder>;
+
+  // ── Moment closure and Memory (H3.8) ──
+
+  listMemories(workspaceId: string): StoreResult<Memory[]>;
+
+  /** The one immutable Memory for a Moment, or null. */
+  findMemoryForMoment(workspaceId: string, momentId: string): StoreResult<Memory | null>;
+
+  /**
+   * Close one ready Moment atomically.
+   *
+   * The implementation re-reads every prerequisite, rebuilds the canonical
+   * `Closed` Moment, Memory and `MomentClosed` Event, compares the submitted
+   * bundle field by field, validates the whole proposed state and performs one
+   * storage write. No caller may submit the terminal status directly.
+   */
+  commitMomentClosure(
+    workspaceId: string,
+    write: ClosureBundle,
+    now: string,
+  ): StoreResult<Memory>;
 
   /** Structural check of the stored state, without modifying it. */
   validate(workspaceId: string): StoreResult<true>;
