@@ -356,8 +356,9 @@ check('11. A person with no address still produces a ReadyForExecution Moment', 
 });
 
 check('12. MOMENT_STATUSES was not expanded for address readiness', () => {
-  assertEqual(MOMENT_STATUSES.length, 3, 'MOMENT_STATUSES changed length.');
-  for (const expected of ['NeedsReview', 'ReadyForExecution', 'Cancelled']) {
+  // `Closed` left this count at H3.8 — unrelated to address readiness.
+  assertEqual(MOMENT_STATUSES.length, 4, 'MOMENT_STATUSES changed length.');
+  for (const expected of ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed']) {
     assert((MOMENT_STATUSES as readonly string[]).includes(expected), `${expected} is missing.`);
   }
   for (const forbidden of ['AwaitingAddress', 'AddressIncomplete', 'Briefed']) {
@@ -791,10 +792,11 @@ check('35. The new Decision and Event types are declared, and no more', () => {
   // at the milestone that produces it. The rest have not been built.
   // `CourierSelection` left this list at H3.5, the milestone that produces it.
   // The four fulfilment Events left it at H3.6, and `Redelivery` with them.
+  // `MomentClosed` left this list at H3.8, the milestone that produces it.
   for (const t of ['QAException']) {
     assert(!(DECISION_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
-  for (const t of ['MomentClosed', 'Returned', 'Escalation']) {
+  for (const t of ['Returned', 'Escalation']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(t), `${t} belongs to a later milestone.`);
   }
 });

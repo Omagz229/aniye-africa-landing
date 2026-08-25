@@ -17,11 +17,18 @@ import type { DeliveryAddress, DeliveryRequirement, RelationshipType } from '../
 // ─── Moment ──────────────────────────────────────────────────────────────────
 
 /**
- * H3.1 statuses only. Fulfilment stages — dispatched, delivered, closed — do
- * not exist yet and must not be added speculatively; each needs the object that
- * produces it.
+ * H3.1 statuses plus `Closed` — H3.8, implementing ADR-014 §3.
+ *
+ * `Closed` is the exact canonical terminal status, entered only from
+ * `ReadyForExecution` and irreversible: it can never become `Cancelled`,
+ * `ReadyForExecution` or `NeedsReview`, and it can never be reopened. It
+ * deliberately supersedes the checkpoint's proposed `Fulfilled` — that name
+ * collides with the Fulfilment object H3.6 already built, where a Moment
+ * reading `Fulfilled` beside a Fulfilment reading `Delivered` would be two
+ * names for one idea. No other lifecycle state is added — no `Missed`, no
+ * `Archived`.
  */
-export const MOMENT_STATUSES = ['NeedsReview', 'ReadyForExecution', 'Cancelled'] as const;
+export const MOMENT_STATUSES = ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed'] as const;
 export type MomentStatus = (typeof MOMENT_STATUSES)[number];
 
 /**
@@ -292,6 +299,12 @@ export const EVENT_TYPES = [
   // reason and the history. Adding Events would fill the timeline with
   // bookkeeping and make the genuine occurrences harder to find.
   'RecognitionOrderCommitted',
+  // H3.8 — ADR-014. **The only Event closure appends, and closure records no
+  // Decision.** By the time every prerequisite in §4 holds there is no
+  // alternative left to confirm between — the operator asserts the record is
+  // complete, not choosing among options — exactly the reasoning ADR-012
+  // already applied to `Dispatched` and `Delivered`.
+  'MomentClosed',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -740,6 +753,83 @@ export interface RecognitionOrder {
   updatedAt: string;
 }
 
+// ─── Memory ──────────────────────────────────────────────────────────────────
+
+/**
+ * H3.8, implementing
+ * [ADR-014](../../docs/adr/ADR-014-moment-closure-memory-and-safe-timeline.md).
+ *
+ * **Supersedes the Atlas §4 `Memory` draft in full.** Only `Delivered` is
+ * writable — recipient acknowledgement is unsupported and excluded at H3.8
+ * (ADR-014 §1), so no other outcome exists to record yet.
+ */
+export const MEMORY_OUTCOMES = ['Delivered'] as const;
+export type MemoryOutcome = (typeof MEMORY_OUTCOMES)[number];
+
+/**
+ * Historical learning that a recognition happened — **Knowledge-domain**, not
+ * Operations-owned, even though it lives in this shared envelope (ADR-014 §2).
+ *
+ * **Exactly eleven fields.** Every one is either a reference, a timestamp, or
+ * derived at closure from already-immutable evidence — occasion, target date,
+ * recipient identity and gift category are obtained through governed
+ * references when building the timeline projection (§7), never copied here.
+ *
+ * ⚠️ **Deliberately absent, and not oversights:** `type` (five of the draft's
+ * six values are unreachable, the same failure `Gift / Item`'s draft made),
+ * `summary` (composed only in the projection — a stored rendered string is a
+ * second source of truth), the draft's ambiguous single `date` (split,
+ * correctly, into `outcomeDate` and `createdAt`), generic `createdBy` (would
+ * fabricate an identity — no user model exists), `occasion`, target date,
+ * recipient name or contact details, item name or category, and any `Money` or
+ * commercial value.
+ *
+ * **Immutable after creation. Exactly one Memory exists per closed Moment.**
+ * No correction or supersession path exists at H3.8 — every field here is
+ * either a reference, a timestamp, or derived from evidence that was already
+ * immutable before closure, so there is almost nothing that can be wrong.
+ */
+export interface Memory {
+  id: string;
+  workspaceId: string;
+  momentId: string;
+  personId: string;
+  fulfilmentId: string;
+  recognitionOrderId: string;
+  /** From the authoritative `Delivered` Event's `occurredAt` — never the closure instant. */
+  outcome: MemoryOutcome;
+  outcomeDate: string;
+  /** `Operator` — closure is always an Aniyé confirmation, never the recipient's. */
+  createdByActorType: ActorType;
+  /** Optional — no authenticated user model exists (OPS-U1, ADR-010). */
+  createdByActorId?: string;
+  /** The closure-confirmation time. */
+  createdAt: string;
+}
+
+/**
+ * Exact payload for the `MomentClosed` Event (ADR-014 §8.B) — and the whole of
+ * it. The envelope's `workspaceId` and `momentId` carry tenancy exactly as
+ * every other Operational Event does.
+ */
+export const MOMENT_CLOSED_PAYLOAD_KEYS = [
+  'memoryId', 'fulfilmentId', 'recognitionOrderId', 'outcome', 'outcomeDate', 'previousStatus',
+] as const;
+
+/**
+ * Field names a persisted `Memory` must never carry, refused **by name**
+ * (ADR-014 §6, §8.A) — the same reasoning `FORBIDDEN_ORDER_FIELDS` already
+ * applies: an exact-key check alone would say "cannot record `summary`"
+ * without saying why, and the next person adds it back.
+ */
+export const FORBIDDEN_MEMORY_FIELDS = [
+  'type', 'summary', 'date', 'createdBy',
+  'occasion', 'occasionType', 'targetDate', 'plannedDate',
+  'recipientName', 'recipientFirstName', 'recipientLastName', 'recipientEmail', 'recipientPhone',
+  'itemName', 'itemCategory', 'giftCategory',
+  'amount', 'money', 'cost', 'charge', 'budget', 'margin', 'commercialRole',
+] as const;
+
 // ─── OperationsState ─────────────────────────────────────────────────────────
 
 /**
@@ -754,12 +844,14 @@ export interface RecognitionOrder {
  * newly generated Moments. Additive, and it **adds nothing to existing records**.
  * **v7 (H3.6)** adds the `fulfilments` collection. Additive.
  * **v8 (H3.7)** adds the `recognitionOrders` collection. Additive.
+ * **v9 (H3.8)** adds the `memories` collection. Additive — no Moment is
+ * backfilled with a Memory, and none is rewritten to `Closed`.
  *
  * There is no `courierSelections` collection: unlike a vendor comparison, which
  * had to persist several hand-entered quotes, a courier selection is one choice
  * with one cost and the Decision carries all of it.
  */
-export const CURRENT_OPERATIONS_SCHEMA_VERSION = 8;
+export const CURRENT_OPERATIONS_SCHEMA_VERSION = 9;
 
 /**
  * The storage *location*, not a version assertion.
@@ -794,6 +886,8 @@ export interface OperationsState {
   fulfilments: Fulfilment[];
   /** H3.7, additive at operations schema v8. */
   recognitionOrders: RecognitionOrder[];
+  /** H3.8, additive at operations schema v9. */
+  memories: Memory[];
   createdAt: string;
   updatedAt: string;
 }
@@ -811,6 +905,7 @@ export function emptyOperationsState(workspaceId: string, now: string): Operatio
     couriers: [],
     fulfilments: [],
     recognitionOrders: [],
+    memories: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -950,6 +1045,17 @@ export function migrateOperationsState(raw: unknown): OperationsMigrationResult 
       ...working,
       recognitionOrders: Array.isArray(working.recognitionOrders) ? working.recognitionOrders : [],
       schemaVersion: 8,
+    };
+  }
+
+  // v8 → v9: add the memory collection. Additive, and it **invents nothing** —
+  // closure was never confirmed for any existing Moment, so none receives a
+  // fabricated Memory or a rewritten `Closed` status (ADR-014 §5).
+  if ((working.schemaVersion as number) === 8) {
+    working = {
+      ...working,
+      memories: Array.isArray(working.memories) ? working.memories : [],
+      schemaVersion: 9,
     };
   }
 
@@ -1219,7 +1325,7 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       reason: `Operations state belongs to workspace "${raw.workspaceId}", not "${expectedWorkspaceId}".`,
     };
   }
-  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders'] as const) {
+  for (const collection of ['moments', 'decisions', 'events', 'executionBriefs', 'vendors', 'vendorOffers', 'couriers', 'fulfilments', 'recognitionOrders', 'memories'] as const) {
     if (!Array.isArray(raw[collection])) {
       return { ok: false, reason: `${collection} is not an array.` };
     }
@@ -1257,9 +1363,13 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
     if (!Array.isArray(moment.issues)) {
       return { ok: false, reason: `Moment "${moment.id}" has a malformed issues list.` };
     }
-    // A ready Moment must be able to explain its budget.
-    if (moment.status === 'ReadyForExecution' && !isPlainObject(moment.policyResolutionSnapshot)) {
-      return { ok: false, reason: `Moment "${moment.id}" is ready but has no policy resolution snapshot.` };
+    // A ready — or closed, which is only ever entered from ready — Moment must
+    // be able to explain its budget.
+    if (
+      (moment.status === 'ReadyForExecution' || moment.status === 'Closed') &&
+      !isPlainObject(moment.policyResolutionSnapshot)
+    ) {
+      return { ok: false, reason: `Moment "${moment.id}" is ${moment.status} but has no policy resolution snapshot.` };
     }
     if (!excludedCategoriesValid(moment.policyResolutionSnapshot)) {
       return { ok: false, reason: `Moment "${moment.id}" has a malformed excluded-category snapshot.` };
@@ -1791,6 +1901,103 @@ export function validateOperationsState(raw: unknown, expectedWorkspaceId?: stri
       if (!isIsoInstant(order[field])) {
         return { ok: false, reason: `Recognition order "${order.id}" has an unreadable ${field}.` };
       }
+    }
+  }
+
+  // ── Memories (H3.8, ADR-014) ──
+  const memoryIds = new Set<string>();
+  const memoryByMoment = new Map<string, string>();
+
+  for (const [i, memory] of (raw.memories as unknown[]).entries()) {
+    if (!isPlainObject(memory)) return { ok: false, reason: `Memory at index ${i} is not an object.` };
+    if (!isNonEmptyString(memory.id)) return { ok: false, reason: `Memory at index ${i} has no id.` };
+    if (memoryIds.has(memory.id)) return { ok: false, reason: `Duplicate memory id "${memory.id}".` };
+    memoryIds.add(memory.id);
+
+    if (memory.workspaceId !== raw.workspaceId) {
+      return { ok: false, reason: `Memory "${memory.id}" belongs to a different workspace.` };
+    }
+    if (!momentIds.has(memory.momentId as string)) {
+      return { ok: false, reason: `Memory "${memory.id}" references an unknown moment.` };
+    }
+    // ADR-014 §6: exactly one Memory per closed Moment.
+    const momentId = memory.momentId as string;
+    if (memoryByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one memory.` };
+    }
+    memoryByMoment.set(momentId, memory.id);
+
+    if (!isNonEmptyString(memory.personId)) {
+      return { ok: false, reason: `Memory "${memory.id}" has no person reference.` };
+    }
+    if (!fulfilmentIds.has(memory.fulfilmentId as string)) {
+      return { ok: false, reason: `Memory "${memory.id}" references an unknown fulfilment.` };
+    }
+    if (!orderIds.has(memory.recognitionOrderId as string)) {
+      return { ok: false, reason: `Memory "${memory.id}" references an unknown recognition order.` };
+    }
+    if (typeof memory.outcome !== 'string' || !(MEMORY_OUTCOMES as readonly string[]).includes(memory.outcome)) {
+      return { ok: false, reason: `Memory "${memory.id}" has an invalid outcome: ${String(memory.outcome)}.` };
+    }
+    if (!isIsoInstant(memory.outcomeDate)) {
+      return { ok: false, reason: `Memory "${memory.id}" has an unreadable outcome date.` };
+    }
+    if (
+      typeof memory.createdByActorType !== 'string' ||
+      !(ACTOR_TYPES as readonly string[]).includes(memory.createdByActorType)
+    ) {
+      return { ok: false, reason: `Memory "${memory.id}" has an invalid creator actor type.` };
+    }
+    if (!isIsoInstant(memory.createdAt)) {
+      return { ok: false, reason: `Memory "${memory.id}" has an unreadable creation time.` };
+    }
+    // `grossMargin`-style refusal by name — an exact-key check alone would say
+    // "cannot record `summary`" without saying why (ADR-014 §6, §8.A).
+    for (const forbidden of FORBIDDEN_MEMORY_FIELDS) {
+      if (memory[forbidden] !== undefined) {
+        return { ok: false, reason: `Memory "${memory.id}" cannot record ${forbidden}.` };
+      }
+    }
+  }
+
+  // ── MomentClosed events (H3.8) ──
+  const closedEventByMoment = new Map<string, Record<string, unknown>>();
+  for (const event of raw.events as Record<string, unknown>[]) {
+    if (event.eventType !== 'MomentClosed') continue;
+    const momentId = event.momentId as string;
+    if (closedEventByMoment.has(momentId)) {
+      return { ok: false, reason: `Moment "${momentId}" has more than one closure event.` };
+    }
+    closedEventByMoment.set(momentId, event);
+
+    if (!isPlainObject(event.payload)) {
+      return { ok: false, reason: `Event "${String(event.id)}" carries no readable payload.` };
+    }
+    const extra = exactPayloadKeys(event.payload, MOMENT_CLOSED_PAYLOAD_KEYS);
+    if (extra.length > 0) {
+      return { ok: false, reason: `A MomentClosed event cannot carry ${extra.join(', ')}.` };
+    }
+    const memoryId = event.payload.memoryId;
+    if (typeof memoryId !== 'string' || !memoryIds.has(memoryId)) {
+      return { ok: false, reason: `Event "${String(event.id)}" references an unknown memory.` };
+    }
+    if (memoryByMoment.get(momentId) !== memoryId) {
+      return { ok: false, reason: `Event "${String(event.id)}" names a memory belonging to another moment.` };
+    }
+  }
+
+  // A Moment reads `Closed` if and only if it has exactly one Memory and one
+  // `MomentClosed` Event — the same discipline `replayFulfilment` already
+  // applies to a Fulfilment's own history, restated here because closure has
+  // no replay function of its own (there is nothing to replay; `Closed` is a
+  // single irreversible write, not a sequence of attempts).
+  for (const moment of raw.moments as Record<string, unknown>[]) {
+    const momentId = moment.id as string;
+    const hasMemory = memoryByMoment.has(momentId);
+    const hasClosedEvent = closedEventByMoment.has(momentId);
+    const isClosed = moment.status === 'Closed';
+    if (isClosed !== hasMemory || isClosed !== hasClosedEvent) {
+      return { ok: false, reason: `Moment "${momentId}" disagrees with its own closure record.` };
     }
   }
 

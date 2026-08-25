@@ -20,7 +20,9 @@
     "validate:vendors": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-vendors.mts",
     "validate:couriers": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-couriers.mts",
     "validate:fulfilments": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-fulfilments.mts",
-    "validate:orders": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-recognition-orders.mts"
+    "validate:orders": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-recognition-orders.mts",
+    "validate:closure": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-closure.mts",
+    "validate:timeline": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-ts-resolver.mjs scripts/validate-timeline.mts"
   },
   "dependencies": {
     "next": "16.2.9",

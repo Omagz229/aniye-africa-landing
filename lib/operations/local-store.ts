@@ -24,8 +24,10 @@ import { verifyFulfilmentWrite } from './fulfilment';
 import type { FulfilmentWriteKind } from './fulfilment';
 import { verifyOrderWrite } from './recognition-order';
 import type { OrderWriteKind } from './recognition-order';
+import { verifyClosureWrite } from './closure';
 import type {
   BriefWrite,
+  ClosureWrite,
   DispatchWrite,
   FulfilmentEventWrite,
   ItemSelectionWrite,
@@ -351,6 +353,78 @@ export function createLocalOperationsRepository(
     );
     if (!written.ok) return written;
     return { ok: true, value: verified.order };
+  }
+
+  /**
+   * The one path Moment closure takes — H3.8.
+   *
+   * Re-reads state, finds the Moment, hands the whole submission to the
+   * verifier, and stores **what the verifier recomputed** — the Moment with
+   * its terminal status, the Memory and the Event — rather than what the
+   * caller sent. One transaction across all three collections.
+   */
+  function closeMoment(workspaceId: string, write: unknown, now: string): StoreResult<Moment> {
+    const state = require(workspaceId);
+    if (!state.ok) return state;
+
+    const refusal = 'Review the moment and try again — nothing was recorded.';
+
+    if (!isPlainRecord(write)) {
+      return { ok: false, reason: `That submission is not a record. ${refusal}` };
+    }
+    const event = write.event;
+    if (!isPlainRecord(event)) {
+      return { ok: false, reason: `That submission carries no readable event. ${refusal}` };
+    }
+
+    const moment = state.value.moments.find(m => m.id === event.momentId);
+    if (!moment) {
+      return { ok: false, reason: 'That moment no longer exists. Review the queue — nothing was recorded.' };
+    }
+
+    /**
+     * **The trust boundary.** The Moment, the live brief, the three live
+     * selection Decisions, the Fulfilment's own replayed history and the
+     * RecognitionOrder's reconciliation are re-read and recomputed, and every
+     * submitted field is compared against them. On success the verifier hands
+     * back the rebuilt Moment, Memory and Event.
+     */
+    const verified = verifyClosureWrite({
+      workspaceId,
+      moment,
+      briefs: state.value.executionBriefs,
+      decisions: state.value.decisions,
+      fulfilments: state.value.fulfilments,
+      events: state.value.events,
+      orders: state.value.recognitionOrders,
+      memories: state.value.memories,
+      write,
+    });
+    if (!verified.ok) return verified;
+
+    // Idempotency: a replayed bundle collides on every identifier it carries.
+    if (state.value.memories.some(m => m.id === verified.memory.id)) {
+      return { ok: false, reason: 'That memory has already been recorded.' };
+    }
+    if (state.value.events.some(e => e.id === verified.event.id)) {
+      return { ok: false, reason: 'That step has already been recorded.' };
+    }
+
+    // One transaction, over a proposed state validated in full (ADR-006).
+    // Existing collections are carried through **untouched** except the one
+    // Moment whose status changes — the history is appended to, never
+    // rewritten or reordered.
+    const written = commit(
+      {
+        ...state.value,
+        moments: state.value.moments.map(m => (m.id === moment.id ? verified.moment : m)),
+        memories: [...state.value.memories, verified.memory],
+        events: [...state.value.events, verified.event],
+      },
+      now,
+    );
+    if (!written.ok) return written;
+    return { ok: true, value: verified.moment };
   }
 
   return {
@@ -1128,6 +1202,24 @@ export function createLocalOperationsRepository(
 
     correctRecognitionOrderActuals(workspaceId, write: ReconciliationWrite, now) {
       return commercialWrite(workspaceId, write, 'Reconciliation', now);
+    },
+
+    // ── Moment closure and Memory (H3.8) ──
+
+    listMemories(workspaceId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.memories ?? [] };
+    },
+
+    findMemoryForMoment(workspaceId, momentId) {
+      const state = read(workspaceId);
+      if (!state.ok) return state;
+      return { ok: true, value: state.value?.memories.find(m => m.momentId === momentId) ?? null };
+    },
+
+    commitMomentClosure(workspaceId, write: ClosureWrite, now) {
+      return closeMoment(workspaceId, write, now);
     },
 
     validate(workspaceId) {

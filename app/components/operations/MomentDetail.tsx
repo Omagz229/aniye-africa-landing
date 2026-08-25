@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getWorkspace } from '@/lib/workspace';
 import { formatMoney } from '@/lib/money';
-import type { Decision, ExecutionBrief, Fulfilment, Moment, OperationalEvent, RecognitionOrder } from '@/lib/operations/types';
+import type { Decision, ExecutionBrief, Fulfilment, Memory, Moment, OperationalEvent, RecognitionOrder } from '@/lib/operations/types';
 import { browserOperationsRepository } from '@/lib/operations/local-store';
 import { buildCancellation } from '@/lib/operations/generation';
 import { findLiveSelectionDecision } from '@/lib/operations/selection';
@@ -12,6 +12,7 @@ import { findLiveVendorSelection } from '@/lib/operations/vendor-selection';
 import { findLiveCourierSelection } from '@/lib/operations/courier-selection';
 import { humanFulfilmentStatus } from '@/lib/operations/fulfilment';
 import { findOrderForMoment } from '@/lib/operations/recognition-order';
+import { findMemoryForMoment, humanMomentStatus } from '@/lib/operations/closure';
 
 export default function MomentDetail({ momentId }: { momentId: string }) {
   const [moment, setMoment] = useState<Moment | null>(null);
@@ -20,6 +21,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
   const [events, setEvents] = useState<OperationalEvent[]>([]);
   const [fulfilments, setFulfilments] = useState<Fulfilment[]>([]);
   const [orders, setOrders] = useState<RecognitionOrder[]>([]);
+  const [memories, setMemories] = useState<Memory[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -54,6 +56,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
       );
       setFulfilments(state.value.fulfilments.filter(f => f.momentId === momentId));
       setOrders(state.value.recognitionOrders.filter(o => o.momentId === momentId));
+      setMemories(state.value.memories.filter(m => m.momentId === momentId));
     }
   }
 
@@ -113,31 +116,39 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
   const courierSelection = findLiveCourierSelection(decisions, moment.id);
   const fulfilment = fulfilments.find(f => f.momentId === moment.id) ?? null;
   const order = findOrderForMoment(orders, moment.id);
+  const memory = findMemoryForMoment(memories, moment.id);
   /**
    * H3.7 inserts the commercial commitment **between carriage and dispatch** —
    * a quotation cannot be reconstructed once a parcel has gone (ADR-013).
    * A Moment dispatched before H3.7 existed has no order and never will, so it
    * skips straight to its fulfilment rather than being sent to an order screen
    * that can only refuse it.
+   *
+   * H3.8 adds the terminal step: once delivered and reconciled, closing the
+   * moment writes its Memory. `closed` is the moment's actual `Closed` status,
+   * distinct from `close` (the action of getting there).
    */
-  const nextAction: 'brief' | 'item' | 'vendor' | 'courier' | 'order' | 'dispatch' | 'fulfilment' | 'reconcile' | 'closed' =
-    !brief || brief.status !== 'Confirmed'
-      ? 'brief'
-      : !selection
-        ? 'item'
-        : !vendorSelection
-          ? 'vendor'
-          : !courierSelection
-            ? 'courier'
-            : !order && !fulfilment
-              ? 'order'
-              : !fulfilment
-                ? 'dispatch'
-                : fulfilment.status === 'Delivered' && order && order.status !== 'Reconciled'
-                  ? 'reconcile'
-                  : order?.status === 'Reconciled'
-                    ? 'closed'
-                    : 'fulfilment';
+  const nextAction:
+    | 'brief' | 'item' | 'vendor' | 'courier' | 'order' | 'dispatch' | 'fulfilment' | 'reconcile' | 'close' | 'closed' =
+    moment.status === 'Closed'
+      ? 'closed'
+      : !brief || brief.status !== 'Confirmed'
+        ? 'brief'
+        : !selection
+          ? 'item'
+          : !vendorSelection
+            ? 'vendor'
+            : !courierSelection
+              ? 'courier'
+              : !order && !fulfilment
+                ? 'order'
+                : !fulfilment
+                  ? 'dispatch'
+                  : fulfilment.status === 'Delivered' && order && order.status !== 'Reconciled'
+                    ? 'reconcile'
+                    : order?.status === 'Reconciled' && fulfilment.status === 'Delivered'
+                      ? 'close'
+                      : 'fulfilment';
 
   const NEXT: Record<typeof nextAction, { href: string; label: string; primary: boolean }> = {
     brief: { href: `/operations/moments/${moment.id}/brief`, label: 'Open the brief', primary: true },
@@ -148,7 +159,8 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
     dispatch: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'Continue to fulfilment', primary: true },
     fulfilment: { href: `/operations/moments/${moment.id}/fulfilment`, label: 'View fulfilment', primary: false },
     reconcile: { href: `/operations/moments/${moment.id}/order`, label: 'Record actual amounts', primary: true },
-    closed: { href: `/operations/moments/${moment.id}/order`, label: 'View the order', primary: false },
+    close: { href: `/operations/moments/${moment.id}/close`, label: 'Close the moment', primary: true },
+    closed: { href: `/operations/timeline/${moment.personId}`, label: 'View relationship timeline', primary: false },
   };
   const next = NEXT[nextAction];
 
@@ -169,9 +181,10 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
           <span className={`font-body text-xs rounded-full px-2.5 py-0.5 flex-shrink-0 ${
             moment.status === 'ReadyForExecution' ? 'bg-gold/15 text-ink'
             : moment.status === 'Cancelled' ? 'bg-stone/8 text-stone/50'
+            : moment.status === 'Closed' ? 'bg-ink text-cream'
             : 'bg-stone/15 text-ink'
           }`}>
-            {moment.status === 'ReadyForExecution' ? 'Ready' : moment.status === 'NeedsReview' ? 'Needs review' : 'Cancelled'}
+            {humanMomentStatus(moment.status)}
           </span>
         </div>
       </div>
@@ -207,7 +220,7 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
         </Panel>
       )}
 
-      {moment.status === 'ReadyForExecution' && (
+      {(moment.status === 'ReadyForExecution' || moment.status === 'Closed') && (
         <Link href={next.href}
           className={`block rounded-full px-6 py-3 font-body text-sm font-semibold text-center transition-colors ${
             next.primary
@@ -264,9 +277,19 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
                         ? 'The Recognition Order is committed. Confirming that the courier has it is the next step.'
                         : nextAction === 'reconcile'
                           ? 'This was delivered. Confirming the actual vendor, courier and customer amounts is the next step.'
-                          : nextAction === 'closed'
-                            ? 'Delivered and reconciled. Closing the moment and writing its Memory is the next milestone and is not built yet — nothing further can be done with this moment in this build.'
+                          : nextAction === 'close'
+                            ? 'Delivered and reconciled. Closing the moment writes its Memory and is irreversible — there is no reopen and no re-cancellation once it is confirmed.'
                             : `This is ${humanFulfilmentStatus(fulfilment!.status).toLowerCase()} at attempt ${fulfilment!.attempt}. The fulfilment screen holds its full history.`}
+          </p>
+        </div>
+      )}
+
+      {moment.status === 'Closed' && memory && (
+        <div className="bg-cream rounded-2xl border border-stone/20 p-5">
+          <p className="font-body text-sm font-semibold text-ink mb-1">Closed</p>
+          <p className="font-body text-sm text-stone leading-relaxed">
+            Delivered {memory.outcomeDate.slice(0, 10)}, closed {memory.createdAt.slice(0, 10)}. This
+            recognition is recorded as complete and irreversible — there is no reopen in this build.
           </p>
         </div>
       )}
@@ -324,8 +347,9 @@ export default function MomentDetail({ momentId }: { momentId: string }) {
 
       {error && <p className="font-body text-sm text-ink bg-gold/15 rounded-xl px-4 py-3">{error}</p>}
 
-      {/* Cancellation — a judgement, so it needs a reason */}
-      {moment.status !== 'Cancelled' && (
+      {/* Cancellation — a judgement, so it needs a reason. A closed moment is
+          terminal and irreversible, so it is never offered a cancellation. */}
+      {moment.status !== 'Cancelled' && moment.status !== 'Closed' && (
         cancelling ? (
           <div className="bg-white rounded-2xl border border-stone/20 p-5 space-y-3">
             <p className="font-body text-sm font-semibold text-ink">Cancel this moment?</p>
@@ -381,6 +405,7 @@ function humanEvent(type: string): string {
     case 'Delivered': return 'Delivered';
     case 'ProofReceived': return 'Proof received';
     case 'RecognitionOrderCommitted': return 'Recognition order committed';
+    case 'MomentClosed': return 'Closed';
     default: return type;
   }
 }

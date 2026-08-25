@@ -3,16 +3,17 @@
 **Status: Accepted**
 **Date drafted:** 2026-07-31
 **Date accepted:** 2026-07-31 — Council
-**Implementation status: Not implemented**
+**Implementation status: ✅ Implemented at H3.8 — `OperationsState` v9, 2026-08-03**
 **Full analysis:** H3.8 Confirmation + Memory Architecture Review, 2026-07-31 · builds on
 [ADR-005](ADR-005-workspace-operations-boundary.md), [ADR-006](ADR-006-decision-vs-operational-event.md),
 [ADR-010](ADR-010-operational-persistence-boundary.md) and [ADR-012](ADR-012-fulfilment-lifecycle-and-proof-recording.md) ·
 [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md) Part 2 row 13 and Part 3 milestone 10
 
-> Accepted by Council on 2026-07-31. **This record is governance, not implementation.** It resolves
-> the architecture required to close a Moment and create its relationship Memory, so that H3.8 can be
-> built without inventing semantics from the unreconciled legacy Memory draft. No code, schema,
-> migration, route, component or validation file is changed by this record.
+> Accepted by Council on 2026-07-31. **This record was governance, not implementation at acceptance.**
+> It resolves the architecture required to close a Moment and create its relationship Memory, so that
+> H3.8 could be built without inventing semantics from the unreconciled legacy Memory draft.
+> Acceptance changed no code, schema, migration, route, component or validation file; **the
+> implementation landed at H3.8 on 2026-08-03** and is recorded at the end of this document.
 
 ## Context
 
@@ -481,28 +482,26 @@ Deliberately out of scope, and **not** to be inferred from anything above:
 
 ## Consequences of later implementation
 
-**Recorded as future consequences, not current facts.** Nothing below is true until a future
-implementation milestone lands.
+**Recorded at acceptance as future consequences.** All of the below is now true: implementation
+landed at H3.8 on 2026-08-03, recorded in full at the end of this document.
 
-- H3 would become **8 of 8**.
-- Milestones would become **26 of 37**.
-- `OperationsState` would become **v9**.
-- Workspace would remain **v7**.
-- ADR-006 would become **fully implemented** for the H3 loop — its registry entry currently reads
-  "Partly… because Moment closure and Memory (H3.8) are not built."
-- **H4.0** would become the next milestone.
-- The H3 exit chain would read: configure → program → moment → brief → item → vendor → courier →
+- H3 is now **8 of 8**.
+- Milestones are now **26 of 37**.
+- `OperationsState` is now **v9**.
+- Workspace remains **v7**.
+- ADR-006 is now **fully implemented** for the H3 loop.
+- **H4.0** is now the next milestone.
+- The H3 exit chain now reads: configure → program → moment → brief → item → vendor → courier →
   order → dispatch → deliver → proof where required → reconcile → **close → timeline**.
 
-**After this governance commit, current truth is unchanged:**
+**At acceptance (2026-07-31), before implementation, truth was:**
 
-- H3 is **7 of 8**.
-- **25 of 37** milestones are complete.
-- `OperationsState` is **v8**.
-- Workspace is **v7**.
-- **H3.8 is governed but unimplemented.**
-- **ADR-014 is Accepted, not Implemented.**
-- **H3.8 remains the next milestone.**
+- H3 was **7 of 8**.
+- **25 of 37** milestones were complete.
+- `OperationsState` was **v8**.
+- Workspace was **v7**.
+- H3.8 was governed but unimplemented.
+- ADR-014 was Accepted, not Implemented.
 
 ## Relationship to earlier decisions
 
@@ -540,8 +539,45 @@ this ADR is the record of what was decided.
 
 ## Acceptance did not implement H3.8
 
-**This record is governance, not implementation.** At acceptance no `Memory` type or collection
-exists, no `Closed` Moment status exists, no `MomentClosed` Event exists, no closure repository
-operation exists, and no recipient-timeline route exists. `OperationsState` is **v8**; Workspace is
-**v7**; the roadmap reads **25 of 37** with H3 at **7 of 8**. **H3.8 remains unimplemented and has not
-begun.**
+**This record was governance, not implementation, at acceptance (2026-07-31).** At acceptance no
+`Memory` type or collection existed, no `Closed` Moment status existed, no `MomentClosed` Event
+existed, no closure repository operation existed, and no recipient-timeline route existed.
+`OperationsState` was **v8**; Workspace was **v7**; the roadmap read **25 of 37** with H3 at **7 of
+8**.
+
+## Implementation record — H3.8, 2026-08-03
+
+> **This section records what was built. It does not amend the decisions above**, every one of which
+> was implemented without variance. `OperationsState` is now **v9** — the additive `memories` rung.
+> Workspace remains **v7**.
+
+| Decision | Where it is held |
+|---|---|
+| `Closed` is the exact fourth status | `MOMENT_STATUSES`; entered only via `commitMomentClosure`, and structural validation refuses a `Closed` Moment without exactly one Memory and one `MomentClosed` Event |
+| Eleven-field Memory | `Memory` in `lib/operations/types.ts`; `FORBIDDEN_MEMORY_FIELDS` refuses the draft's `type`, `summary`, `date`, `createdBy`, occasion, recipient and gift-category fields by name |
+| `outcomeDate` from the `Delivered` Event | Read from the fulfilment's own replayed history, never the closure instant |
+| No Decision on closure | `DECISION_TYPES` unchanged; `MomentClosure`, `MemoryWritten` and `RecipientConfirmation` were never added |
+| One `MomentClosed` Event, six-key payload | `MOMENT_CLOSED_PAYLOAD_KEYS`; enforced at the repository trust boundary and in structural validation |
+| Atomic closure bundle | `lib/operations/closure.ts`'s `verifyClosureWrite()` re-reads and recomputes every prerequisite; the repository writes the Moment, Memory and Event in one storage call |
+| No caller asserts the terminal status | `ClosureWrite` carries only `{ memory, event }` — no `moment` field exists to submit |
+| Nine-field timeline whitelist | `lib/operations/timeline.ts`'s `RecipientTimelineEntry`, built by naming every field; `hasExactTimelineKeys()` proves it at a boundary |
+| `giftCategory` via the order's frozen `itemSelectionDecisionId` | Never via `findLiveItemSelection` |
+| Operations-only interface | `/operations/moments/[id]/close` and `/operations/timeline/[personId]`; no new top-level navigation |
+
+**Closure prerequisites, exactly as decided:** confirmed brief, all three live selection Decisions in
+agreement with the Fulfilment and RecognitionOrder, a Fulfilment that replays to `Delivered`, a
+`Reconciled` RecognitionOrder, and — only when the frozen `proofRequired` promise is `true` — at least
+one recorded `ProofReceived` Event. A pre-H3.7 delivered Fulfilment with no RecognitionOrder is
+refused permanently, by name (`legacy-fulfilment`), never offered a fabricated path to closure.
+
+**Not built, as required:** recipient acknowledgement, the customer-facing timeline route (H4.0),
+QA/adjudication (OPS-U4b), any proof-file mechanism, and Program envelope consumption or any
+financial-ledger concept.
+
+**Validation:** two new suites, `validate:closure` (51 checks) and `validate:timeline` (12 checks) —
+**614 checks across fifteen suites**. Typecheck clean; lint unchanged at 47 problems (26 errors, 21
+warnings); build succeeds with **34 routes** (the two additions this record predicted). **Verified
+live in a browser**: an existing delivered-and-reconciled Moment was closed end to end — the
+confirmation copy, the atomic write, the terminal Memory panel, the disabled cancellation action, the
+`Closed` filter and badge on the moments list, and the resulting entry on `/operations/timeline/p1`
+showing only occasion, planned date, outcome date, outcome and gift category.

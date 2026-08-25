@@ -434,11 +434,12 @@ human judgement that cannot be reconstructed after the parcel has gone. **A Fulf
 before H3.7 keeps its full history and can never receive an invented order** — the surface names that
 limitation rather than offering an action that would fabricate evidence.
 
-### `Memory` — H3.8, re-issued by ADR-014, **governed but not yet implemented**
+### `Memory` — H3.8, re-issued by ADR-014, **implemented**
 
-**[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) governs this object** and
-supersedes Atlas §4's draft in full — `type`, `summary`, ambiguous `date` and generic `createdBy` are
-not implemented. Eleven fields, one per closed Moment, in `OperationsState` only:
+**[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) governs this object, and H3.8
+built it exactly as decided.** It supersedes Atlas §4's draft in full — `type`, `summary`, ambiguous
+`date` and generic `createdBy` were not implemented. Eleven fields, one per closed Moment, in
+`OperationsState` only:
 
 | Field | Note |
 |---|---|
@@ -465,15 +466,15 @@ is a reference, a timestamp, or derived from already-immutable evidence, so ther
 that can be wrong; inventing a correction mechanism for a record no correction can reach would be the
 `Returned` mistake ADR-012 already refused by name.
 
-**Not yet built.** No `Memory` type, no `memories` collection, no `Closed` Moment status, no
-`MomentClosed` Event and no closure repository operation exist in code. `OperationsState` stays **v8**
-until a future implementation lands the additive **v9** rung.
+**Built.** The `Memory` type, the `memories` collection, the `Closed` Moment status, the
+`MomentClosed` Event and `commitMomentClosure` all exist in code. `OperationsState` moved to the
+additive **v9** rung at H3.8.
 
-### Accepted, not implemented
+### Accepted, implemented
 
 | Object | Milestone | Authority |
 |--------|-----------|-----------|
-| ~~**Memory** — append-only relationship timeline entry~~ | H3.8 | ✅ **Re-issued above by [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md).** Governed, not implemented |
+| ~~**Memory** — append-only relationship timeline entry~~ | H3.8 | ✅ **Re-issued above by [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) and implemented as decided.** |
 
 ### ⚠️ Draft, not specification
 
@@ -490,7 +491,7 @@ reviews and re-issues its field list:
 |---|---|
 | ~~`Gift / Item`~~ | ✅ **H3.3 — re-issued above.** Atlas §4's field list is superseded |
 | ~~`Fulfilment`~~ | ✅ **ADR-012 re-issued it and H3.6 implemented it** — three states, no `Returned`, no `proofUrl`, proof as metadata only |
-| ~~`Memory`~~ | ✅ **ADR-014 re-issued it above (2026-07-31).** Governed and superseded; **H3.8 implementation has not begun** |
+| ~~`Memory`~~ | ✅ **ADR-014 re-issued it above (2026-07-31), and H3.8 implemented it (2026-08-03)** |
 | `Insight` | H4.5 |
 
 The `Gift / Item` case is the warning made concrete: its Atlas draft carried `vendorId`, `intent`,
@@ -636,7 +637,7 @@ Full table: checkpoint Part 2. Milestone identifiers: [`MASTER_ROADMAP.md`](MAST
 | Delivery confirmed | Fulfilment | **none** | `Delivered`, `ProofReceived` *(metadata only)* | H3.6 ✅ |
 | Order committed | RecognitionOrder | **`RecognitionOrderCommitment`** | **`RecognitionOrderCommitted`** | H3.7 ✅ |
 | Costs reconciled | RecognitionOrder | **`CostReconciliation`** | **none** — bookkeeping after execution | H3.7 ✅ |
-| Moment closed | Moment (`Closed`), Memory | **none** — no judgement between alternatives | `MomentClosed` | H3.8 — [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) governed, **not begun** |
+| Moment closed | Moment (`Closed`), Memory | **none** — no judgement between alternatives | `MomentClosed` | H3.8 ✅ — [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) |
 
 **Decision and Event names beyond H3.1 are the checkpoint's proposals, not implemented enums, except
 where an accepted ADR has fixed one.** ADR-012 fixed the fulfilment names; ADR-013 fixed the
@@ -658,7 +659,7 @@ The terminal Moment status is **`Closed`**, a declared departure from the checkp
 | Fulfilment tracked | Status only |
 | Delivery confirmed | Confirmation + curated proof — ⚠️ **future architecture.** The metadata-only H3.6 prototype delivers the confirmation and **not** the proof file ([ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md)) |
 | Cost recorded | **Their charge only** — never cost or margin |
-| Moment closed | Timeline entry — ⚠️ **not built.** ADR-014 governs a nine-field exact-key whitelist projection (occasion, dates, outcome, recipient name, gift category), rendered **inside Operations only**. The customer-facing route is **H4.0's**, not H3.8's |
+| Moment closed | Timeline entry — a nine-field exact-key whitelist projection (occasion, dates, outcome, recipient name, gift category), built at H3.8 and rendered **inside Operations only**. The customer-facing route is **H4.0's**, not H3.8's |
 
 ### Steps 7–9 need a human, not intelligence
 
@@ -818,8 +819,8 @@ collision was live in the roadmap, this Atlas, the Recovery Ledger and `CLAUDE.m
 Until one of those is true there is **no second party with whom to adjudicate a dispute**. Building
 the taxonomy now would encode an unmade decision about a conversation that cannot yet happen.
 
-**[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) does not trip this trigger.** The
-governed H3.8 timeline projection excludes proof metadata entirely and stays inside Operations —
+**[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) did not trip this trigger.** The
+built H3.8 timeline projection excludes proof metadata entirely and stays inside Operations —
 neither a customer-facing delivery/proof/exception view nor a customer-visible audit trail. **OPS-U4b
 remains deferred**, and becomes blocking at **H4.0** as already stated at trigger 4.
 
@@ -860,7 +861,8 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 
 ---
 
-*Relationship Operations Atlas v2.3 — Aniyé Africa — 31 July 2026*
+*Relationship Operations Atlas v2.4 — Aniyé Africa — 3 August 2026*
+*v2.4: **H3.8 — Moment closure and Memory implemented; [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) is built as accepted.** Persistence is now `OperationsState` **v9** (additive `memories`; invents no Memory for any Moment and closes none). Workspace stays **v7**. §3's `Memory` moves out of *accepted, not implemented* into **implemented** — the re-issued eleven-field definition is now what the repository holds, and `type`, `summary`, the ambiguous single `date` and generic `createdBy` were not built. §6's final loop row now marks Moment closure ✅ — `Closed` is the terminal status, entered only from `ReadyForExecution` and irreversible, and closure writes **no Decision**, one `MomentClosed` Event with an exact six-key payload. The *what the customer sees* table's final row now records the nine-field exact-key whitelist timeline projection as **built**, rendered inside Operations only — the customer-facing route stays H4.0's. §9 confirms ADR-014's H3.8 scope **did not trip the OPS-U4b trigger**; OPS-U4b remains deferred to H4.0. **Recipient acknowledgement remains unsupported and excluded**, not architecturally impossible. Closure requires a confirmed brief, three agreeing selection Decisions, a Fulfilment that replays to `Delivered`, a `Reconciled` RecognitionOrder, and recorded proof when the frozen policy promised it; a pre-H3.7 delivered Fulfilment with no RecognitionOrder is refused permanently. New suites `validate:closure` (51) and `validate:timeline` (12); 614 checks across fifteen suites; build 34 routes. **Verified live in a browser.** **H3 is complete at 8 of 8; H4.0 is next.***
 *v2.3: **H3.7 → H3.8 confirmation-and-memory governance closure — documentation only; no code, schema, migration, validation, route or UI changed.** [ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) is **accepted and not implemented**. §3's `Memory` moves out of *accepted, not implemented* and out of *draft, not specification* into a re-issued eleven-field definition, superseding the Atlas §4 draft in full; the old draft is preserved as historical material and marked superseded rather than rewritten. Domain ownership is explicit: the **Relationship Engine** owns the Moment's current state, **Knowledge** owns Memory and `MomentClosed`, **Operations only orchestrates** the atomic write, and `OperationsState` is the shared prototype envelope rather than a domain boundary. §6's final loop row now names the canonical **`Closed`** terminal status (a declared departure from the checkpoint's `Fulfilled`) and records that closure writes **no Decision** — ADR-006's own judgement test, already applied by ADR-012 to dispatch and delivery, applies the same way to closure. The *what the customer sees* table's final row records that the timeline projection is **not built**: a nine-field exact-key whitelist, rendered inside Operations only, with the customer-facing route left to H4.0. §9 records that ADR-014's H3.8 scope **does not trip the OPS-U4b trigger** — no proof metadata, no customer-facing view — so OPS-U4b remains deferred to H4.0. **Recipient acknowledgement is unsupported and excluded, not architecturally impossible.** The later implementation adds `OperationsState` **v8 → v9** (additive `memories: []`, no backfill); this governance commit performs none of it — `OperationsState` stays **v8**, Workspace stays **v7**. **H3.8 has not begun.***
 *v2.2: **H3.7 — Recognition Order and commercial tracking implemented; [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md) is built as accepted.** Persistence is now `OperationsState` **v8** (additive `recognitionOrders`; invents no order for any Moment or already-dispatched Fulfilment); Workspace stays **v7**. §3 gains the built nineteen-field `RecognitionOrder` and moves it out of *accepted, not implemented*. §2 Money records the financial model as implemented rather than accepted. §6 gains two rows: **order committed** (`RecognitionOrderCommitment` + `RecognitionOrderCommitted`) and **costs reconciled** (`CostReconciliation`, **no Event** — it records amounts after execution finished and changes nothing about the Moment's execution). One order per Moment, `Committed` → `Reconciled`, **no draft and no cancellation**; `commercialRole` immutable and only ever `MerchantOfRecord`; **every amount NGN**, refused rather than converted; **the customer quotation is typed by an operator and never prefilled or derived**; **`grossMargin` derived on read and never stored**. **A committed order is required before a new initial dispatch**, and legacy Fulfilments keep their history and are never backfilled. **OPS-U4b remains deferred.** H3.8 has not begun.*
 *v2.1: **H3.6 → H3.7 commercial governance closure — documentation only; no code, schema, migration, validation, route or UI changed.** §9 records **OPS-U3 as resolved** by [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md): `commercialRole = MerchantOfRecord`, accepted as the **platform and pilot posture rather than a legal opinion**, with Nigerian legal, tax and accounting confirmation required before any external pilot and a **new governance decision** required if an Agent model is later needed. §2 Money records the accepted pilot financial model — **NGN-only orders**, FX excluded from H3.7, **`estimatedCustomerCharge` as a manual per-order quotation** with no formula or pricing engine, `estimatedVendorCost` from the confirmed `VendorSelection` quote superseding ADR-007's `estimatedItemCost`, an immutable per-order `commercialRole` snapshot, and the earlier revenue proposals deferred and non-authoritative. **OPS-U4b remains deferred.** The implemented-state footer, which stopped at H3.5, now records **H3.6** and states that everything from the RecognitionOrder onward is accepted architecture only. **H3.7 has not begun**; `OperationsState` remains **v7** and Workspace remains **v7**.*
@@ -875,5 +877,5 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 *v1.2: H3.2 — the Execution Brief moves from accepted to **implemented**. §3 gains its definition, the address gate, override and revision rules; §6 marks the brief step done; Decision and Event type lists extended; persistence restated as Workspace v7 / OperationsState v2.*
 *v1.1: Council corrections. §3 gains an explicit "draft, not specification" treatment for `Gift / Item`, `Fulfilment`, `Memory` and `Insight`, each named with the milestone that must re-issue its field list. §8 **withdraws the claim that the ADR-010 gate binds from H3.4** — no governing document establishes it; the gate binds at the pilot (H4.1) and at any grant of external access. §9 gains a dependency classification on every unresolved item, and records that **none blocks H3.2**. H4/H5 milestone references renumbered.*
 *v1.0: Reconstructed in R6 from repository-confirmed architecture, accepted ADRs and the H2 → H3 Architecture Checkpoint. Nothing written from memory; unrecoverable rules are listed in §9 as unresolved.*
-*Basis: Workspace schema v7, `OperationsState` v8, System Atlas v3.14, ADR-001 … ADR-014.*
-*Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection · H3.4 vendor directory, offers and selection · H3.5 courier directory and selection · H3.6 fulfilment lifecycle · H3.7 Recognition Order and commercial tracking. Moment closure and Memory are **governed by ADR-014, accepted 2026-07-31**, and remain unimplemented — **H3.8 has not begun**.*
+*Basis: Workspace schema v7, `OperationsState` v9, System Atlas v3.16, ADR-001 … ADR-014.*
+*Implemented state: H3.1 Moment generation · H3.2 Execution Brief · H3.3 minimum catalog and item selection · H3.4 vendor directory, offers and selection · H3.5 courier directory and selection · H3.6 fulfilment lifecycle · H3.7 Recognition Order and commercial tracking · H3.8 Moment closure and Memory. **[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) is implemented as accepted. H3 is complete at 8 of 8.***

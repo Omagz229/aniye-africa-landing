@@ -1323,14 +1323,16 @@ check('46. H3.6 declares exactly three statuses, one decision type and four even
   for (const e of ['Dispatched', 'DeliveryFailed', 'Delivered', 'ProofReceived']) {
     assert((EVENT_TYPES as readonly string[]).includes(e), `${e} is not a declared event type.`);
   }
-  for (const e of ['Returned', 'Escalation', 'QAException', 'MomentClosed', 'TrackingUpdated']) {
+  // `MomentClosed` left this list at H3.8, the milestone that produces it.
+  for (const e of ['Returned', 'Escalation', 'QAException', 'TrackingUpdated']) {
     assert(!(EVENT_TYPES as readonly string[]).includes(e), `${e} belongs to a later milestone or was refused by ADR-012.`);
   }
 });
 
 check('47. `MOMENT_STATUSES` is unchanged — fulfilment state belongs to the fulfilment', () => {
-  assertEqual(MOMENT_STATUSES.length, 3, 'MOMENT_STATUSES changed length.');
-  for (const s of ['NeedsReview', 'ReadyForExecution', 'Cancelled']) {
+  // `Closed` left this count at H3.8 — a Fulfilment's own status stays separate.
+  assertEqual(MOMENT_STATUSES.length, 4, 'MOMENT_STATUSES changed length.');
+  for (const s of ['NeedsReview', 'ReadyForExecution', 'Cancelled', 'Closed']) {
     assert((MOMENT_STATUSES as readonly string[]).includes(s), `${s} is missing.`);
   }
   for (const s of ['Dispatched', 'DeliveryFailed', 'Delivered', 'Fulfilled']) {

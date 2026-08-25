@@ -13,6 +13,7 @@ import type {
   Decision,
   ExecutionBrief,
   Fulfilment,
+  Memory,
   Moment,
   MomentStatus,
   OperationalEvent,
@@ -128,6 +129,21 @@ export interface OrderCommitmentWrite {
  */
 export interface ReconciliationWrite {
   decision: Decision;
+}
+
+/**
+ * What one confirmed closure writes, atomically (H3.8).
+ *
+ * **The Moment's new status is deliberately absent here.** It is the only
+ * transition the implementation ever recomputes rather than accepts, exactly
+ * as Fulfilment status and RecognitionOrder actuals already are — no caller
+ * may assert `Closed` directly (ADR-014 §10). Only the Memory and its Event
+ * arrive from the caller, and both are verified against re-read state before
+ * anything is written.
+ */
+export interface ClosureWrite {
+  memory: Memory;
+  event: OperationalEvent;
 }
 
 export interface OperationsRepository {
@@ -457,6 +473,34 @@ export interface OperationsRepository {
     write: ReconciliationWrite,
     now: string,
   ): StoreResult<RecognitionOrder>;
+
+  // ── Moment closure and Memory (H3.8) ──
+  //
+  // One named transition. Deliberately **not** `updateMomentStatus(..., 'Closed')`
+  // — that generic setter already exists for `Cancelled`, and reusing it here
+  // would let a caller assert the terminal status directly, which ADR-014 §10
+  // forbids. This operation re-reads state, recomputes every prerequisite,
+  // validates the full proposed state, and performs **one** write across the
+  // Moment, the Memory and the Event together.
+
+  listMemories(workspaceId: string): StoreResult<Memory[]>;
+
+  /** The one Memory for a Moment, or null. Never more than one. */
+  findMemoryForMoment(workspaceId: string, momentId: string): StoreResult<Memory | null>;
+
+  /**
+   * Confirm closure — **the only operation that creates a Memory or moves a
+   * Moment to `Closed`.**
+   *
+   * Refuses, with a named recovery and zero writes, unless the Moment is
+   * `ReadyForExecution` in this workspace with no Memory or closure Event
+   * already, its live confirmed brief and all three live selection Decisions
+   * exist and agree with each other and with its Fulfilment and
+   * RecognitionOrder, the Fulfilment replays to `Delivered`, the
+   * RecognitionOrder is `Reconciled`, and — when the frozen brief promised
+   * proof — at least one `ProofReceived` Event exists.
+   */
+  commitMomentClosure(workspaceId: string, write: ClosureWrite, now: string): StoreResult<Moment>;
 
   /** Structural check of the stored state, without modifying it. */
   validate(workspaceId: string): StoreResult<true>;
