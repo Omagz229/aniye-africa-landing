@@ -43,3 +43,10 @@ The lost pattern of recording `GiftSelection` and `GiftSubstitution` the moment 
 
 - Two new objects in the **Knowledge** domain (Atlas §3), not the Relationship Engine.
 - Both are operational records that belong in a backend, not the client-side workspace document.
+
+> ✅ **[ADR-016](ADR-016-recurring-and-triggered-program-generation.md) (accepted 2026-08-19) extends
+> the Operational Event model** into a discriminated union — a Moment-scoped variant (today's exact
+> shape) and a new Program-scoped `ProgramGenerationRun` variant, which carries `programId` instead
+> of a fabricated `momentId`. The append-only, never-edited guarantee this ADR establishes is
+> unchanged for both variants; only the concrete shape gains a second case. **Governed, not yet
+> implemented** — `OperationalEvent` in code still has one shape, with `momentId` required.

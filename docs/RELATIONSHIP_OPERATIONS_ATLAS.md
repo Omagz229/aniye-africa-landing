@@ -661,6 +661,12 @@ The terminal Moment status is **`Closed`**, a declared departure from the checkp
 | Cost recorded | **Their charge only** — never cost or margin |
 | Moment closed | Timeline entry — a nine-field exact-key whitelist projection (occasion, dates, outcome, recipient name, gift category), built at H3.8 and rendered **inside Operations only**. The customer-facing route is **H4.0's**, not H3.8's |
 
+> ✅ **[ADR-017](adr/ADR-017-customer-facing-moment-visibility-and-exception-handling.md) (accepted
+> 2026-08-19) now governs every row of this table** — it builds exactly this exposure, read-only and
+> `CustomerAdministrator`-scoped, reusing the nine-field timeline unchanged. The "future architecture"
+> and "H4.0's" notes above remain accurate: **this table is governed, not yet implemented** — no row
+> is rendered in Workspace yet.
+
 ### Steps 7–9 need a human, not intelligence
 
 > **The most important line in the checkpoint:** item, vendor and courier selection need *an
@@ -705,6 +711,16 @@ a lower standard.)*
 feature code — it is the current state, and any proposal assuming a role or permission check is
 blocked (ADR-010, Atlas §15b).
 
+> ✅ **[ADR-015](adr/ADR-015-production-persistence-authentication-and-tenant-isolation.md)
+> (accepted 2026-08-18) now governs authentication for both customer administrators and internal
+> operators**, narrowing this rule: a proposal may now assume authenticated administrators and
+> operators, each a **fixed access type — `CustomerAdministrator`, `InternalOperator` — with no
+> granular role or permission model** below it (OPS-U1 remains open, deferred to H5.1). **This
+> is architecture, not code.** ADR-015 is **Accepted · Not implemented** — the sentence above
+> ("anyone who can reach the app can reach `/operations`") remains operationally true until a
+> server adapter, authenticated session and enforced tenant check actually exist; nothing in the
+> running application changes until then.
+
 ### The local adapter is an internal prototype
 
 | Property | Today | Required for pilot |
@@ -726,6 +742,14 @@ organization's history — and preserved rather than overwritten.
 2. **Authentication** for both customer administrators and internal operators.
 3. **Multi-tenancy** with enforced isolation.
 4. **Secure file storage**, before proof of delivery exists.
+
+> ✅ **Rows 1–3 are now governed by [ADR-015](adr/ADR-015-production-persistence-authentication-and-tenant-isolation.md)
+> (accepted 2026-08-18, Accepted · Not implemented)** — an accepted architecture exists for
+> production persistence, authentication and enforced tenant isolation. **All three remain
+> operationally open** until implementation lands and is validated against ADR-015's own invariants
+> (its Decision §2 two-synthetic-workspace denial proof, in particular). **Row 4, secure file
+> storage, is untouched by ADR-015 and remains fully open** — ADR-015 explicitly declines to govern
+> it (ADR-015 Decision §4).
 
 > **No vendor, courier, recipient or additional internal user may be given access while Operations
 > runs on browser storage.** Each implies a second party reading or writing operational records, and
@@ -798,9 +822,9 @@ collision was live in the roadmap, this Atlas, the Recovery Ledger and `CLAUDE.m
 | **OPS-U2** | **Operational SLAs** — lead times, escalation thresholds, how late a brief may sit | ⚪ | No evidence anywhere. Checkpoint milestone 4 defers the brief's non-address constraints entirely, and its completion test names only address completeness. A brief renders without an SLA |
 | **OPS-U3** | **Aniyé's commercial role** — merchant of record or agent | ✅ **Resolved** — [ADR-013](adr/ADR-013-commercial-role-pilot-currency-and-recognition-order.md), 2026-07-30 | **`MerchantOfRecord`**: Aniyé contracts with the corporate customer for the complete managed outcome and procures vendor and courier fulfilment as its own cost. This is the **platform and pilot posture, not a legal opinion** — Nigerian legal, tax and accounting confirmation is required before any external pilot, and an Agent model would need a **new governance decision**, never a silent relabelling of existing orders |
 | **OPS-U4a** | **Fulfilment lifecycle and proof recording** — states, whether failure is Event-only, how redelivery is recorded, whether proof files may be stored | ✅ **Resolved and implemented** — [ADR-012](adr/ADR-012-fulfilment-lifecycle-and-proof-recording.md), 2026-07-30; built at **H3.6** | Three states, one Fulfilment per Moment, no persisted draft, `Redelivery` the only Decision, proof recorded as **metadata only** |
-| **OPS-U4b** | **QA and adjudication taxonomy** — what constitutes a QA exception, who adjudicates, how disputes are resolved, what the customer is told | 🟠 **Deferred — see the trigger below** | Still no taxonomy. **H3.6 introduced neither `QAException` nor a dispute path**, as required. The present single-operator internal prototype has **no second party with whom to adjudicate a dispute** |
+| **OPS-U4b** | **QA and adjudication taxonomy** — what constitutes a QA exception, who adjudicates, how disputes are resolved, what the customer is told | ✅ **Resolved, narrowly** — [ADR-017](adr/ADR-017-customer-facing-moment-visibility-and-exception-handling.md), accepted 2026-08-19 | **No `QAException`, dispute object, or in-app exception flow is built.** What the customer is told is exactly ADR-017's read-only field list (status words, category, charge, the nine-field timeline); disputes stay off-platform and operator-mediated through ADR-005's existing propose-to-Workspace path. **Governed, not yet implemented** |
 | **OPS-U5** | **Vendor and courier onboarding** — qualification, contracting, performance thresholds, offboarding | 🟠 **H4.1** | H3.4/H3.5 build *directories* an operator types into, which needs no onboarding process. Onboarding becomes real when partners are engaged for the pilot |
-| **OPS-U6** | **Recurring and Triggered generation semantics** — cadence, de-duplication window, cycle component of the `sourceKey` | 🟠 **H4.0** | ADR-004 accepts all three modes; **only Campaign is implemented**, and Campaign closes the loop on its own. The checkpoint proposes 14 days' lead time de-duplicated per person per occasion per year as a *default*, not a decision |
+| **OPS-U6** | **Recurring and Triggered generation semantics** — cadence, de-duplication window, cycle component of the `sourceKey` | ✅ **Resolved** — [ADR-016](adr/ADR-016-recurring-and-triggered-program-generation.md), accepted 2026-08-19 | Daily organization-local cadence, separate from the 14-day lead time; `CalendarYear`/`ProgramLifetime` de-duplication scope; a cycle-year component added to `recurringSourceKey`. **Governed, not yet implemented** — Campaign remains the only built mode |
 | **OPS-U7** | **Correction proposals crossing the boundary** — the object an operator raises and an administrator accepts | ⚪ | ADR-005 requires Operations to *propose* rather than write. **ADR-011 settles the address case by avoiding the crossing entirely** — the operator overrides one brief and never writes back — so H3.2 needs no general mechanism. It becomes necessary the first time a correction must actually reach configuration |
 | **OPS-U8** | **Read-only customer-workspace access by internal users** | ⚪ | ADR-005 permits it and requires it to emit an Operational Event visible in the customer's own audit trail. **Neither the view nor a customer-facing audit trail exists**, and no milestone currently requires either |
 | **OPS-U9** | **Pricing and customer charge derivation** — how `estimatedCustomerCharge` is computed | 🟠 **H3.7** | ADR-007 lists the fields and defers the arithmetic. Depends on U3 |
@@ -821,8 +845,14 @@ the taxonomy now would encode an unmade decision about a conversation that canno
 
 **[ADR-014](adr/ADR-014-moment-closure-memory-and-safe-timeline.md) did not trip this trigger.** The
 built H3.8 timeline projection excludes proof metadata entirely and stays inside Operations —
-neither a customer-facing delivery/proof/exception view nor a customer-visible audit trail. **OPS-U4b
-remains deferred**, and becomes blocking at **H4.0** as already stated at trigger 4.
+neither a customer-facing delivery/proof/exception view nor a customer-visible audit trail.
+
+> ✅ **[ADR-017](adr/ADR-017-customer-facing-moment-visibility-and-exception-handling.md) (accepted
+> 2026-08-19) is the ADR that trips trigger 4** — it builds customer-facing Moment visibility, and
+> resolves OPS-U4b narrowly at the same time rather than tripping the trigger and leaving it deferred
+> again. Triggers 1, 2, 3 and 5 are unaffected and remain live: any of them would independently
+> reopen this question regardless of ADR-017's narrow scope. **Governed, not yet implemented** — the
+> trigger is architecturally answered; nothing customer-facing exists in the running application yet.
 
 ### 🔴 Nothing in this register blocks H3.2
 
@@ -856,8 +886,15 @@ A checklist. Each line is enforced by an accepted ADR, and each has a specific f
 13. **Moment statuses stop at generation.** No speculative fulfilment stages. *(Atlas §15e)*
 14. **Address readiness is not a Moment status.** It is a property of the brief. *(ADR-011)*
 15. **An operator address override never writes back to `Person`.** *(ADR-011)*
-16. **No external party gets access while Operations runs on browser storage.** *(ADR-010)*
-17. **Assume no authentication and no roles.** Any proposal that assumes otherwise is blocked. *(ADR-010)*
+16. **No external party gets access while Operations runs on browser storage.** *(ADR-010)* — the
+    server persistence [ADR-015](adr/ADR-015-production-persistence-authentication-and-tenant-isolation.md)
+    governs will eventually change the premise; the rule's *intent* (no vendor, courier or recipient
+    access) is unaffected and does not lift until that implementation lands.
+17. **Assume authenticated administrators and operators, each within one fixed access type and no
+    finer role or permission distinction below it.** *(ADR-010, narrowed by
+    [ADR-015](adr/ADR-015-production-persistence-authentication-and-tenant-isolation.md), accepted
+    2026-08-18)* — not "assume full authorization is solved"; OPS-U1's granular role model remains
+    unresolved and blocked to H5.1.
 
 ---
 

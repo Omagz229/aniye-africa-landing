@@ -49,6 +49,14 @@ H3.1 introduces a different kind of record. Moments, Decisions and Operational E
 3. **Multi-tenancy** with enforced isolation, since operators work across organizations.
 4. **Secure file storage**, before proof of delivery exists.
 
+> ✅ **[ADR-015](ADR-015-production-persistence-authentication-and-tenant-isolation.md) (accepted
+> 2026-08-18, Accepted · Not implemented) now governs gates 1–3** — an accepted architecture exists
+> for production persistence, authentication (both customer administrators and internal operators,
+> as a fixed access type with no granular role model — OPS-U1 unresolved), and enforced tenant
+> isolation. **All three remain operationally open** until ADR-015 is implemented and validated
+> against its own invariants; this table is not satisfied by acceptance alone. **Gate 4, secure file
+> storage, is untouched by ADR-015 and remains fully open**, unaffected either way.
+
 **Until Operations uses browser-only persistence, no vendor, courier, recipient or additional internal user may be given access.** Every one of those actors implies a second party reading or writing operational records, and the local adapter has no mechanism to authenticate them, isolate them, or prevent them from rewriting the audit trail. A prototype that one internal operator uses on one machine is defensible; the same prototype shared with a courier is not.
 
 ## Consequences

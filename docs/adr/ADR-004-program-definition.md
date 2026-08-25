@@ -1,11 +1,22 @@
 # ADR-004 — Program is an operational commitment, not a policy container
 
-**Status: Accepted**
+**Status: Accepted · Partly amended by ADR-016**
 **Date drafted:** 2026-07-27
 **Date accepted:** 2026-07-27 — Council
 **Full analysis:** [H2 → H3 Architecture Checkpoint](../H2_H3_ARCHITECTURE_CHECKPOINT.md#decision-a--what-a-program-is)
 
 > Accepted by Council on 2026-07-27, subject to the conditions recorded below.
+
+> ✅ **[ADR-016](ADR-016-recurring-and-triggered-program-generation.md) (accepted 2026-08-19)
+> explicitly, partially amends the status vocabulary below**, building Recurring and Triggered
+> generation: `Cancelled` is struck, `Archived` is confirmed as the terminal, non-resumable stop
+> already shipped in code, and `Paused` is added as a distinct, resumable status. `Completed` is
+> preserved in the vocabulary with no automatic transition built by either ADR. This amendment is
+> **governed, not yet implemented** — the shipped schema (`SCHEMA_V6_PROGRAM_STATUSES`) still reads
+> `Draft / Active / Completed / Archived` until ADR-016's own migration lands. Nothing else in this
+> ADR is amended: Recurring and Triggered still take a defined population and occasion, still
+> reference relationship groups rather than a pinned policy, and Campaign's existing behavior is
+> untouched.
 
 ## Council conditions on acceptance
 
