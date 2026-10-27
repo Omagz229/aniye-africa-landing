@@ -7,11 +7,7 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-interface Props {
-  searchParams: Promise<{ d?: string }>;
-}
-
-export default async function VerifyPage({ searchParams }: Props) {
-  const params = await searchParams;
-  return <VerifyGate encoded={params.d} />;
+// PRIV-001: no searchParams. VerifyGate reads the assessment saved on this device.
+export default function VerifyPage() {
+  return <VerifyGate />;
 }

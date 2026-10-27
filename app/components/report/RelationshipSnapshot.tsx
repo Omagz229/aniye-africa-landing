@@ -3,14 +3,14 @@ import type { AssessmentData } from "@/lib/assessment";
 import { computeScore, getMaturityLevel, generateExecutiveInsight, generate90DayPlan } from "@/lib/scoring";
 import { WHATSAPP_ASSESSMENT_URL } from "@/lib/constants";
 
-interface Props { data: AssessmentData; encoded?: string; }
+interface Props { data: AssessmentData; canVerify?: boolean; }
 
 function parseCountries(raw: string): string[] {
   if (!raw.trim()) return [];
   return raw.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
 }
 
-export default function RelationshipSnapshot({ data, encoded }: Props) {
+export default function RelationshipSnapshot({ data, canVerify }: Props) {
   const score = computeScore(data);
   const maturity = getMaturityLevel(score);
   const insight = generateExecutiveInsight(data);
@@ -157,8 +157,8 @@ export default function RelationshipSnapshot({ data, encoded }: Props) {
             Your Relationship Snapshot is the starting point. Set up your workspace to turn insight into execution.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            {encoded ? (
-              <a href={`/verify?d=${encoded}`}
+            {canVerify ? (
+              <a href="/verify"
                 className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-gold text-ink font-semibold text-base px-8 py-4 transition-all hover:brightness-105 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
                 Set Up Your Workspace
               </a>

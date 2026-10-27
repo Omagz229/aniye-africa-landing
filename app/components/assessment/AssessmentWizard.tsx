@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AssessmentData } from "@/lib/assessment";
 import { EMPTY_ASSESSMENT } from "@/lib/assessment";
+import { writeLastSubmission } from "@/lib/assessment-submission";
 import StepOrganization from "./steps/StepOrganization";
 import StepContact from "./steps/StepContact";
 import StepScope from "./steps/StepScope";
@@ -29,18 +30,10 @@ export default function AssessmentWizard() {
   function back() { setStep((s) => Math.max(s - 1, 0)); }
 
   function submit() {
-    console.log("[Aniyé Assessment Submission]", data);
-    try {
-      localStorage.setItem(
-        "aniye_last_submission",
-        JSON.stringify({ ...data, submittedAt: new Date().toISOString() })
-      );
-    } catch {
-      // localStorage unavailable in some environments
-    }
-    // TODO: POST to process.env.NEXT_PUBLIC_SUBMISSION_WEBHOOK_URL (Airtable / Sheets / Notion)
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-    router.push(`/report?d=${encoded}`);
+    // PRIV-001: the answers stay on this device and never travel in a URL.
+    // Nothing is sent to Aniyé — secure intake is a separate, unbuilt decision.
+    writeLastSubmission(data, new Date().toISOString());
+    router.push("/report");
   }
 
   const stepProps = { data, update, onNext: next, onBack: back };

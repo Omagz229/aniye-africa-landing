@@ -45,7 +45,7 @@ export default function StepReview({ data, onBack, onSubmit }: Props) {
         <ReviewRow label="Biggest challenges" value={data.biggestChallenges.join(", ")} />
       </div>
       <p className="font-body text-sm text-stone text-center">
-        Your Relationship Snapshot will be ready immediately after submission.
+        Your Relationship Snapshot will be ready immediately. Your answers are saved only on this device and are not sent to Aniy&eacute;.
       </p>
       <div className="flex gap-3 pt-2">
         <button onClick={onBack} className="flex-1 rounded-full border border-stone/30 text-ink font-semibold text-base px-8 py-4 transition-all hover:border-stone/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone focus-visible:ring-offset-2">Back</button>
